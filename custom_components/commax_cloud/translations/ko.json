@@ -1,0 +1,47 @@
+{
+  "title": "COMMAX Cloud",
+  "config": {
+    "step": {
+      "user": {
+        "title": "코맥스 클라우드 연결",
+        "description": "COMMAX IP Home IoT 계정을 입력하세요. 갱신 토큰 만료 시 자동 로그인할 수 있도록 계정 정보를 HA에 저장합니다.",
+        "data": {
+          "username": "코맥스 ID",
+          "password": "비밀번호"
+        }
+      },
+      "reauth_confirm": {
+        "title": "코맥스 계정 재인증",
+        "description": "토큰 갱신과 자동 로그인에 실패했습니다. 기존과 같은 계정의 로그인 정보를 입력하세요.",
+        "data": {
+          "username": "코맥스 ID",
+          "password": "비밀번호"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "ID 또는 비밀번호가 거부되었습니다.",
+      "cannot_connect": "코맥스 서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.",
+      "invalid_response": "코맥스 서버의 응답 형식을 확인해야 합니다.",
+      "no_lights": "지원하는 켜기·끄기 조명을 찾지 못했습니다.",
+      "wrong_account": "이 통합에 등록한 것과 같은 코맥스 계정으로 로그인하세요."
+    },
+    "abort": {
+      "already_configured": "이미 등록한 계정입니다.",
+      "reauth_successful": "계정 정보를 갱신했습니다."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "조명 상태 조회",
+        "data": {
+          "scan_interval": "조회 간격(초)"
+        }
+      }
+    },
+    "error": {
+      "invalid_interval": "15~300초 사이의 값을 입력하세요."
+    }
+  }
+}
