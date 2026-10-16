@@ -1,0 +1,4 @@
+import { state,action } from '../../../lib/server';
+export const dynamic='force-dynamic';
+export async function GET(){try{return Response.json(await state(),{headers:{'Cache-Control':'no-store'}});}catch(e){return Response.json({error:(e as Error).message},{status:403,headers:{'Cache-Control':'no-store'}});}}
+export async function POST(request:Request){const origin=request.headers.get('origin');if(!origin||origin!==new URL(request.url).origin)return Response.json({error:'허용되지 않은 요청입니다.'},{status:403});if(!request.headers.get('content-type')?.includes('application/json'))return Response.json({error:'JSON 요청이 필요합니다.'},{status:415});const text=await request.text();if(text.length>150000)return Response.json({error:'요청이 너무 큽니다.'},{status:413});try{return Response.json(await action(JSON.parse(text)),{headers:{'Cache-Control':'no-store'}});}catch(e){return Response.json({error:(e as Error).message},{status:400,headers:{'Cache-Control':'no-store'}});}}
