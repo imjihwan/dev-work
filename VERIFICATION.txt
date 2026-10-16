@@ -1,0 +1,13 @@
+COMMAX Cloud 0.1.0 verification
+
+Environment: Home Assistant Core 2026.10.1, CPython 3.14.3, aiohttp 3.14.4.
+24 automated tests: protocol/authentication + real HA config-flow, entity services, reauthentication, options, token timer and unload.
+The tests use a synthetic local HTTP service, never the user's home.
+Real server check: refresh succeeded, lifetime 259200 seconds, 8 writable binary light channels discovered. Rotated credentials saved back to the local probe session. No device commands issued during the live integration check.
+Actual bedroom on/off was verified earlier with the separate protocol probe.
+Password-based automatic re-login after a rejected refresh token was tested against the synthetic service, not by expiring a real refresh token.
+HA lifecycle tests use the actual Core classes, loader, config-entry manager and light services; local HTTP session is substituted to isolate network discovery.
+Ruff check and format check passed.
+One upstream HA aiohttp application inheritance DeprecationWarning during tests.
+The user's production HA installation has not been modified.
+Default HA certificate verification is retained in the shipped integration. Local corporate-network TLS accommodations used for live testing are not shipped.
