@@ -1,0 +1,47 @@
+{
+  "title": "COMMAX Cloud",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect COMMAX Cloud",
+        "description": "Enter your COMMAX IP Home IoT account. Credentials are stored locally for automatic login when the refresh token expires.",
+        "data": {
+          "username": "COMMAX ID",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in to COMMAX again",
+        "description": "Automatic token renewal and login failed. Update the credentials for the same account.",
+        "data": {
+          "username": "COMMAX ID",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "The account credentials were rejected.",
+      "cannot_connect": "Unable to reach COMMAX. Try again later.",
+      "invalid_response": "COMMAX returned an unsupported response.",
+      "no_lights": "No supported on/off lights were found.",
+      "wrong_account": "Use the same COMMAX account as this integration."
+    },
+    "abort": {
+      "already_configured": "This account is already configured.",
+      "reauth_successful": "Account credentials updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Light status polling",
+        "data": {
+          "scan_interval": "Polling interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "invalid_interval": "Enter a value from 15 to 300 seconds."
+    }
+  }
+}

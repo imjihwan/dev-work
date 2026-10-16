@@ -1,0 +1,10 @@
+{
+  "domain": "commax_cloud",
+  "name": "COMMAX Cloud",
+  "version": "0.1.0",
+  "codeowners": [],
+  "config_flow": true,
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "requirements": []
+}
