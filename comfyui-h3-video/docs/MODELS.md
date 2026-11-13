@@ -24,6 +24,8 @@
 | 기본 H3 · 첫·끝 장면용(터보 아님) | `minimax_h3_fl2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/MiniMaxH3/` | 19.5GB | [Comfy-Org/MiniMax-H3](https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors) |
 | 터보 LoRA · 참조 사진 4스텝 | `minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors` | `models/loras/` | 1.8GB | [Comfy-Org/MiniMax-H3 · loras](https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors) |
 | 터보 LoRA · 첫·끝 장면 8스텝 | `minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors` | `models/loras/` | 1.8GB | [Comfy-Org/MiniMax-H3 · loras](https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors) |
+| 실사 사람 LoRA (fal) — 얼굴 클로즈업·피부·표정·영화 조명 | `h3-realism-people-t2v-i2v-r2v.safetensors` | `models/loras/` | 125MB | [fal/MiniMax-H3-Realism-People-LoRA](https://huggingface.co/fal/MiniMax-H3-Realism-People-LoRA) — 프롬프트 맨 앞에 `r34l1sm`(Civitai 에 없어 화면이 트리거를 자동으로 못 넣음 → 직접 입력), 강도 1.0(약하게 0.6~0.8). 이 PC 에서 아직 생성 결과 미확인 |
+| 영화 질감 LoRA (Cinematic Official Release) | `电影感loraV1.0正式版_剪枝与非剪枝通用.safetensors` | `models/loras/` | 296MB | [Civitai 2937713](https://civitai.com/models/2937713) (로그인 필요) — 트리거 없음, 강도 0.7(움직임 많으면 0.5). 올린 사람이 MiniMax 공식인지는 미확인. 이 PC 에서 아직 생성 결과 미확인 |
 
 기본 H3 모델은 터보가 아니라서 그대로 쓰면 20스텝 이상(5배 이상 느림)이 필요합니다. 터보 LoRA 를 같이 넣으면 4~8스텝으로 돌아갑니다(아래 실측 참고).
 
