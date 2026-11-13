@@ -10,7 +10,7 @@
 ```
 
 - 모델 파일(수십 GB)은 이 저장소에 없습니다. [`models.json`](models.json)의 링크로 받습니다(스크립트 제공).
-- 설계·동작 원리는 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), AI 에이전트용 작업 안내는 [AGENTS.md](AGENTS.md).
+- 설계·동작 원리는 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), AI 에이전트용 작업 안내는 [AGENTS.md](AGENTS.md), 앞으로 할 일은 [TODO.md](TODO.md)(다음: 15초보다 긴 영상을 위한 이어 만들기).
 
 ## 필요한 것
 
@@ -108,6 +108,7 @@ LoRA 는 본체 모델 위에 얹어 화풍·질감·동작을 바꾸는 작은 
 comfyui-h3-video/
 ├─ README.md            ← 지금 문서(사람용)
 ├─ AGENTS.md            ← AI 에이전트용 작업 안내·규칙
+├─ TODO.md              ← 아직 안 만든 기능(이어 만들기 등)
 ├─ models.json          ← 모델·LoRA 목록(링크·위치·크기·sha256)
 ├─ versions.json        ← ComfyUI·PyTorch·커스텀 노드 고정 버전
 ├─ scripts/

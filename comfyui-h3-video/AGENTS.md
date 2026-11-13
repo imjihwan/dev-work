@@ -1,6 +1,6 @@
 # AGENTS.md — AI 에이전트용 작업 안내
 
-이 폴더를 다루는 AI(코딩 에이전트·챗봇)를 위한 문서입니다. 사람용 안내는 [README.md](README.md), 설계는 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+이 폴더를 다루는 AI(코딩 에이전트·챗봇)를 위한 문서입니다. 사람용 안내는 [README.md](README.md), 설계는 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), 남은 일은 [TODO.md](TODO.md).
 
 ## 이 프로젝트는
 
