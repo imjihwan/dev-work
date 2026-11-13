@@ -62,4 +62,6 @@ python scripts/get_models.py --comfy <ComfyUI> --all --check --fast
 - DaSiWa 모델 입력 두 개는 lazy — 모드에 맞는 하나만 불러온다. 두 로더에 같은 파일을 넣는 이유.
 - `DaSiWa_SeedControl` 은 `seed_value` 가 0 이고 random 모드일 때만 스스로 랜덤을 뽑는다. 서버는 항상 1 이상을 넣는다.
 - ComfyUI `/interrupt` 에 `prompt_id` 를 주면 그 작업이 돌 때만 멈춘다(다른 작업 보호).
-- 대기열에서 지운 작업은 history 에 안 남아 `/api/status` 가 `unknown` — 화면은 중지 시 직접 "중지됨"으로 표시한다.
+- 대기열에서 지운 작업·ComfyUI 재시작 전 작업은 history 에 없어 `/api/status` 가 `unknown` — 화면은 중지 시 직접 "중지됨", 그 밖엔 `unknown` 5번 연속이면 "작업을 찾을 수 없음"으로 끝낸다.
+- H3 모델 어텐션은 템플릿의 `ModelAttentionBackend`(`comfy kitchen attention`)가 정한다. `--use-sage-attention` 같은 실행 옵션은 H3 본체에 적용되지 않는다(실측: 속도 변화 없음, 결과만 달라짐). 속도 개선을 시도할 땐 이 노드 값을 먼저 확인.
+- 길이는 1~15초(H3 최대). 프레임 수는 17k+5 단위로 맞춰진다.

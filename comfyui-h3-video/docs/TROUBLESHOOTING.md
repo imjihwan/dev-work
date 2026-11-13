@@ -12,6 +12,7 @@
 | 생성하자마자 "파일 없음" 오류 | 모델이 `models.json` 의 `dest` 와 다른 폴더(특히 `MiniMaxH3/` 하위 폴더 누락) | `python scripts/get_models.py --comfy <폴더> --check` 로 위치 확인 |
 | 새로 넣은 모델·LoRA 가 안 보임 | 목록은 화면을 열 때 읽음 | **↻ 폴더 다시 읽기** |
 | LoRA 가 "쓸 수 없음" | H3 용이 아님(파일 구조로 판정) 또는 GGUF | H3 용 LoRA 를 쓰기. Wan·LTX·SDXL 용은 못 씀 |
+| 결과 칸에 "작업을 찾을 수 없음(ComfyUI 재시작·삭제)" | 생성 도중 ComfyUI 를 껐다 켰거나 ComfyUI 화면에서 작업을 지움. ComfyUI 는 작업 기록을 메모리에만 둠 (실측) | 다시 만들기. 이미 끝난 영상은 결과 폴더에 남아 있음 |
 | 중지했는데 ComfyUI 화면의 다른 작업은 계속 돎 | 의도된 동작. 이 화면에서 만든 작업만 멈춤 (코드) | 다른 작업은 ComfyUI 화면에서 멈추기 |
 
 ## 결과 품질
@@ -32,5 +33,7 @@
 | `get_models.py` 가 "다운로드 폴더 파일이 다름" | 아직 받는 중(`.crdownload`)이거나 손상 | 다 받아진 뒤 다시 실행. 계속 다르면 다시 받기 |
 | curl 로 Civitai 접속 시 `CRYPT_E_NO_REVOCATION_CHECK` | 회사망 등에서 Windows 인증서 폐기 확인 실패 | curl 에 `--ssl-no-revoke`. `get_models.py` 는 Python 이라 해당 없음 |
 | "You need pytorch with cu130 or higher" 경고 | PyTorch 가 CUDA 13 빌드가 아님 | `setup.ps1` 로 다시 설치(PyTorch 2.14.1+cu130) |
+| 커스텀 노드 `ComfyUI-MiniMaxH3-Cache` 설치 뒤 H3 생성이 깨짐 | 이 노드가 H3 생성과 충돌한다는 보고 (ComfyUI Wiki, 이 PC 에서는 미확인) | 설치하지 말 것. 설치했다면 지우고 ComfyUI 재시작 |
+| SageAttention 을 켜도 빨라지지 않음 | DaSiWa 워크플로가 모델 어텐션을 `comfy kitchen attention` 으로 지정해 실행 옵션보다 우선함 (실측·코드) | 켤 필요 없음. 자세한 수치는 [PERFORMANCE](PERFORMANCE.md#시험해-보고-쓰지-않기로-한-것) |
 | `llama-cpp-python` 빌드 실패 | DaSiWa 노드 requirements 에 있으나 이 구성에서 안 씀 | `setup.ps1` 은 건너뜀(versions.json `skip_requirements`) |
 | 생성 중 메모리 부족 | 16GB GPU + RAM 부족 | RAM 64GB 권장. 다른 GPU 프로그램 종료, 화질 "기본", 길이 줄이기, w4a8 판 사용 |

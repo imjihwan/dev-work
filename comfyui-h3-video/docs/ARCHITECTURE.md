@@ -176,7 +176,7 @@ effective = 기본 규칙 ← civitai.suggest ← user   (오른쪽이 이김)
   "seed": "", "count": 1
 }
 ```
-검증: 사진 수(REF2VA 1–9, FL2VA 2, I2VA 1), 길이 1–20초, 스텝 1–60, LoRA ≤10, 반복 1–20, 모델·LoRA 가 ComfyUI 목록에 있고 H3 용일 것.
+검증: 사진 수(REF2VA 1–9, FL2VA 2, I2VA 1), 길이 1–15초(H3 최대 15초·24fps), 스텝 1–60, LoRA ≤10, 반복 1–20, 모델·LoRA 가 ComfyUI 목록에 있고 H3 용일 것.
 
 ### 해상도
 - 기본(auto): 짧은 변 768, 첫 사진 비율, 32 배수.

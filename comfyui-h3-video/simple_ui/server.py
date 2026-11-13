@@ -452,8 +452,8 @@ def build_and_queue(req):
         raise ValueError({"REF2VA": "사진은 1~9장 넣어 주세요.", "FL2VA": "첫·끝 프레임 사진 2장이 필요합니다.",
                           "I2VA": "첫 프레임 사진 1장이 필요합니다."}[mode])
     duration = float(req.get("duration") or 5)
-    if not 1 <= duration <= 20:
-        raise ValueError("길이는 1~20초 사이로 정해 주세요.")
+    if not 1 <= duration <= 15:
+        raise ValueError("길이는 1~15초 사이로 정해 주세요(H3 최대 15초).")
 
     p = json.load(open(TEMPLATE, encoding="utf-8-sig"))
 

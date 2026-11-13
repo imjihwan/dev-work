@@ -211,7 +211,7 @@ a{color:var(--acc)}
           </select></div>
         <div><label>화질</label>
           <select id="resolution"><option value="auto">기본(빠름)</option><option value="720p">720p</option><option value="1080p">1080p(느림)</option></select></div>
-        <div><label>길이(초)</label><input type="number" id="duration" value="5" min="1" max="20" step="1"></div>
+        <div><label>길이(초)</label><input type="number" id="duration" value="5" min="1" max="15" step="1"></div>
         <div><label>시드 <small>비우면 랜덤</small></label><input type="text" id="seed" placeholder="랜덤"></div>
         <div><label>반복 <small>시드만 바꿔서</small></label><input type="number" id="count" value="1" min="1" max="20" step="1"></div>
       </div>
@@ -735,14 +735,16 @@ $("cancel").onclick = () => {
   left.forEach(j => Object.assign(j, {state: "error", error: "중지됨"}));
 };
 function poll(jobs, t0, info){
-  currentJobs = jobs;
+  currentJobs = jobs; jobs.forEach(j => j.miss = 0);
   clearTimeout(timer); $("cancel").hidden = false;
   $("cancel").textContent = jobs.length > 1 ? "남은 작업 모두 중지" : "중지";
   $("result").innerHTML = "";
   const tick = async () => {
     for (const j of jobs.filter(x => !finished(x))) {
       let s; try { s = await (await fetch("/api/status?id=" + j.id)).json(); } catch { s = {state:"unknown"}; }
-      if (s.state !== "unknown") Object.assign(j, s);
+      if (s.state !== "unknown") { j.miss = 0; Object.assign(j, s); }
+      // ComfyUI 가 다시 켜졌거나 다른 곳에서 지운 작업은 기록이 없어 계속 unknown → 몇 번 뒤 끝낸다
+      else if (++j.miss >= 5) Object.assign(j, {state: "error", error: "작업을 찾을 수 없음(ComfyUI 재시작·삭제)"});
     }
     const sec = Math.round((Date.now()-t0)/1000), mm = `${Math.floor(sec/60)}:${String(sec%60).padStart(2,"0")}`;
     const n = jobs.length, done = jobs.filter(x => x.state === "done").length, errs = jobs.filter(x => x.state === "error").length;
