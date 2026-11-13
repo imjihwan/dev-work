@@ -392,9 +392,16 @@ function build(){
     return [head, `integrated_multimodal_description: ${imd}`, sound, music].join("\n\n");
   }
   let subject = v("subject");
-  // 사진이 여러 장이면 얼굴·정체성만 전체에서, 옷·머리·배경은 사진 1에서만 (옷 섞임 방지)
+  // 사진이 여러 장이면 사진마다 역할을 적는다(공식 H3 문서 권장): 사진 1 = 장면 전체(옷·머리·배경),
+  // 사진 2~ = 얼굴 참고만. 다른 사진의 옷·배경·조명·자세·글자가 섞이거나 장면이 그쪽으로 바뀌는 것 방지
+  const others = [...Array(n - 1)].map((_, i) => `<Picture ${i + 2}>`);
+  const othersText = others.length < 2 ? others.join("") : others.slice(0, -1).join(", ") + " and " + others.at(-1);
   const baseText = n>1
-    ? `${pics(n)} show the same main subject from different angles. Use them together only to learn the face and identity. The outfit, hairstyle and background come only from <Picture 1>.`
+    ? `<Picture 1> is the main reference for the whole video: copy the face, hairstyle, outfit, body shape and background from <Picture 1>, and the video starts in the scene of <Picture 1>. `
+      + `${othersText} ${n > 2 ? "are face references" : "is a face reference"} only: ${n > 2 ? "they show" : "it shows"} the same person from other angles. `
+      + `Use ${n > 2 ? "them" : "it"} only for facial features and identity (face shape, eyes, nose, mouth, skin). `
+      + `Ignore everything else in ${othersText}: clothing, hairstyle, background, lighting, pose, props, text and logos. `
+      + `Never copy those into the video, and never cut to or blend in ${n > 2 ? "their scenes" : "its scene"}.`
     : `<Picture 1> shows the main subject. Copy the face, hairstyle, outfit and background from <Picture 1>.`;
   if (!subject) subject = baseText;
   else if (!/<Picture \d>/.test(subject)) subject = `${baseText} ${subject}`;
