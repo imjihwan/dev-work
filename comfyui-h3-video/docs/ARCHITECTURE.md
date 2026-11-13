@@ -116,21 +116,22 @@ WebSocket 이벤트를 prompt_id 별로 받아 노드 종류에 따라 구간을
 **REF2VA (참조 사진)**
 ```
 subject_definitions: <Picture 1> shows the main subject. Copy the face, hairstyle, outfit and background from <Picture 1>.
-summary: …
+summary: [트리거 단어] …
 retention_analysis: …(유지할 것)
-detailed_description: [트리거 단어.] 분위기·카메라 [Shot 1] … [Shot 2] At 00:02.000, …
+detailed_description: 분위기·카메라 [Shot 1] … [Shot 2] At 00:02.000, …
 overall_soundscape: …
 non_diegetic_music: N/A
 ```
 - 사진이 여러 장이면 subject 문장을 **사진별 역할**로 쓴다(공식 H3 문서의 "참조마다 역할을 밝혀라" 권장): Picture 1 = 영상 전체의 기준(얼굴·머리·옷·체형·배경, 시작 장면), Picture 2~ = 얼굴 참고만(얼굴형·눈·코·입·피부), 그 사진들의 옷·머리·배경·조명·자세·소품·글자는 무시하고 그 장면으로 바뀌거나 섞이지 말 것. 사진마다 옷이 달라 옷이 바뀌던 문제, 사진 1 이 얼굴만 자른 사진일 때 첫 장면·배경이 다른 사진 것으로 나오던 문제 대응. 문구 효과는 미실측 — 확실한 건 사진 1 을 옷·배경이 다 보이는 사진으로 고르고 나머지를 얼굴만 남게 자르는 것.
 - 성별·생김새는 적지 않는다. 사진에서 가져오게 하는 것이 원칙.
+- 트리거 단어: 고른 LoRA 마다 Civitai 등록 단어(`civitai.trained_words`) + 사용자가 저장한 단어(`user.trigger`, 쉼표 구분)를 모아 **요약(첫·끝 방식은 integrated_multimodal_description) 맨 앞**에 넣는다(LoRA 제작자들이 프롬프트 앞쪽을 권함). 요약에 이미 들어 있는 단어는 빼고, 고급 설정의 트리거 체크를 끄면 넣지 않는다.
 - 장면(Shot): 첫 장면은 0초 고정, 나머지는 `At 00:02.000,` 처럼 시작 시각을 붙인다. 영상 길이 이상에서 시작하는 장면은 프롬프트에서 뺀다(`lateShots()`, 화면에 빨간 표시·안내). 길이 칸을 바꾸면(change) 장면 시각을 같은 비율로 늘이고 줄인다. 영상 밖 장면을 넣었을 때 앞 장면이 압축돼 손이 하나 더 생긴 사례가 있었다.
 - '따봉 예시'는 엄지척 → 손을 내리며 큰 웃음이 엷은 미소로 → 그 표정으로 돌아서 걷기 → 차분한 표정으로 나감, 4장면(웃는 얼굴 그대로 걸어 나가 어색하던 것 보완).
 
 **FL2VA / I2VA (첫·끝 장면)** — 사진 2장이면 FL2VA, 1장이면 I2VA 로 보낸다.
 ```
 How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark …; Picture 2 (from Shot 2) aligns with the end mark …
-integrated_multimodal_description: [트리거 단어.] 요약 분위기 장면들 유지할 것
+integrated_multimodal_description: [트리거 단어] 요약 분위기 장면들 유지할 것
 overall_soundscape: …
 non_diegetic_music: …
 ```
@@ -173,7 +174,7 @@ effective = 기본 규칙 ← civitai.suggest ← user   (오른쪽이 이김)
 | `GET /` | index.html (no-store) |
 | `GET /api/catalog` | `{models, loras, samplers, schedulers, presets, default}` — 카드 포함. 처음 보는 작은 LoRA 는 Civitai 조회를 자동으로 대기열에 넣음 |
 | `POST /api/card/fetch {kind, name}` | Civitai 조회 시작 |
-| `POST /api/card/save {kind, name, values}` | 사용자 기본값 저장(모델: steps·sampler·scheduler·shift_video·shift_audio / LoRA: strength·steps) |
+| `POST /api/card/save {kind, name, values}` | 사용자 기본값 저장(모델: steps·sampler·scheduler·shift_video·shift_audio / LoRA: strength·steps·trigger). 기존 값에 덮어쓰고, 빈 값은 그 항목을 지움 |
 | `GET /api/fetch-state` | 조회 진행 상태 |
 | `POST /api/preset/save {name, data}` · `/api/preset/delete {name}` | 조합 저장·삭제 |
 | `POST /api/generate` | 아래 본문. 응답 `{jobs:[{id,seed}], id, seed, width, height, model, steps, loras, mode}` |

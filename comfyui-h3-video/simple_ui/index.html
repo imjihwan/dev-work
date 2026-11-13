@@ -380,12 +380,15 @@ $("addShot").onclick = () => {
 const ts = s => { const v = Math.max(0, Number(s)||0); const m = Math.floor(v/60); return `${String(m).padStart(2,"0")}:${(v-m*60).toFixed(3).padStart(6,"0")}`; };
 
 // ---------- 프롬프트 조립 ----------
+// LoRA 하나의 트리거 단어: Civitai 에 등록된 것 + 사용자가 '자세히'에서 저장한 것
+const loraTriggers = l => [...new Set([...(l?.civitai?.trained_words || []),
+  ...String(l?.user?.trigger || "").split(",").map(w => w.trim())].filter(Boolean))];
 function triggerWords(){
   if (!S.trig || !CAT) return [];
   const out = [];
   for (const n of Object.keys(S.loras)) {
     const c = CAT.loras.find(x => x.name === n);
-    for (const w of (c?.civitai?.trained_words || [])) if (w && !out.includes(w)) out.push(w);
+    for (const w of loraTriggers(c)) if (w && !out.includes(w)) out.push(w);
   }
   return out;
 }
@@ -401,8 +404,9 @@ function build(){
     const t = d.querySelector("textarea").value.trim(); if (!t || late.includes(i)) return "";
     return i ? `[Shot ${i+1}] At ${ts(d.querySelector("input").value)}, ${lc(t)}` : `[Shot 1] ${t}`;
   }).filter(Boolean);
-  const trig = triggerWords();
-  const trigText = trig.length ? trig.join(", ") + "." : "";
+  // 트리거 단어는 요약 맨 앞에 둔다(LoRA 제작자들이 '프롬프트 앞쪽'을 권함). 요약에 이미 있으면 빼고
+  const trig = triggerWords().filter(w => !v("summary").toLowerCase().includes(w.toLowerCase()));
+  const trigText = trig.join(", ");
   const sound = `overall_soundscape: ${v("sound") || "Natural ambient sound."}`;
   const music = `non_diegetic_music: ${v("music") || "N/A"}`;
   if (!isRef()) {
@@ -427,10 +431,10 @@ function build(){
     : `<Picture 1> shows the main subject. Copy the face, hairstyle, outfit and background from <Picture 1>.`;
   if (!subject) subject = baseText;
   else if (!/<Picture \d>/.test(subject)) subject = `${baseText} ${subject}`;
-  const detail = [trigText, v("style"), shots.join(" ")].filter(Boolean).join(" ");
+  const detail = [v("style"), shots.join(" ")].filter(Boolean).join(" ");
   return [
     `subject_definitions: ${subject}`,
-    `summary: ${v("summary")}`,
+    `summary: ${[trigText, v("summary")].filter(Boolean).join(" ")}`,
     `retention_analysis: ${v("keep")}`,
     `detailed_description: ${detail}`,
     sound, music,
@@ -607,7 +611,7 @@ function drawLoras(){
   const rows = Object.keys(S.loras).map(n => CAT.loras.find(l => l.name === n)).filter(Boolean);
   $("loraRows").innerHTML = rows.length ? rows.map(l => {
     const v = S.loras[l.name], open = UI.info[l.name];
-    const tw = l.civitai?.trained_words || [];
+    const tw = loraTriggers(l);
     const warn = !fitsMode(l) ? `<div class="note">${l.auto.modes.map(modeKo).join("·")} 용 LoRA 라 지금 방식과 안 맞을 수 있습니다.</div>` : "";
     return `<div class="lrow" data-l="${esc(l.name)}">
       <div class="top"><span class="nm" title="${esc(base(l.name))}">${esc(friendlyLora(l))}</span>
@@ -617,7 +621,10 @@ function drawLoras(){
       ${warn}
       <div class="more"><button class="textbtn info">${open ? "자세히 닫기" : "자세히"}</button></div>
       ${open ? `<div class="fname">${esc(base(l.name))} · ${esc(metaLine(l))}</div>${civBlock(l, "lora")}
-        <button class="textbtn savestr">이 강도(${Number(v).toFixed(2)})를 이 LoRA 기본값으로</button>` : ""}
+        <button class="textbtn savestr">이 강도(${Number(v).toFixed(2)})를 이 LoRA 기본값으로</button>
+        <div class="trigedit" style="margin-top:8px"><label style="margin:0 0 4px">트리거 단어 <small>— 이 LoRA 를 고르면 요약 맨 앞에 자동으로 들어감. 여러 개는 쉼표로</small></label>
+          <div style="display:flex;gap:6px"><input type="text" class="trigin" value="${esc(l.user?.trigger || "")}" placeholder="${(l.civitai?.trained_words || []).length ? "Civitai 등록 단어 외에 더 넣을 때만" : "예: r34l1sm (제작자 설명에서 확인)"}">
+          <button class="ghost trigsave">저장</button></div></div>` : ""}
     </div>`;
   }).join("") : `<div class="empty">추가한 LoRA 없음</div>`;
   $("loraRows").querySelectorAll(".lrow").forEach(r => {
@@ -626,6 +633,14 @@ function drawLoras(){
     rg.onchange = () => drawPresets();
     r.querySelector(".rm").onclick = () => { delete S.loras[name]; drawModelCard(); render(); };
     r.querySelector(".info").onclick = () => { UI.info[name] = !UI.info[name]; drawLoras(); };
+    r.querySelector(".trigsave")?.addEventListener("click", async () => {
+      const trigger = r.querySelector(".trigin").value;
+      const res = await fetch("/api/card/save", {method:"POST", body: JSON.stringify({kind:"lora", name, values:{trigger}})});
+      const j = await res.json(); if (!res.ok) return alert(j.error);
+      const i = CAT.loras.findIndex(x => x.name === name); if (i >= 0) CAT.loras[i] = j;
+      drawLoras(); render();
+      note(j.user?.trigger ? `${friendlyLora(j)} 트리거 '${j.user.trigger}' 를 저장했습니다. 이 LoRA 를 고르면 자동으로 들어갑니다.` : `${friendlyLora(j)} 의 저장한 트리거를 지웠습니다.`);
+    });
     r.querySelector(".savestr")?.addEventListener("click", async () => {
       const res = await fetch("/api/card/save", {method:"POST", body: JSON.stringify({kind:"lora", name, values:{strength:S.loras[name]}})});
       const j = await res.json(); if (!res.ok) return alert(j.error);

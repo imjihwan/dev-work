@@ -24,6 +24,11 @@
    "user": {
     "strength": 1
    }
+  },
+  "h3-realism-people-t2v-i2v-r2v.safetensors": {
+   "user": {
+    "trigger": "r34l1sm"
+   }
   }
  }
 }

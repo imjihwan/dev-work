@@ -741,10 +741,14 @@ class H(BaseHTTPRequestHandler):
                 if kind not in DIRS or not resolve(kind, name or ""):
                     raise ValueError("목록에 없는 파일입니다.")
                 allowed = {"model": ("steps", "sampler", "scheduler", "shift_video", "shift_audio"),
-                           "lora": ("strength", "steps")}[kind]
+                           "lora": ("strength", "steps", "trigger")}[kind]
                 vals = {k: body["values"][k] for k in allowed if k in (body.get("values") or {})}
+                if "trigger" in vals:   # LoRA 트리거 단어(쉼표로 여러 개). 빈 값이면 지움
+                    vals["trigger"] = ", ".join(w.strip() for w in str(vals["trigger"])[:200].split(",") if w.strip())
                 with CLOCK:
-                    CARD_DB[kind].setdefault(name, {})["user"] = vals
+                    card = CARD_DB[kind].setdefault(name, {})
+                    # 기존 사용자 값에 덮어쓴다(강도만 저장해도 트리거가 지워지지 않게)
+                    card["user"] = {k: v for k, v in {**(card.get("user") or {}), **vals}.items() if v not in ("", None)}
                     _save_json(CARDS, CARD_DB)
                 self._json(card_for(kind, name))
             elif self.path == "/api/preset/save":
