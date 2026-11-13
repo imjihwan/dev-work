@@ -23,7 +23,7 @@
 | 파일 | 내용 | 고칠 때 볼 곳 |
 |---|---|---|
 | `simple_ui/server.py` | HTTP 서버(ThreadingHTTPServer), ComfyUI 호출, 진행률(WebSocket), 모델 카드, 조합, 반복, 작업 이력 | 상단 상수(노드 ID) · `analyze()`·`effective()`(판정 규칙) · `build_and_queue()`(값 채우기·이력 기록) · `status()`→`hist_result()`(결과 매핑) |
-| `simple_ui/index.html` | 화면 전체. 상태 객체 `S`(mode, model, steps, sampler, scheduler, shift_*, loras{name:strength}, trig), 카탈로그 `CAT` | `build()`(프롬프트 조립) · `drawModelCard()` 계열 · `poll()`(반복 진행) · `save()/load()`·`restoreImgs()`·`restoreJobs()`(새로고침 복원) · `loadHist()/loadFromHist()`(이력) |
+| `simple_ui/index.html` | 화면 전체. 상태 객체 `S`(mode, model, steps, sampler, scheduler, shift_*, loras{name:strength}, trig), 카탈로그 `CAT` | `build()`(프롬프트 조립) · `drawModelCard()` 계열 · `poll()`(반복 진행) · `save()/load()`·`restoreImgs()`·`restoreJobs()`(새로고침 복원) · `loadHist()/loadFromHist()`(이력) · `drawThumbs()`(사진 순서 ◀▶·끌기) · `lateShots()`·길이 change(장면 시각 조정) · `closeResult()`(보기 닫기) · `S.anchor`(사진 1 첫 장면 고정) |
 | `simple_ui/template_api.json` | DaSiWa C-MMH3-33 API 프롬프트 | 노드 ID 는 ARCHITECTURE §2 |
 | `models.json` | 받을 파일 목록 | MODELS.md 마지막 절 |
 | `versions.json` | 고정 버전 | 올릴 땐 실제로 돌려 본 뒤 |
