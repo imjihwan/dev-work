@@ -28,6 +28,7 @@ textarea{resize:vertical;min-height:58px}
 .thumb button{position:absolute;top:3px;right:3px;border:0;border-radius:50%;width:22px;height:22px;background:#000a;color:#fff;cursor:pointer}
 .shot{display:grid;grid-template-columns:92px 1fr 30px;gap:8px;align-items:start;margin-top:8px}
 .shot input{text-align:center}
+.shot input.late{border-color:var(--warn);color:var(--warn)}
 .shot button,.ghost{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:8px;cursor:pointer;padding:6px 10px;font:inherit;font-size:13px}
 .ghost:disabled{opacity:.5;cursor:default}
 .row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
@@ -146,6 +147,7 @@ a{color:var(--acc)}
 
       <label>장면별 동작 <small>— 시작 시각(초)과 동작</small></label>
       <div id="shots"></div>
+      <div class="hint" id="shotHint" style="color:var(--warn)"></div>
       <button class="ghost" id="addShot" style="margin-top:8px">+ 장면 추가</button>
 
       <label>장소·분위기·카메라</label>
@@ -366,11 +368,15 @@ function triggerWords(){
   return out;
 }
 function pics(n){ const p = [...Array(n)].map((_,i)=>`<Picture ${i+1}>`); return n<2 ? p.join("") : p.slice(0,-1).join(", ")+" and "+p.at(-1); }
+// 영상 길이 이상에서 시작하는 장면(첫 장면 제외) 번호
+const lateShots = () => { const dur = Number($("duration").value) || 5;
+  return [...$("shots").children].map((d,i) => i && Number(d.querySelector("input").value) >= dur ? i : -1).filter(i => i > 0); };
 function build(){
   const n = Math.max(images.length, 1), v = id => $(id).value.trim();
   const lc = s => s.charAt(0).toLowerCase() + s.slice(1);
+  const late = lateShots();
   const shots = [...$("shots").children].map((d,i) => {
-    const t = d.querySelector("textarea").value.trim(); if (!t) return "";
+    const t = d.querySelector("textarea").value.trim(); if (!t || late.includes(i)) return "";
     return i ? `[Shot ${i+1}] At ${ts(d.querySelector("input").value)}, ${lc(t)}` : `[Shot 1] ${t}`;
   }).filter(Boolean);
   const trig = triggerWords();
@@ -402,6 +408,9 @@ function build(){
   ].join("\n\n");
 }
 function render(){
+  const late = lateShots(), dur = Number($("duration").value) || 5;
+  [...$("shots").children].forEach((d,i) => d.querySelector("input").classList.toggle("late", late.includes(i)));
+  $("shotHint").textContent = late.length ? `장면 ${late.map(i => i + 1).join(", ")}은(는) 영상 길이(${dur}초) 이후에 시작해서 프롬프트에서 뺐습니다. 시각을 ${dur}초보다 앞으로 당기거나 길이를 늘리세요.` : "";
   if (!manualFinal) $("final").value = build();
   drawGoInfo();
   save();
@@ -707,7 +716,21 @@ function apply(s){
   for (const [k,v] of Object.entries(s.f || {})) if ($(k)) $(k).value = v;
   $("shots").innerHTML = "";
   (s.shots?.length ? s.shots : EXAMPLE.shots).forEach(([t,x]) => addShot(t, x));
+  lastDur = Number($("duration").value) || 5;
 }
+let lastDur = 5;
+$("duration").addEventListener("change", () => {
+  const nd = Number($("duration").value), od = lastDur;
+  if (!(nd > 0)) return;
+  lastDur = nd;
+  if (!(od > 0) || od === nd) return;
+  [...$("shots").children].forEach((d,i) => {
+    if (!i) return;
+    const inp = d.querySelector("input"), t = Number(inp.value);
+    if (inp.value !== "" && t >= 0) inp.value = Math.round(t * nd / od * 10) / 10;
+  });
+  render();
+});
 function load(){
   let s = null; try { s = JSON.parse(localStorage.getItem(KEY)); } catch {}
   apply(s?.f ? s : EXAMPLE);
@@ -884,6 +907,7 @@ async function loadFromHist(e){
   const u = e.ui || {}, warn = [];
   if (u.f) apply({f: u.f, shots: u.shots});
   for (const [k, v] of [["aspect", e.aspect], ["resolution", e.resolution], ["duration", e.duration]]) if (v != null) $(k).value = v;
+  lastDur = Number($("duration").value) || 5;
   $("seed").value = e.seed; $("count").value = 1;
   setMode(e.mode === "REF2VA" ? "REF2VA" : "FL2VA");
   if (CAT.models.some(m => m.name === e.model)) S.model = e.model; else warn.push(`모델 ${base(e.model)} 이 폴더에 없음`);
