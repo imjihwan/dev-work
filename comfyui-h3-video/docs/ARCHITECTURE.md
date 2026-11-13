@@ -172,7 +172,7 @@ effective = 기본 규칙 ← civitai.suggest ← user   (오른쪽이 이김)
   "model": "MiniMaxH3\\dasiwa_…turbo_int8….safetensors",
   "steps": 8, "sampler": "euler", "scheduler": "simple", "shift_video": 10, "shift_audio": 3,
   "loras": [{"name": "xxx.safetensors", "strength": 0.8}],
-  "aspect": "auto | 16:9 | …", "resolution": "auto | 720p | 1080p", "duration": 5,
+  "aspect": "auto | 16:9 | …", "resolution": "draft | auto | 720p | 1080p", "duration": 5,
   "seed": "", "count": 1
 }
 ```
@@ -180,7 +180,7 @@ effective = 기본 규칙 ← civitai.suggest ← user   (오른쪽이 이김)
 
 ### 해상도
 - 기본(auto): 짧은 변 768, 첫 사진 비율, 32 배수.
-- 720p ≈ 0.879MP, 1080p ≈ 1.978MP(같은 비율로 맞춤). Director JS 계산과 같음.
+- draft(초안) = 0.4MP(공식 H3 문서의 빠른 시험용 크기, 어떤 화면비든 짧은 변이 H3 최소 384 이상), 720p ≈ 0.879MP, 1080p ≈ 1.978MP(같은 비율로 맞춤). 720p·1080p 는 Director JS 계산과 같음. auto 는 짧은 변 768.
 
 ## 7. 저장되는 데이터
 

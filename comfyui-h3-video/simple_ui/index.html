@@ -210,7 +210,7 @@ a{color:var(--acc)}
             <option value="1:1">1:1</option><option value="4:3">4:3</option><option value="3:4">3:4</option><option value="3:2">3:2</option><option value="2:3">2:3</option>
           </select></div>
         <div><label>화질</label>
-          <select id="resolution"><option value="auto">기본(빠름)</option><option value="720p">720p</option><option value="1080p">1080p(느림)</option></select></div>
+          <select id="resolution"><option value="draft">초안(가장 빠름)</option><option value="auto" selected>기본(빠름)</option><option value="720p">720p</option><option value="1080p">1080p(느림)</option></select></div>
         <div><label>길이(초)</label><input type="number" id="duration" value="5" min="1" max="15" step="1"></div>
         <div><label>시드 <small>비우면 랜덤</small></label><input type="text" id="seed" placeholder="랜덤"></div>
         <div><label>반복 <small>시드만 바꿔서</small></label><input type="number" id="count" value="1" min="1" max="20" step="1"></div>
@@ -499,7 +499,7 @@ function speedChoices(){
 const runCount = () => Math.min(20, Math.max(1, Math.round(Number($("count").value) || 1)));
 function etaText(n){
   // 이 PC(5060 Ti) 실측: 768 기준 5초 영상 스텝당 약 26초 + 준비·디코딩 약 35초. 대략값.
-  const res = {auto:1, "720p":1.6, "1080p":4}[$("resolution").value] || 1;
+  const res = {draft:0.55, auto:1, "720p":1.6, "1080p":4}[$("resolution").value] || 1;
   const dur = (Number($("duration").value) || 5) / 5;
   const sec = (35 + S.steps * 26 * res * dur) * (n || 1);
   return `예상 약 ${Math.max(1, Math.round(sec / 60))}분`;

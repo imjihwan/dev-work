@@ -28,7 +28,8 @@ LOADERS = ("1512:2586", "1512:2588")      # Director 의 fl2va_model / ref2va_mo
 SCHED, SAMPLER, SHIFT, LORA = "1512:2590", "1512:2598", "1512:2692", "2678"
 LORA_SLOTS = 10
 MULT = 32
-RES_MP = {"720p": 0.879, "1080p": 1.978}
+# draft = 초안(약 0.4MP, 공식 문서의 빠른 시험용 권장). H3 최소 짧은 변 384 는 어떤 화면비든 넘음
+RES_MP = {"draft": 0.4, "720p": 0.879, "1080p": 1.978}
 UA = {"User-Agent": "Mozilla/5.0 (simple-ui model card)"}
 
 
