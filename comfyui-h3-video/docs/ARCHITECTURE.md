@@ -52,6 +52,21 @@ flowchart LR
 - Director 의 모델 입력은 **lazy** 라서 모드에 맞는 쪽 하나만 실제로 불러온다(`REF2VA` → `ref2va_model`, 그 외 → `fl2va_model`). 서버는 두 로더에 같은 파일을 넣는다.
 - LoRA 묶음은 Director 출력(선택된 모델) 뒤에 붙으므로 모드와 상관없이 적용된다.
 
+### '사진 1 첫 장면 고정' 틀 (참조 방식 + 옵션)
+
+참조 방식(REF2VA)은 사진을 모두 **같은 자격의 참고 자료**로 넘길 뿐 어느 사진도 첫 장면으로 고정하지 않는다(DaSiWa `nodes_minimax_h3_director.py` → 네이티브 `MiniMaxH3ReferenceToVideo`, 코드 확인). 그래서 "사진 1 기준"은 프롬프트 문장으로만 전달돼 잘 안 지켜진다.
+옵션을 켜면 서버(`add_anchor()`)가 기본 틀에 노드 2개를 더하고 연결 1곳을 바꾼다:
+
+| 노드 ID | class_type | 입력 |
+|---|---|---|
+| `9001` (`ANCHOR_IMG`) | LoadImage | `image` = 올린 사진 1 파일 |
+| `9002` (`ANCHOR`) | MiniMaxH3AddGuide (ComfyUI 네이티브) | `positive`·`latent` = `1512:2701`(Director Guide) 0·1, `vae` = `1512:2584`, `image` = `9001`, `frame_idx` = 0 |
+
+그리고 `1512:2592`(BasicGuider)의 `conditioning` 을 `1512:2701`→`9002` 로 바꾼다. 참조 사진은 그대로 모두 들어가고, 사진 1 이 0번째 프레임 키프레임(`minimax_keyframes`)으로 추가된다(모델 코드 `comfy/ldm/minimax/model.py` 가 키프레임과 참조를 함께 받음).
+- 옵션을 끄면 그래프는 기본 틀과 완전히 같다.
+- 서버는 넣기 전에 `1512:2592.conditioning == [1512:2701, 0]` 인지 확인하고, 템플릿이 바뀌어 다르면 오류로 멈춘다.
+- 검증 범위: 그래프 연결·입력 타입을 ComfyUI 노드 정의와 대조(통과). **실제 생성 결과는 미확인**(실험 기능) — 특히 터보(증류) 모델에서 키프레임 품질은 모름.
+
 ## 3. 요청 한 번의 흐름
 
 ```mermaid
@@ -177,7 +192,7 @@ effective = 기본 규칙 ← civitai.suggest ← user   (오른쪽이 이김)
   "steps": 8, "sampler": "euler", "scheduler": "simple", "shift_video": 10, "shift_audio": 3,
   "loras": [{"name": "xxx.safetensors", "strength": 0.8}],
   "aspect": "auto | 16:9 | …", "resolution": "draft | auto | 720p | 1080p", "duration": 5,
-  "seed": "", "count": 1,
+  "seed": "", "count": 1, "anchor": false,
   "ui": {"f": {"summary": "…", …}, "shots": [["0", "…"]], "final": null, "trig": true}
 }
 ```

@@ -26,6 +26,9 @@ MODELS = os.path.join(ROOT, "models")
 DIRECTOR, SEED, SAVE = "2730", "2739", "2568"
 LOADERS = ("1512:2586", "1512:2588")      # Director 의 fl2va_model / ref2va_model 입력(선택된 모드 쪽만 실제로 불러옴)
 SCHED, SAMPLER, SHIFT, LORA = "1512:2590", "1512:2598", "1512:2692", "2678"
+# '사진 1 첫 장면 고정' 틀 = 기본 틀 + 노드 2개(LoadImage → 네이티브 MiniMaxH3AddGuide frame 0), 연결 1곳 변경
+GUIDE, GUIDER, VIDEO_VAE = "1512:2701", "1512:2592", "1512:2584"
+ANCHOR_IMG, ANCHOR = "9001", "9002"
 LORA_SLOTS = 10
 MULT = 32
 # draft = 초안(약 0.4MP, 공식 문서의 빠른 시험용 권장). H3 최소 짧은 변 384 는 어떤 화면비든 넘음
@@ -556,6 +559,9 @@ def build_and_queue(req):
         raise ValueError("반복 횟수는 1~20 사이로 정해 주세요.")
     seed = str(req.get("seed") or "").strip()
     seeds = [int(seed) + i for i in range(count)] if seed else [random.randint(1, 2**53) for _ in range(count)]
+    anchor = bool(req.get("anchor")) and mode == "REF2VA"
+    if anchor:
+        add_anchor(p, names[0])
     classes = {k: v["class_type"] for k, v in p.items()}
     jobs = []
     for s in seeds:
@@ -574,9 +580,22 @@ def build_and_queue(req):
                "shift_video": p[SHIFT]["inputs"]["shift_video"], "shift_audio": p[SHIFT]["inputs"]["shift_audio"],
                "loras": [{"name": x["name"], "strength": float(x.get("strength", 1))} for x in loras],
                "aspect": aspect, "resolution": resolution, "duration": duration, "width": w, "height": h,
-               "count": count, "prompt": text, "images": names, "ui": req.get("ui")} for j in jobs])
+               "count": count, "anchor": anchor, "prompt": text, "images": names, "ui": req.get("ui")} for j in jobs])
     return {"jobs": jobs, "id": jobs[0]["id"], "seed": jobs[0]["seed"], "width": w, "height": h,
-            "model": os.path.basename(model.replace("\\", "/")), "steps": steps, "loras": len(loras), "mode": mode}
+            "model": os.path.basename(model.replace("\\", "/")), "steps": steps, "loras": len(loras), "mode": mode,
+            "anchor": anchor}
+
+
+def add_anchor(p, image_name):
+    """참조 방식에서 사진 1 을 영상 0번째 프레임에 고정한다(ComfyUI 네이티브 MiniMaxH3AddGuide).
+    참조 사진은 모두 그대로 쓰이고(얼굴 등), 첫 장면만 사진 1 로 못 박는다."""
+    if p[GUIDER]["inputs"].get("conditioning") != [GUIDE, 0] or p[GUIDE]["class_type"] != "MiniMaxH3DirectorGuide":
+        raise ValueError("템플릿 구조가 예상과 달라 '사진 1 첫 장면 고정'을 쓸 수 없습니다(ARCHITECTURE §2 확인).")
+    p[ANCHOR_IMG] = {"class_type": "LoadImage", "inputs": {"image": image_name}}
+    p[ANCHOR] = {"class_type": "MiniMaxH3AddGuide",
+                 "inputs": {"positive": [GUIDE, 0], "latent": [GUIDE, 1], "vae": [VIDEO_VAE, 0],
+                            "image": [ANCHOR_IMG, 0], "frame_idx": 0}}
+    p[GUIDER]["inputs"]["conditioning"] = [ANCHOR, 0]
 
 
 def video_of(entry):

@@ -138,6 +138,11 @@ a{color:var(--acc)}
       <input type="file" id="file" accept="image/*" multiple hidden>
       <div class="thumbs" id="thumbs"></div>
       <div class="hint" id="photoHint"></div>
+      <label id="anchorBox" style="display:flex;gap:8px;align-items:flex-start;font-weight:400;margin-top:10px">
+        <input type="checkbox" id="anchor" style="margin-top:3px">
+        <span><b>사진 1 을 첫 장면으로 고정</b> <small style="color:var(--mute)">(실험)</small><br>
+        <small style="color:var(--mute)">영상이 사진 1 모습 그대로 시작합니다. 다른 사진은 얼굴 참고로만 쓰입니다. 끄면 모든 사진을 참고만 해서 첫 장면이 다른 사진 쪽으로 갈 수 있습니다.</small></span>
+      </label>
     </div>
 
     <div class="card">
@@ -271,7 +276,7 @@ let manualFinal = false, timer = null;
 const FIELDS = ["subject","summary","style","keep","sound","music","aspect","resolution","duration","count"];
 const PARAMS = ["steps","sampler","scheduler","shift_video","shift_audio"];
 let CAT = null;             // /api/catalog 결과
-const S = {mode:"REF2VA", model:"", steps:4, sampler:"euler", scheduler:"simple", shift_video:10, shift_audio:3, loras:{}, trig:true};
+const S = {mode:"REF2VA", model:"", steps:4, sampler:"euler", scheduler:"simple", shift_video:10, shift_audio:3, loras:{}, trig:true, anchor:false};
 const UI = {modelOpen:false, loraOpen:false, loraQ:"", info:{}};
 
 // ---------- 모드 ----------
@@ -282,6 +287,7 @@ function setMode(m){
   S.mode = m;
   document.querySelectorAll("#modeSeg button").forEach(b => b.classList.toggle("on", b.dataset.mode === m));
   $("subjectBox").hidden = !isRef();
+  $("anchorBox").hidden = !isRef(); $("anchor").checked = !!S.anchor;
   if (images.length > maxImgs()) images.splice(maxImgs());
   drawThumbs();
   if (CAT) drawModelCard();
@@ -347,6 +353,7 @@ function drawThumbs(){
   saveImgs();
   render();
 }
+$("anchor").onchange = () => { S.anchor = $("anchor").checked; save(); drawGoInfo(); };
 $("drop").onclick = () => $("file").click();
 $("file").onchange = e => { addFiles(e.target.files); e.target.value = ""; };
 $("drop").ondragover = e => { e.preventDefault(); $("drop").classList.add("over"); };
@@ -766,7 +773,7 @@ $("example").onclick = () => { apply(EXAMPLE); render(); };
 function drawGoInfo(){
   if (!CAT) return;
   const m = curModel(), n = Object.keys(S.loras).length, c = runCount();
-  $("goInfo").textContent = `${m ? friendlyModel(m) : base(S.model)} · ${S.steps}스텝${n ? ` · LoRA ${n}개` : ""}${c > 1 ? ` · ${c}번 반복` : ""} · ${etaText(c)}`;
+  $("goInfo").textContent = `${m ? friendlyModel(m) : base(S.model)} · ${S.steps}스텝${n ? ` · LoRA ${n}개` : ""}${isRef() && S.anchor ? " · 사진 1 첫 장면 고정" : ""}${c > 1 ? ` · ${c}번 반복` : ""} · ${etaText(c)}`;
   const seed = $("seed").value.trim();
   $("countHint").textContent = c > 1
     ? (seed && /^\d+$/.test(seed) ? `시드 ${seed}, ${BigInt(seed) + 1n}, … 처럼 1씩 늘려 ${c}개를 만듭니다(같은 시드를 다시 넣으면 같은 결과).` : `시드를 매번 랜덤으로 바꿔 ${c}개를 만듭니다. 마음에 든 결과의 시드는 결과 목록에 표시됩니다.`)
@@ -811,12 +818,12 @@ $("go").onclick = async () => {
       images, prompt: $("final").value, aspect: $("aspect").value, resolution: $("resolution").value,
       duration: $("duration").value, seed: $("seed").value, mode: sendMode(), model: S.model,
       steps: S.steps, sampler: S.sampler, scheduler: S.scheduler, shift_video: S.shift_video, shift_audio: S.shift_audio,
-      loras: Object.entries(S.loras).map(([name,strength]) => ({name, strength})), count: runCount(),
+      loras: Object.entries(S.loras).map(([name,strength]) => ({name, strength})), count: runCount(), anchor: isRef() && !!S.anchor,
       ui: {f: Object.fromEntries(FIELDS.map(id => [id, $(id).value])), shots: [...$("shots").children].map(d => [d.querySelector("input").value, d.querySelector("textarea").value]),
            final: manualFinal ? $("final").value : null, trig: S.trig} })});
     const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status);
     const m = curModel(), jobs = j.jobs || [{id: j.id, seed: j.seed}];
-    const info = `${j.width}×${j.height}, ${m ? friendlyModel(m) : j.model} ${j.steps}스텝${j.loras ? `, LoRA ${j.loras}개` : ""}`;
+    const info = `${j.width}×${j.height}, ${m ? friendlyModel(m) : j.model} ${j.steps}스텝${j.loras ? `, LoRA ${j.loras}개` : ""}${j.anchor ? ", 사진 1 첫 장면 고정" : ""}`;
     const add = jobs.map(x => ({...x, state: "queued", info: `${info}, 시드 ${x.seed}`}));
     if (currentJobs.some(x => !finished(x))) poll(currentJobs.concat(add), pollT0, null);
     else poll(add, Date.now(), jobs.length > 1 ? info : `${info}, 시드 ${jobs[0].seed}`);
@@ -902,7 +909,7 @@ function drawHist(){
     const d = new Date(e.t * 1000), when = `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
     const thumb = e.video ? `<video muted loop preload="metadata" src="${vurl(e.video)}#t=0.5" data-play="${i}"></video>`
       : `${HSTATE[e.state] || e.state}${e.state === "running" && e.pct != null ? ` ${e.pct}%` : ""}`;
-    const lo = e.loras?.length ? ` · LoRA ${e.loras.length}개` : "";
+    const lo = (e.loras?.length ? ` · LoRA ${e.loras.length}개` : "") + (e.anchor ? " · 첫 장면 고정" : "");
     const meta = `${when} · ${e.mode === "REF2VA" ? "참조" : "첫·끝"} · ${esc(histModelName(e.model))} · ${e.steps}스텝${lo}<br>${RES_NAME[e.resolution] || esc(e.resolution)} ${e.width}×${e.height} · ${e.duration}초 · 시드 ${e.seed}`;
     const err = e.error && e.state !== "done" ? `<br><span class="bad">${esc(e.error)}</span>` : "";
     return `<div class="hrow"><div class="hthumb">${thumb}</div><div>
@@ -944,6 +951,7 @@ async function loadFromHist(e){
   S.loras = {};
   for (const x of e.loras || []) { if (CAT.loras.some(l => l.name === x.name)) S.loras[x.name] = x.strength; else warn.push(`LoRA ${base(x.name)} 없음`); }
   if (u.trig != null) S.trig = u.trig;
+  S.anchor = !!e.anchor; $("anchor").checked = S.anchor;
   // 사진: ComfyUI input 폴더에서 다시 읽기
   const got = [];
   for (const name of e.images || []) {
