@@ -790,7 +790,11 @@ function showVideo(v){
 function closeResult(){
   $("result").querySelectorAll("video").forEach(x => x.pause());
   $("result").innerHTML = "";
-  if (!currentJobs.some(j => !finished(j))) { setStatus(""); $("bar").hidden = true; }
+  currentJobs.hidden = true;
+  if (!currentJobs.some(j => !finished(j))) {
+    setStatus(""); $("bar").hidden = true;
+    try { localStorage.removeItem(KEY_J); } catch {}
+  }
 }
 // 여러 개(반복): 끝난 순서대로 작은 영상 목록. 하나면 기존처럼 큰 화면 하나.
 function drawRuns(jobs){
@@ -845,28 +849,33 @@ function saveJobs(o){ try { localStorage.setItem(KEY_J, JSON.stringify(o)); } ca
 function restoreJobs(){
   let o = null; try { o = JSON.parse(localStorage.getItem(KEY_J)); } catch {}
   if (!o?.jobs?.length) return;
+  o.jobs.hidden = !!o.hidden;
   poll(o.jobs, o.t0, o.info, o.t1);
 }
+let pollGen = 0;
 function poll(jobs, t0, info, t1){
+  const gen = ++pollGen;
   currentJobs = jobs; pollT0 = t0; jobs.forEach(j => j.miss = 0);
   clearTimeout(timer); $("cancel").hidden = false;
   $("cancel").textContent = jobs.length > 1 ? "남은 작업 모두 중지" : "중지";
   $("result").innerHTML = "";
   const tick = async () => {
+    if (gen !== pollGen) return;
     for (const j of jobs.filter(x => !finished(x))) {
       let s; try { s = await (await fetch("/api/status?id=" + j.id)).json(); } catch { s = {state:"unknown"}; }
       if (s.state !== "unknown") { j.miss = 0; Object.assign(j, s); }
       // ComfyUI 가 다시 켜졌거나 다른 곳에서 지운 작업은 기록이 없어 계속 unknown → 몇 번 뒤 끝낸다
       else if (++j.miss >= 5) Object.assign(j, {state: "error", error: "작업을 찾을 수 없음(ComfyUI 재시작·삭제)"});
     }
+    if (gen !== pollGen) return;
     const n = jobs.length, done = jobs.filter(x => x.state === "done").length, errs = jobs.filter(x => x.state === "error").length;
     if (done + errs === n && !t1) t1 = Date.now();
     const sec = Math.round(((t1 || Date.now()) - t0)/1000), mm = `${Math.floor(sec/60)}:${String(sec%60).padStart(2,"0")}`;
-    saveJobs({jobs, t0, info, t1});
+    saveJobs({jobs, t0, info, t1, hidden: !!jobs.hidden});
     const run = jobs.find(x => x.state === "running"), runIdx = jobs.indexOf(run);
     const pct = Math.round(((done + errs) + (run ? (run.pct || 0) / 100 : 0)) / n * 100);
     $("bar").hidden = false; $("bar").firstElementChild.style.width = pct + "%";
-    if (n > 1 || done) drawRuns(jobs);
+    if (!jobs.hidden && (n > 1 || done)) drawRuns(jobs);
     $("go").textContent = done + errs === n ? "영상 만들기" : "대기열에 추가";
     if (done + errs === n) {
       $("go").disabled = false; $("cancel").hidden = true;

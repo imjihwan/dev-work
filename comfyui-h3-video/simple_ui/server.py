@@ -796,7 +796,9 @@ class H(BaseHTTPRequestHandler):
             self._json({"error": str(e)}, 400)
 
     def log_message(self, fmt, *a):
-        if not any(s in (a[0] if a else "") for s in ("/api/status", "/api/fetch-state", "/api/history", "/api/input")):
+        line = a[0] if a else ""
+        # 자주 부르는 조회만 숨긴다(이력 삭제 같은 POST 는 남김)
+        if not (line.startswith("GET ") and any(s in line for s in ("/api/status", "/api/fetch-state", "/api/history", "/api/input", "/api/video"))):
             print("%s %s" % (self.command, self.path), flush=True)
 
 
