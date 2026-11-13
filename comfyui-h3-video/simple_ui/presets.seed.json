@@ -1,0 +1,24 @@
+{
+ "DaSiWa v5 터보 8스텝 (품질)": {
+  "mode": "REF2VA",
+  "model": "MiniMaxH3\\dasiwa_minimax_h3_ref2va_v5xs_pruned_graviton_turbo_int8_row-wise_convrot_runtime_mixed.safetensors",
+  "steps": 8,
+  "loras": [],
+  "trig": true,
+  "sampler": "euler",
+  "scheduler": "simple",
+  "shift_video": 10.0,
+  "shift_audio": 3.0
+ },
+ "DaSiWa v4 터보 4스텝 (빠름)": {
+  "mode": "REF2VA",
+  "model": "MiniMaxH3\\dasiwa_minimax_h3_ref2va_v4_pruned_turbo_int8.safetensors",
+  "steps": 4,
+  "loras": [],
+  "trig": true,
+  "sampler": "euler",
+  "scheduler": "simple",
+  "shift_video": 10.0,
+  "shift_audio": 3.0
+ }
+}

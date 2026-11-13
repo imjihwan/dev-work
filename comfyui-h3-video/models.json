@@ -1,0 +1,125 @@
+{
+  "_comment": "모델·LoRA 목록(기계용). dest 는 ComfyUI 폴더 기준 상대 경로. source=hf 는 스크립트가 바로 받고, source=civitai 는 로그인이 필요해 브라우저로 받은 뒤 스크립트가 옮기고 검증한다. sha256 은 배포처가 공개한 값.",
+  "files": [
+    {
+      "id": "dasiwa_v5_turbo_int8",
+      "role": "영상 생성 본체 (기본값) — DaSiWa GXS v5 Turbo, 터보(4~8스텝), REF2VA+FL2VA 혼합",
+      "required": true,
+      "source": "civitai",
+      "page": "https://civitai.com/models/2877206?modelVersionId=3457969",
+      "url": "https://civitai.com/api/download/models/3457969?fileId=3359921",
+      "filename": "dasiwa_minimax_h3_ref2va_v5xs_pruned_graviton_turbo_int8_row-wise_convrot_runtime_mixed.safetensors",
+      "dest": "models/diffusion_models/MiniMaxH3",
+      "size": 20967669120,
+      "sha256": "d73ac7f98c32db783400687ea0d0dca3f562b1d2ad99baf36cacd79b4df1efcc"
+    },
+    {
+      "id": "text_encoder_nvfp4",
+      "role": "텍스트·사진 이해 (Qwen3-VL 32B, nvfp4). RTX 50 계열(블랙웰) 기준. 다른 GPU면 같은 저장소의 int8/bf16 판으로 교체",
+      "required": true,
+      "source": "hf",
+      "repo": "Comfy-Org/MiniMax-H3",
+      "path": "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "filename": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "dest": "models/text_encoders",
+      "size": 15687142551,
+      "sha256": "35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6"
+    },
+    {
+      "id": "video_vae_int8",
+      "role": "영상 디코더",
+      "required": true,
+      "source": "hf",
+      "repo": "Comfy-Org/MiniMax-H3",
+      "path": "vae/minimax_h3_video_vae_int8_convrot.safetensors",
+      "filename": "minimax_h3_video_vae_int8_convrot.safetensors",
+      "dest": "models/vae/MiniMaxH3",
+      "size": 2811065184,
+      "sha256": "52a2c8c73583c86e4f41cdcce3a6ad0ea562987bc0bf3d60a0cef5f5c8e60c0e"
+    },
+    {
+      "id": "audio_vae_fp32",
+      "role": "소리 디코더",
+      "required": true,
+      "source": "hf",
+      "repo": "Comfy-Org/MiniMax-H3",
+      "path": "vae/minimax_h3_audio_vae_fp32.safetensors",
+      "filename": "minimax_h3_audio_vae_fp32.safetensors",
+      "dest": "models/vae/MiniMaxH3",
+      "size": 605254808,
+      "sha256": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48"
+    },
+    {
+      "id": "taeh3",
+      "role": "생성 중 미리보기용 작은 디코더",
+      "required": true,
+      "source": "hf",
+      "repo": "Kijai/MiniMax-H3-TAE",
+      "path": "vae_approx/taeh3.safetensors",
+      "filename": "taeh3.safetensors",
+      "dest": "models/vae_approx",
+      "size": 9791388,
+      "sha256": "f0f60fa072089997f817402098c2fd90777cb2660dd79cf5df42fc1e3e08e527"
+    },
+    {
+      "id": "dasiwa_v4_turbo_int8",
+      "role": "(선택) 이전 버전 DaSiWa Hybrid v4 Turbo — 4스텝으로 빠르게",
+      "required": false,
+      "source": "civitai",
+      "page": "https://civitai.com/models/2877206?modelVersionId=3392061",
+      "url": "https://civitai.com/api/download/models/3392061?fileId=3281858",
+      "filename": "dasiwa_minimax_h3_ref2va_v4_pruned_turbo_int8.safetensors",
+      "dest": "models/diffusion_models/MiniMaxH3",
+      "size": 20967668616,
+      "sha256": "36471afb817747b711b9abad3d8e6b7c88a7c2b91b4887d040a8dcb7ee82b2d6"
+    },
+    {
+      "id": "base_ref2va_int8",
+      "role": "(선택) MiniMax H3 기본 모델 · 참조 사진용(터보 아님 → 터보 LoRA 와 함께 쓰거나 20스텝 이상)",
+      "required": false,
+      "source": "hf",
+      "repo": "Comfy-Org/MiniMax-H3",
+      "path": "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "filename": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "dest": "models/diffusion_models/MiniMaxH3",
+      "size": 20970379616,
+      "sha256": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779"
+    },
+    {
+      "id": "base_fl2va_int8",
+      "role": "(선택) MiniMax H3 기본 모델 · 첫·끝 장면용(터보 아님)",
+      "required": false,
+      "source": "hf",
+      "repo": "Comfy-Org/MiniMax-H3",
+      "path": "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+      "filename": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+      "dest": "models/diffusion_models/MiniMaxH3",
+      "size": 20970379616,
+      "sha256": "e889202c41dafb67b10d67b97f0d8541508036a6090af23425a5c2615d03c47a"
+    },
+    {
+      "id": "lora_ref2v_turbo_4step",
+      "role": "(선택) 터보 가속 LoRA · 참조 사진용 4스텝 — 기본 REF2VA 모델에 붙임",
+      "required": false,
+      "source": "hf",
+      "repo": "Comfy-Org/MiniMax-H3",
+      "path": "loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+      "filename": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+      "dest": "models/loras",
+      "size": 1956193000,
+      "sha256": "5b9ab5ade15d0775676d01a907268a69a1468dc6033b3b0d3ded5502f3ebb84c"
+    },
+    {
+      "id": "lora_fl2v_turbo_8step",
+      "role": "(선택) 터보 가속 LoRA · 첫·끝 장면용 8스텝 — 기본 FL2VA 모델에 붙임",
+      "required": false,
+      "source": "hf",
+      "repo": "Comfy-Org/MiniMax-H3",
+      "path": "loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+      "filename": "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+      "dest": "models/loras",
+      "size": 1956193000,
+      "sha256": "2339acdf19bfe123f46b971ea35d367a84adb85de43627e1eceafa5a5b2b111e"
+    }
+  ]
+}

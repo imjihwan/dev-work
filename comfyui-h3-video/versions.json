@@ -1,0 +1,41 @@
+{
+  "_comment": "2026-11-13 기준 원본 PC 에서 실제로 동작한 버전. setup.ps1 이 이 값을 그대로 쓴다.",
+  "python": "3.12",
+  "comfyui": {
+    "repo": "https://github.com/comfyanonymous/ComfyUI.git",
+    "commit": "c5751c81abe131202eea9e4c66d000589013dd0b",
+    "date": "2026-11-11"
+  },
+  "torch": {
+    "index_url": "https://download.pytorch.org/whl/cu130",
+    "packages": ["torch==2.14.1", "torchvision==0.29.1", "torchaudio==2.11.0"],
+    "note": "comfy-kitchen 의 int8/nvfp4 가속은 cu130 이상 PyTorch 가 필요하다(ComfyUI 경고 문구 기준)."
+  },
+  "custom_nodes": [
+    {
+      "name": "ComfyUI-DaSiWa-Nodes",
+      "repo": "https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes",
+      "commit": "0ac69625b0a1d52c25aa85d81d8385527874a1d1",
+      "why": "MiniMaxH3Director·SeedControl·LoRA 묶음·이어붙이기·영상 저장 노드",
+      "skip_requirements": ["llama-cpp-python"]
+    },
+    {
+      "name": "ComfyUI-KJNodes",
+      "repo": "https://github.com/kijai/ComfyUI-KJNodes",
+      "commit": "ab72eda7ffad6280422d71ab7d54d3fb87c0ba18",
+      "why": "ModelPreviewOverrideKJ(생성 중 미리보기)·ModelPatchTorchSettings"
+    },
+    {
+      "name": "ComfyUI-GGUF",
+      "repo": "https://github.com/city96/ComfyUI-GGUF",
+      "commit": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+      "why": "(선택) GGUF 모델용. 간단 화면은 GGUF 를 쓰지 않음"
+    }
+  ],
+  "workflow_source": {
+    "repo": "https://github.com/darksidewalker/dasiwa-comfyui-workflows",
+    "path": "C-MMH3/DaSiWa MiniMaxH3 MythicAlchemy C-MMH3-33.json",
+    "commit": "43bc259f14bdcc790d10234a53321b1c1011c29c",
+    "note": "simple_ui/template_api.json 은 이 워크플로를 ComfyUI 에서 한 번 실행해 뽑은 API 프롬프트(경로 구분자만 Windows 식으로 바꾼 것)."
+  }
+}

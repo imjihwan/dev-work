@@ -1,0 +1,379 @@
+{
+  "2568": {
+    "inputs": {
+      "frame_rate": [
+        "2730",
+        8
+      ],
+      "codec": "Auto",
+      "container": "Auto",
+      "bit_depth": "Auto",
+      "quality": 25,
+      "log_level": "Standard",
+      "pingpong": false,
+      "save_metadata": true,
+      "filename_prefix": "video/%date:yyyy-MM-dd%/%date:hhmmss%",
+      "save_output": true,
+      "pass_frames": false,
+      "crop_to_audio": false,
+      "audio_codec": "Auto",
+      "audio_bitrate": "192k",
+      "save_first_frame": false,
+      "save_last_frame": false,
+      "free_memory_if_needed": false,
+      "images": [
+        "1512:2671",
+        0
+      ],
+      "audio": [
+        "1512:2671",
+        1
+      ]
+    },
+    "class_type": "DaSiWa_EnhancedVideoCombine",
+    "_meta": {
+      "title": "DaSiWa Enhanced Video Combine"
+    }
+  },
+  "2678": {
+    "inputs": {
+      "stack_data": "[{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1}]",
+      "model_type": "Basic",
+      "use_cache": false,
+      "model": [
+        "2730",
+        5
+      ],
+      "clip": [
+        "1512:2587",
+        0
+      ]
+    },
+    "class_type": "DaSiWa_LTX2LoraLoader",
+    "_meta": {
+      "title": "Advanced LoRA Loader"
+    }
+  },
+  "2730": {
+    "inputs": {
+      "mode": "REF2VA",
+      "prompt": "",
+      "width": 768,
+      "height": 1632,
+      "duration": 5.0,
+      "ref_image_size": "match",
+      "timeline_data": "{\"version\": 1, \"items\": [], \"prompt_blocks\": [], \"builder_state\": {\"version\": 1, \"mode\": \"REF2VA\", \"duration\": 5, \"ref\": {\"subject_definitions\": \"\", \"summary\": \"\", \"retention_analysis\": \"\", \"detailed_description\": \"\", \"soundscape\": \"\", \"music\": \"\", \"subject_defs\": [], \"summary_types\": [\"reference generation\"], \"summary_text\": \"\", \"retention\": [], \"style_line\": \"\", \"detail\": \"\"}, \"imd\": \"\", \"soundscape\": \"\", \"music\": \"\", \"simple_prompt\": \"\", \"prompt_mode\": \"simple\"}, \"resolution\": {\"aspect\": \"auto\", \"resolution\": \"auto\", \"input_scaling\": \"Auto\", \"custom_aspect_w\": 16, \"custom_aspect_h\": 9, \"custom_mp\": 0.4, \"custom_width\": 1088, \"custom_height\": 1984, \"custom_mode\": \"fixed\"}, \"resolved_prompt\": \"\", \"field_heights\": {\"simple_prompt\": 572.83984375, \"ref_detailed_description\": 208.5}, \"refmods\": [{\"slot\": 1, \"name\": \"\", \"description\": \"\", \"strength\": 1, \"enabled\": false}], \"continuity\": {\"version\": 3, \"output_mode\": \"full\", \"source_kind\": \"checkpoint\", \"source_id\": \"\", \"source_video_id\": \"\", \"source_video\": null, \"use_references\": false, \"operation\": \"new\", \"capture\": false, \"session\": \"h3_998cd12a79e31d10ce2ae7e18eb03501\", \"overlap_frames\": 22, \"continuation_prompt\": \"\", \"idea\": \"\"}, \"clip_assembly\": {\"version\": 1, \"tab\": \"files\", \"rows\": [{\"kind\": \"checkpoint\", \"session\": \"h3_998cd12a79e31d10ce2ae7e18eb03501\", \"clip_id\": \"99b3f6cf14274fed8c730b67f6a6f282\", \"selected\": true}, {\"kind\": \"checkpoint\", \"session\": \"h3_998cd12a79e31d10ce2ae7e18eb03501\", \"clip_id\": \"d93ce1dde77342f794c5d2efcb457f35\", \"selected\": true}, {\"kind\": \"media\", \"filename\": \"1.webm\", \"trim_start\": 0, \"trim_end\": null}], \"repair_transitions\": false, \"audio_policy\": \"preserve\", \"filename_prefix\": \"H3_Joined\", \"context_frames\": 22, \"transition_frames\": 29, \"transition_prompt\": \"\"}}",
+      "builder_state": "{\"version\": 1, \"mode\": \"REF2VA\", \"duration\": 5, \"ref\": {\"subject_definitions\": \"\", \"summary\": \"\", \"retention_analysis\": \"\", \"detailed_description\": \"\", \"soundscape\": \"\", \"music\": \"\", \"subject_defs\": [], \"summary_types\": [\"reference generation\"], \"summary_text\": \"\", \"retention\": [], \"style_line\": \"\", \"detail\": \"\"}, \"imd\": \"\", \"soundscape\": \"\", \"music\": \"\", \"simple_prompt\": \"\", \"prompt_mode\": \"simple\"}",
+      "frame_rate": 24.0,
+      "fl2va_model": [
+        "1512:1536",
+        0
+      ],
+      "ref2va_model": [
+        "1512:2663",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3Director",
+    "_meta": {
+      "title": "MiniMaxH3 Director"
+    }
+  },
+  "2737": {
+    "inputs": {
+      "max_resolution": 512,
+      "jpeg_quality": 80,
+      "suppress_default_preview": false,
+      "preview_frames": 120,
+      "preview_fps": 8,
+      "tiny_vae": "taeh3.safetensors",
+      "model": [
+        "1512:2692",
+        0
+      ]
+    },
+    "class_type": "ModelPreviewOverrideKJ",
+    "_meta": {
+      "title": "Model Preview Override"
+    }
+  },
+  "2739": {
+    "inputs": {
+      "seed_value": 407763190753836160,
+      "seed_control_state": "{\"mode\":\"random\",\"last_seed\":\"407763190753836178\",\"recent\":[\"407763190753836178\",\"18198207011397161696\",\"14371646594546444493\",\"1176002127602395864\",\"16312356272260500506\",\"10692305977776190887\",\"13083858638355460498\",\"15150890465947993888\",\"2009637864198570946\",\"9941078961442708585\"]}"
+    },
+    "class_type": "DaSiWa_SeedControl",
+    "_meta": {
+      "title": "Seed Control"
+    }
+  },
+  "2797": {
+    "inputs": {
+      "filename": [
+        "2568",
+        1
+      ],
+      "ticket": [
+        "1512:2796",
+        2
+      ]
+    },
+    "class_type": "DaSiWaH3ContinuityPublish",
+    "_meta": {
+      "title": "MiniMaxH3 Continuity • Publish Export"
+    }
+  },
+  "1512:2586": {
+    "inputs": {
+      "unet_name": "MiniMaxH3\\dasiwa_minimax_h3_ref2va_v5xs_pruned_graviton_turbo_int8_row-wise_convrot_runtime_mixed.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "확산 모델 로드"
+    }
+  },
+  "1512:2587": {
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "type": "minimax",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "CLIP 로드"
+    }
+  },
+  "1512:2584": {
+    "inputs": {
+      "vae_name": "MiniMaxH3\\minimax_h3_video_vae_int8_convrot.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE Video"
+    }
+  },
+  "1512:2720": {
+    "inputs": {
+      "attention": "comfy kitchen attention",
+      "model": [
+        "1512:2588",
+        0
+      ]
+    },
+    "class_type": "ModelAttentionBackend",
+    "_meta": {
+      "title": "모델 어텐션 백엔드",
+      "cnr_id": "comfy-core"
+    }
+  },
+  "1512:2719": {
+    "inputs": {
+      "attention": "comfy kitchen attention",
+      "model": [
+        "1512:2586",
+        0
+      ]
+    },
+    "class_type": "ModelAttentionBackend",
+    "_meta": {
+      "title": "모델 어텐션 백엔드",
+      "cnr_id": "comfy-core"
+    }
+  },
+  "1512:1536": {
+    "inputs": {
+      "enable_fp16_accumulation": true,
+      "model": [
+        "1512:2719",
+        0
+      ]
+    },
+    "class_type": "ModelPatchTorchSettings",
+    "_meta": {
+      "title": "Model Patch Torch Settings",
+      "cnr_id": "comfyui-kjnodes",
+      "ver": "1.2.6"
+    }
+  },
+  "1512:2663": {
+    "inputs": {
+      "enable_fp16_accumulation": true,
+      "model": [
+        "1512:2720",
+        0
+      ]
+    },
+    "class_type": "ModelPatchTorchSettings",
+    "_meta": {
+      "title": "Model Patch Torch Settings",
+      "cnr_id": "comfyui-kjnodes",
+      "ver": "1.2.6"
+    }
+  },
+  "1512:2671": {
+    "inputs": {
+      "latent": [
+        "1512:2796",
+        0
+      ],
+      "vae": [
+        "1512:2584",
+        0
+      ],
+      "audio_vae": [
+        "1512:2585",
+        0
+      ],
+      "context": [
+        "1512:2796",
+        1
+      ]
+    },
+    "class_type": "DaSiWaH3ContinuitySegmentDecode",
+    "_meta": {
+      "title": "MiniMaxH3 Continuity • Segment Decode"
+    }
+  },
+  "1512:2588": {
+    "inputs": {
+      "unet_name": "MiniMaxH3\\dasiwa_minimax_h3_ref2va_v5xs_pruned_graviton_turbo_int8_row-wise_convrot_runtime_mixed.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "확산 모델 로드"
+    }
+  },
+  "1512:2590": {
+    "inputs": {
+      "scheduler": "simple",
+      "steps": 8,
+      "denoise": 1.0,
+      "model": [
+        "2678",
+        0
+      ]
+    },
+    "class_type": "BasicScheduler",
+    "_meta": {
+      "title": "기본 스케줄러"
+    }
+  },
+  "1512:2598": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "KSampler (선택)"
+    }
+  },
+  "1512:2585": {
+    "inputs": {
+      "vae_name": "MiniMaxH3\\minimax_h3_audio_vae_fp32.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE Audio"
+    }
+  },
+  "1512:2592": {
+    "inputs": {
+      "model": [
+        "2737",
+        0
+      ],
+      "conditioning": [
+        "1512:2701",
+        0
+      ]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {
+      "title": "기본 가이드"
+    }
+  },
+  "1512:2692": {
+    "inputs": {
+      "shift_video": 10.0,
+      "shift_audio": 3.0,
+      "model": [
+        "2678",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3SigmaShift",
+    "_meta": {
+      "title": "MiniMax H3 Sigma Shift"
+    }
+  },
+  "1512:2701": {
+    "inputs": {
+      "clip": [
+        "2678",
+        1
+      ],
+      "vae": [
+        "1512:2584",
+        0
+      ],
+      "guide": [
+        "2730",
+        0
+      ],
+      "audio_vae": [
+        "1512:2585",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3DirectorGuide",
+    "_meta": {
+      "title": "MiniMaxH3 Director Guide"
+    }
+  },
+  "1512:2591": {
+    "inputs": {
+      "noise": [
+        "2739",
+        1
+      ],
+      "guider": [
+        "1512:2592",
+        0
+      ],
+      "sampler": [
+        "1512:2598",
+        0
+      ],
+      "sigmas": [
+        "1512:2590",
+        0
+      ],
+      "latent_image": [
+        "1512:2701",
+        1
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "고급 사용자 정의 샘플러"
+    }
+  },
+  "1512:2796": {
+    "inputs": {
+      "sampled": [
+        "1512:2591",
+        0
+      ],
+      "context": [
+        "1512:2701",
+        2
+      ]
+    },
+    "class_type": "DaSiWaH3ContinuitySegmentPrepare",
+    "_meta": {
+      "title": "MiniMaxH3 Continuity • Segment Prepare"
+    }
+  }
+}
