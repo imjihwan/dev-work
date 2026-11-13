@@ -91,6 +91,7 @@ WebSocket 이벤트를 prompt_id 별로 받아 노드 종류에 따라 구간을
 - 같은 템플릿으로 `seed_value` 만 바꿔 `count`(1–20)개를 연속으로 대기열에 넣는다.
 - 시드를 적으면 `seed, seed+1, …`(재현 가능), 비우면 매번 랜덤.
 - 화면은 작업별로 상태를 따로 조회하고, 끝난 영상만 목록에 그린다(재생 중 영상은 다시 그리지 않음).
+- 작업이 남아 있을 때 다시 누르면(버튼 '대기열에 추가') 새 작업을 지금 목록 뒤에 붙인다. 서버는 매번 그대로 ComfyUI 대기열에 넣을 뿐이고, 순서대로 처리하는 건 ComfyUI 다. 목록·진행 상태는 localStorage 에 두어 새로고침 뒤에도 이어서 조회한다.
 - 중지: 대기열에서 먼저 빼고(`/queue delete`), 돌고 있는 것은 `prompt_id` 를 지정해 `/interrupt` — **다른 사람이 ComfyUI 화면에서 돌리는 작업은 건드리지 않는다.**
 
 ## 4. 프롬프트 형식
@@ -163,6 +164,9 @@ effective = 기본 규칙 ← civitai.suggest ← user   (오른쪽이 이김)
 | `GET /api/video?filename&subfolder&type[&download=1]` | ComfyUI `/view` 중계(Range 지원) |
 | `POST /api/cancel {ids:[…]}` | 이 화면에서 만든 작업만 중지 |
 | `POST /api/open-folder` · `/api/open-models {kind}` | 탐색기로 결과·모델 폴더 열기 |
+| `GET /api/history?offset&limit` | 작업 이력(최근 순) `{items, total}`. 결과가 아직 없는 항목은 이때 상태를 물어 채움(ComfyUI 가 잊은 작업은 `lost`) |
+| `POST /api/history/delete {ids:[…]}` · `{all:true}` | 이력 기록만 지움(영상·사진 파일은 그대로) |
+| `GET /api/input?name=simpleui_….jpg` | 이력 불러오기용 사진. 이 화면이 올린 `simpleui_*` 이름만 허용 |
 
 `/api/generate` 본문:
 ```json
@@ -173,9 +177,12 @@ effective = 기본 규칙 ← civitai.suggest ← user   (오른쪽이 이김)
   "steps": 8, "sampler": "euler", "scheduler": "simple", "shift_video": 10, "shift_audio": 3,
   "loras": [{"name": "xxx.safetensors", "strength": 0.8}],
   "aspect": "auto | 16:9 | …", "resolution": "draft | auto | 720p | 1080p", "duration": 5,
-  "seed": "", "count": 1
+  "seed": "", "count": 1,
+  "ui": {"f": {"summary": "…", …}, "shots": [["0", "…"]], "final": null, "trig": true}
 }
 ```
+`ui` 는 화면 칸 그대로의 사본으로, 작업 이력에 같이 저장해 **불러오기** 때 칸을 다시 채우는 데만 쓴다(생성에는 안 씀).
+
 검증: 사진 수(REF2VA 1–9, FL2VA 2, I2VA 1), 길이 1–15초(H3 최대 15초·24fps), 스텝 1–60, LoRA ≤10, 반복 1–20, 모델·LoRA 가 ComfyUI 목록에 있고 H3 용일 것.
 
 ### 해상도
@@ -188,7 +195,9 @@ effective = 기본 규칙 ← civitai.suggest ← user   (오른쪽이 이김)
 |---|---|---|
 | `simple_ui/cards.json` | 파일별 auto·civitai·user | PC 마다 생성(.gitignore). 처음엔 `cards.seed.json` 복사 |
 | `simple_ui/presets.json` | 조합 | PC 마다(.gitignore). 처음엔 `presets.seed.json` 복사 |
-| 브라우저 localStorage | 입력 칸 내용, 마지막 모델 선택(사진 제외) | 브라우저별 |
+| `simple_ui/history.json` | 작업 이력: 작업 id·시각·시드·모드·모델·스텝·샘플러·스케줄러·shift·LoRA·화면비·화질·크기·길이·최종 프롬프트·올린 사진 이름·화면 칸 사본(`ui`) ↔ 결과(`state`, `video`, `error`). 최근 1000개 | PC 마다(.gitignore) — 프롬프트가 들어 있으니 저장소에 넣지 않음 |
+| 브라우저 localStorage | 입력 칸·장면·시드·직접 고친 최종 프롬프트, 모델 선택, 마지막 작업 목록(새로고침하면 진행률·결과를 이어서 보여 줌) | 브라우저·주소별 |
+| 브라우저 IndexedDB `h3simple` | 넣어 둔 사진(새로고침 복원용. localStorage 는 5MB 한계라 따로 둠) | 브라우저·주소별 |
 | `ComfyUI/input/simpleui_*.jpg` | 업로드한 사진 | PC 에만 남음 |
 | `ComfyUI/output/video/날짜/*.mp4` | 결과 | |
 

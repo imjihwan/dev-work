@@ -100,6 +100,16 @@ a{color:var(--acc)}
 .runs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}
 .run{border:1px solid var(--line);border-radius:10px;padding:6px;font-size:12px}
 .run video{max-height:260px;border-radius:6px}
+.hrow{display:grid;grid-template-columns:96px minmax(0,1fr);gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.hrow:first-child{border-top:0}
+.hthumb{width:96px;height:96px;border-radius:8px;background:var(--soft);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--mute);overflow:hidden;text-align:center}
+.hthumb video{width:100%;height:100%;object-fit:cover;cursor:pointer}
+.htitle{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.hmeta{font-size:12px;color:var(--mute);margin-top:2px}
+.hmeta .bad{color:var(--warn)}
+.hact{display:flex;gap:12px;margin-top:6px;flex-wrap:wrap}
+.hact .del{color:var(--warn)}
+.hprompt{white-space:pre-wrap;font-size:11px;background:var(--soft);border-radius:6px;padding:8px;margin:6px 0 0;max-height:220px;overflow:auto}
 .run .cap{display:flex;justify-content:space-between;gap:6px;margin-top:4px;color:var(--mute)}
 .run.wait{display:flex;align-items:center;justify-content:center;min-height:90px;color:var(--faint)}
 .run.err{color:var(--warn)}
@@ -235,6 +245,12 @@ a{color:var(--acc)}
       <div id="result" style="margin-top:12px"></div>
     </div>
     <button class="ghost" id="openFolder" style="width:100%;padding:10px">📂 결과 폴더 열기</button>
+    <div class="card" style="margin-top:16px">
+      <div class="sec-h"><h2 style="margin:0">작업 이력 <small id="histCount" style="font-weight:400;color:var(--mute)"></small></h2><button class="textbtn" id="histClear">전체 지우기</button></div>
+      <div class="hint" style="margin-bottom:6px">만들 때의 사진·설정·프롬프트와 결과 영상을 함께 남깁니다. <b>불러오기</b>로 그때 구성을 화면에 다시 채웁니다. 기록을 지워도 영상 파일은 결과 폴더에 남습니다.</div>
+      <div id="histList"></div>
+      <button class="ghost" id="histMore" hidden style="width:100%;margin-top:8px">더 보기</button>
+    </div>
   </div>
 </div>
 
@@ -265,6 +281,26 @@ function setMode(m){
 document.querySelectorAll("#modeSeg button").forEach(b => b.onclick = () => setMode(b.dataset.mode));
 
 // ---------- 사진 ----------
+// 새로고침해도 남도록 사진은 브라우저 IndexedDB 에 둔다(이 PC·이 브라우저·이 주소에만 남음)
+const IDB = (() => {
+  let p;
+  const db = () => p ||= new Promise((ok, no) => {
+    const r = indexedDB.open("h3simple", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("kv");
+    r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error);
+  });
+  const tx = async (mode, fn) => { const d = await db(); return new Promise((ok, no) => {
+    const t = d.transaction("kv", mode), q = fn(t.objectStore("kv"));
+    t.oncomplete = () => ok(q.result); t.onerror = () => no(t.error);
+  }); };
+  return { get: k => tx("readonly", s => s.get(k)), set: (k, v) => tx("readwrite", s => s.put(v, k)) };
+})();
+let imgsReady = false;      // 복원 전에 빈 목록으로 덮어쓰지 않게
+function saveImgs(){ if (imgsReady) IDB.set("images", [...images]).catch(() => {}); }
+async function restoreImgs(){
+  try { const v = await IDB.get("images"); if (!images.length && Array.isArray(v)) images.push(...v.slice(0, maxImgs())); } catch {}
+  imgsReady = true; drawThumbs();
+}
 function addFiles(files){
   for (const f of files){
     if (!f.type.startsWith("image/")) continue;
@@ -291,6 +327,7 @@ function drawThumbs(){
     d.querySelector("button").onclick = () => { images.splice(i,1); drawThumbs(); };
     $("thumbs").appendChild(d);
   });
+  saveImgs();
   render();
 }
 $("drop").onclick = () => $("file").click();
@@ -369,7 +406,7 @@ function render(){
   drawGoInfo();
   save();
 }
-$("final").oninput = () => { manualFinal = true; $("resetFinal").hidden = false; $("finalHint").textContent = "직접 고친 프롬프트를 씁니다. 위 칸을 바꿔도 반영되지 않습니다."; };
+$("final").oninput = () => { manualFinal = true; $("resetFinal").hidden = false; $("finalHint").textContent = "직접 고친 프롬프트를 씁니다. 위 칸을 바꿔도 반영되지 않습니다."; save(); };
 $("resetFinal").onclick = () => { manualFinal = false; $("resetFinal").hidden = true; $("finalHint").textContent = "위 칸을 고치면 자동으로 다시 만들어집니다."; render(); };
 FIELDS.forEach(id => $(id).addEventListener("input", () => { render(); if (CAT && ["resolution","duration"].includes(id)) drawSpeed(); }));
 
@@ -645,7 +682,7 @@ async function loadCatalog(manual){
 const EXAMPLE = {
   f: {
     subject: "",
-    summary: "One continuous shot: the person smiles brightly, gives a thumbs-up to the camera, then turns and walks out of the frame to the side.",
+    summary: "One continuous shot: the person smiles brightly and gives a thumbs-up to the camera, then the big smile relaxes into a soft, natural faint smile, and they turn and walk out of the frame to the side.",
     style: "Photorealistic live-action footage filmed on a real camera, soft natural light, realistic skin texture and fabric detail, natural human motion, no CGI, no cartoon look. Static camera at chest height, medium shot, the person centered at the start.",
     keep: "Keep the person's face, hairstyle, body shape, outfit and background exactly as in <Picture 1>. The outfit stays exactly the same from the first frame to the last frame, including the side and back views: no clothing change, no color change, no morphing. Do not add any hat, headband, accessory or object that is not in <Picture 1>.",
     sound: "Quiet indoor room tone, soft clothing rustle and natural footsteps fading away.",
@@ -653,14 +690,16 @@ const EXAMPLE = {
   },
   shots: [
     [0, "The person faces the camera and breaks into a big, bright, genuine smile, then raises one hand and gives a clear thumbs-up toward the lens, holding it steady."],
-    [2, "They lower the hand, turn their body to one side and start walking at a relaxed natural pace."],
-    [3.5, "They walk out of the frame; only the same background remains for the last moment."],
+    [1.8, "They lower the hand while the big smile gradually fades into a soft, relaxed faint smile; the eyes and mouth settle naturally and the face looks calm, not frozen."],
+    [2.6, "Keeping that gentle faint smile, they turn their body to one side and start walking at a relaxed natural pace."],
+    [3.8, "They walk out of the frame with a calm, natural expression; only the same background remains for the last moment."],
   ],
 };
 const KEY = "h3simple.v5", KEY_M = "h3simple.model.v1";
 function save(){
   try {
-    localStorage.setItem(KEY, JSON.stringify({f:Object.fromEntries(FIELDS.map(id=>[id,$(id).value])), shots:[...$("shots").children].map(d=>[d.querySelector("input").value,d.querySelector("textarea").value])}));
+    localStorage.setItem(KEY, JSON.stringify({f:Object.fromEntries(FIELDS.map(id=>[id,$(id).value])), shots:[...$("shots").children].map(d=>[d.querySelector("input").value,d.querySelector("textarea").value]),
+      seed: $("seed").value, final: manualFinal ? $("final").value : null}));
     localStorage.setItem(KEY_M, JSON.stringify(S));
   } catch {}
 }
@@ -672,6 +711,8 @@ function apply(s){
 function load(){
   let s = null; try { s = JSON.parse(localStorage.getItem(KEY)); } catch {}
   apply(s?.f ? s : EXAMPLE);
+  if (s?.seed) $("seed").value = s.seed;
+  if (typeof s?.final === "string") { manualFinal = true; $("final").value = s.final; $("resetFinal").hidden = false; $("finalHint").textContent = "직접 고친 프롬프트를 씁니다. 위 칸을 바꿔도 반영되지 않습니다."; }
   try { const m = JSON.parse(localStorage.getItem(KEY_M)); if (m) Object.assign(S, m, {loras: m.loras || {}}); } catch {}
 }
 $("example").onclick = () => { apply(EXAMPLE); render(); };
@@ -686,7 +727,7 @@ function drawGoInfo(){
     ? (seed && /^\d+$/.test(seed) ? `시드 ${seed}, ${BigInt(seed) + 1n}, … 처럼 1씩 늘려 ${c}개를 만듭니다(같은 시드를 다시 넣으면 같은 결과).` : `시드를 매번 랜덤으로 바꿔 ${c}개를 만듭니다. 마음에 든 결과의 시드는 결과 목록에 표시됩니다.`)
     : "";
 }
-$("seed").addEventListener("input", drawGoInfo);
+$("seed").addEventListener("input", () => { drawGoInfo(); save(); });
 function setStatus(t, cls=""){ $("status").textContent = t; $("status").className = "status " + cls; }
 const vurl = (v, dl) => `/api/video?${new URLSearchParams({...v, ...(dl?{download:1}:{})})}`;
 function showVideo(v){
@@ -718,14 +759,20 @@ $("go").onclick = async () => {
       images, prompt: $("final").value, aspect: $("aspect").value, resolution: $("resolution").value,
       duration: $("duration").value, seed: $("seed").value, mode: sendMode(), model: S.model,
       steps: S.steps, sampler: S.sampler, scheduler: S.scheduler, shift_video: S.shift_video, shift_audio: S.shift_audio,
-      loras: Object.entries(S.loras).map(([name,strength]) => ({name, strength})), count: runCount() })});
+      loras: Object.entries(S.loras).map(([name,strength]) => ({name, strength})), count: runCount(),
+      ui: {f: Object.fromEntries(FIELDS.map(id => [id, $(id).value])), shots: [...$("shots").children].map(d => [d.querySelector("input").value, d.querySelector("textarea").value]),
+           final: manualFinal ? $("final").value : null, trig: S.trig} })});
     const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status);
     const m = curModel(), jobs = j.jobs || [{id: j.id, seed: j.seed}];
     const info = `${j.width}×${j.height}, ${m ? friendlyModel(m) : j.model} ${j.steps}스텝${j.loras ? `, LoRA ${j.loras}개` : ""}`;
-    poll(jobs.map(x => ({...x, state: "queued"})), Date.now(), jobs.length > 1 ? info : `${info}, 시드 ${jobs[0].seed}`);
+    const add = jobs.map(x => ({...x, state: "queued", info: `${info}, 시드 ${x.seed}`}));
+    if (currentJobs.some(x => !finished(x))) poll(currentJobs.concat(add), pollT0, null);
+    else poll(add, Date.now(), jobs.length > 1 ? info : `${info}, 시드 ${jobs[0].seed}`);
+    $("go").disabled = false;
+    loadHist();
   } catch (e) { setStatus("실패: " + e.message, "err"); $("go").disabled = false; }
 };
-let currentJobs = [];
+let currentJobs = [], pollT0 = 0;
 const finished = j => j.state === "done" || j.state === "error";
 $("cancel").onclick = () => {
   const left = currentJobs.filter(j => !finished(j));
@@ -734,8 +781,15 @@ $("cancel").onclick = () => {
   // 대기열에서 빠진 작업은 기록이 남지 않으므로 여기서 '중지됨'으로 표시해 기다림을 끝낸다
   left.forEach(j => Object.assign(j, {state: "error", error: "중지됨"}));
 };
-function poll(jobs, t0, info){
-  currentJobs = jobs; jobs.forEach(j => j.miss = 0);
+const KEY_J = "h3simple.jobs.v1";
+function saveJobs(o){ try { localStorage.setItem(KEY_J, JSON.stringify(o)); } catch {} }
+function restoreJobs(){
+  let o = null; try { o = JSON.parse(localStorage.getItem(KEY_J)); } catch {}
+  if (!o?.jobs?.length) return;
+  poll(o.jobs, o.t0, o.info, o.t1);
+}
+function poll(jobs, t0, info, t1){
+  currentJobs = jobs; pollT0 = t0; jobs.forEach(j => j.miss = 0);
   clearTimeout(timer); $("cancel").hidden = false;
   $("cancel").textContent = jobs.length > 1 ? "남은 작업 모두 중지" : "중지";
   $("result").innerHTML = "";
@@ -746,27 +800,118 @@ function poll(jobs, t0, info){
       // ComfyUI 가 다시 켜졌거나 다른 곳에서 지운 작업은 기록이 없어 계속 unknown → 몇 번 뒤 끝낸다
       else if (++j.miss >= 5) Object.assign(j, {state: "error", error: "작업을 찾을 수 없음(ComfyUI 재시작·삭제)"});
     }
-    const sec = Math.round((Date.now()-t0)/1000), mm = `${Math.floor(sec/60)}:${String(sec%60).padStart(2,"0")}`;
     const n = jobs.length, done = jobs.filter(x => x.state === "done").length, errs = jobs.filter(x => x.state === "error").length;
+    if (done + errs === n && !t1) t1 = Date.now();
+    const sec = Math.round(((t1 || Date.now()) - t0)/1000), mm = `${Math.floor(sec/60)}:${String(sec%60).padStart(2,"0")}`;
+    saveJobs({jobs, t0, info, t1});
     const run = jobs.find(x => x.state === "running"), runIdx = jobs.indexOf(run);
     const pct = Math.round(((done + errs) + (run ? (run.pct || 0) / 100 : 0)) / n * 100);
     $("bar").hidden = false; $("bar").firstElementChild.style.width = pct + "%";
     if (n > 1 || done) drawRuns(jobs);
+    $("go").textContent = done + errs === n ? "영상 만들기" : "대기열에 추가";
     if (done + errs === n) {
       $("go").disabled = false; $("cancel").hidden = true;
+      if (!jobs.histDone) { jobs.histDone = true; loadHist(); }
       if (n === 1 && errs) { $("bar").hidden = true; setStatus("오류: " + jobs[0].error, "err"); return; }
-      setStatus(`완료 (${mm}) · ${n > 1 ? `${done}개 완료${errs ? `, ${errs}개 실패·중지` : ""} · ` : ""}${info}`, errs && !done ? "err" : "ok");
+      setStatus(`완료 (${mm}) · ${n > 1 ? `${done}개 완료${errs ? `, ${errs}개 실패·중지` : ""} · ` : ""}${info || ""}`, errs && !done ? "err" : "ok");
       return;
     }
     const head = n > 1 ? `${n}개 중 ${done + errs}개 끝 · ` : "";
-    if (run) setStatus(`${head}${n > 1 ? `${runIdx + 1}번 ` : ""}${run.pct || 0}% · ${run.label || "준비 중"} · ${mm} 경과 · ${info}`);
+    if (run) setStatus(`${head}${n > 1 ? `${runIdx + 1}번 ` : ""}${run.pct || 0}% · ${run.label || "준비 중"} · ${mm} 경과 · ${run.info || info || ""}`);
     else { const q = jobs.find(x => x.state === "queued"); setStatus(`${head}대기열${q?.position ? ` ${q.position}번째` : ""}… (${mm})`); }
     timer = setTimeout(tick, 2000);
   };
   tick();
 }
+// =====================================================================
+// 작업 이력 — 서버 history.json (설정·프롬프트·사진 ↔ 결과)
+// =====================================================================
+const HIST = {items: [], total: 0, t: null};
+const RES_NAME = {draft: "초안", auto: "기본", "720p": "720p", "1080p": "1080p"};
+const HSTATE = {queued: "대기", running: "만드는 중", error: "실패", lost: "결과 없음"};
+function histModelName(name){ const m = CAT?.models.find(x => x.name === name); return m ? friendlyModel(m) : base(name); }
+function histTitle(e){ return e.ui?.f?.summary?.trim() || (e.prompt || "").split("\n").find(l => l.startsWith("summary:"))?.slice(8).trim() || "(요약 없음)"; }
+async function loadHist(more){
+  try {
+    const r = await (await fetch(`/api/history?offset=${more ? HIST.items.length : 0}&limit=20`)).json();
+    HIST.items = more ? HIST.items.concat(r.items) : r.items; HIST.total = r.total;
+  } catch { return; }
+  drawHist();
+  // 아직 끝나지 않은 항목이 보이면 조금 뒤 다시 읽는다
+  clearTimeout(HIST.t);
+  if (HIST.items.some(e => ["queued","running"].includes(e.state))) HIST.t = setTimeout(() => loadHist(), 10000);
+}
+function drawHist(){
+  $("histCount").textContent = HIST.total ? `${HIST.total}개` : "";
+  $("histClear").hidden = !HIST.total;
+  $("histMore").hidden = HIST.items.length >= HIST.total;
+  if (!HIST.items.length) { $("histList").innerHTML = `<div class="empty">아직 기록이 없습니다.</div>`; return; }
+  $("histList").innerHTML = HIST.items.map((e, i) => {
+    const d = new Date(e.t * 1000), when = `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+    const thumb = e.video ? `<video muted loop preload="metadata" src="${vurl(e.video)}#t=0.5" data-play="${i}"></video>`
+      : `${HSTATE[e.state] || e.state}${e.state === "running" && e.pct != null ? ` ${e.pct}%` : ""}`;
+    const lo = e.loras?.length ? ` · LoRA ${e.loras.length}개` : "";
+    const meta = `${when} · ${e.mode === "REF2VA" ? "참조" : "첫·끝"} · ${esc(histModelName(e.model))} · ${e.steps}스텝${lo}<br>${RES_NAME[e.resolution] || esc(e.resolution)} ${e.width}×${e.height} · ${e.duration}초 · 시드 ${e.seed}`;
+    const err = e.error && e.state !== "done" ? `<br><span class="bad">${esc(e.error)}</span>` : "";
+    return `<div class="hrow"><div class="hthumb">${thumb}</div><div>
+      <div class="htitle">${esc(histTitle(e))}</div><div class="hmeta">${meta}${err}</div>
+      <div class="hact">${e.video ? `<button class="textbtn" data-play="${i}">보기</button><a class="textbtn" href="${vurl(e.video,1)}">다운로드</a>` : ""}
+        <button class="textbtn" data-load="${i}">불러오기</button><button class="textbtn" data-prompt="${i}">프롬프트</button>
+        <button class="textbtn del" data-del="${i}">삭제</button></div>
+      <pre class="hprompt" id="hp${i}" hidden></pre></div></div>`;
+  }).join("");
+  $("histList").querySelectorAll("video[data-play]").forEach(v => { v.onmouseenter = () => v.play().catch(() => {}); v.onmouseleave = () => v.pause(); });
+}
+$("histList").onclick = async ev => {
+  const t = ev.target.closest("[data-play],[data-load],[data-prompt],[data-del]"); if (!t) return;
+  const e = HIST.items[Number(t.dataset.play ?? t.dataset.load ?? t.dataset.prompt ?? t.dataset.del)]; if (!e) return;
+  if (t.dataset.play != null) { showVideo(e.video); setStatus(`이력: 시드 ${e.seed} · ${histModelName(e.model)} ${e.steps}스텝`, "ok"); window.scrollTo({top: 0, behavior: "smooth"}); }
+  else if (t.dataset.prompt != null) { const pre = $("hp" + t.dataset.prompt); pre.textContent = e.prompt; pre.hidden = !pre.hidden; }
+  else if (t.dataset.del != null) {
+    if (!confirm("이 기록을 지울까요? (영상 파일은 결과 폴더에 남습니다)")) return;
+    await fetch("/api/history/delete", {method:"POST", body: JSON.stringify({ids: [e.id]})}); loadHist();
+  }
+  else loadFromHist(e);
+};
+$("histMore").onclick = () => loadHist(true);
+$("histClear").onclick = async () => {
+  if (!confirm(`작업 이력 ${HIST.total}개를 모두 지울까요? (영상 파일은 결과 폴더에 남습니다)`)) return;
+  await fetch("/api/history/delete", {method:"POST", body: JSON.stringify({all: true})}); loadHist();
+};
+// 그때 구성을 화면에 다시 채운다: 사진·내용·모델·스텝·LoRA·화질·길이·시드(그대로 넣어 같은 결과 재현)
+async function loadFromHist(e){
+  if (!CAT) return;
+  const u = e.ui || {}, warn = [];
+  if (u.f) apply({f: u.f, shots: u.shots});
+  for (const [k, v] of [["aspect", e.aspect], ["resolution", e.resolution], ["duration", e.duration]]) if (v != null) $(k).value = v;
+  $("seed").value = e.seed; $("count").value = 1;
+  setMode(e.mode === "REF2VA" ? "REF2VA" : "FL2VA");
+  if (CAT.models.some(m => m.name === e.model)) S.model = e.model; else warn.push(`모델 ${base(e.model)} 이 폴더에 없음`);
+  for (const k of PARAMS) if (e[k] != null) S[k] = e[k];
+  S.loras = {};
+  for (const x of e.loras || []) { if (CAT.loras.some(l => l.name === x.name)) S.loras[x.name] = x.strength; else warn.push(`LoRA ${base(x.name)} 없음`); }
+  if (u.trig != null) S.trig = u.trig;
+  // 사진: ComfyUI input 폴더에서 다시 읽기
+  const got = [];
+  for (const name of e.images || []) {
+    try {
+      const r = await fetch("/api/input?name=" + encodeURIComponent(name)); if (!r.ok) throw 0;
+      const b = await r.blob();
+      got.push(await new Promise(ok => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); }));
+    } catch { warn.push(`사진 ${name} 없음`); }
+  }
+  images.length = 0; images.push(...got);
+  manualFinal = false; $("resetFinal").hidden = true; $("finalHint").textContent = "위 칸을 고치면 자동으로 다시 만들어집니다.";
+  drawThumbs(); drawModelCard();
+  // 화면 칸으로 다시 만든 프롬프트가 그때와 다르면(직접 고쳤던 경우 등) 그때 프롬프트를 그대로 쓴다
+  if ($("final").value !== e.prompt) { manualFinal = true; $("final").value = e.prompt; $("resetFinal").hidden = false; $("finalHint").textContent = "이력에서 불러온 프롬프트를 그대로 씁니다. 위 칸을 바꿔도 반영되지 않습니다."; }
+  render();
+  window.scrollTo({top: 0, behavior: "smooth"});
+  setStatus(`이력에서 불러왔습니다 (시드 ${e.seed})${warn.length ? ` — ${warn.join(", ")}` : ""}. 같은 시드로 만들면 같은 결과가 나옵니다.`, warn.length ? "err" : "ok");
+}
+
 $("openFolder").onclick = () => fetch("/api/open-folder", {method:"POST", body:"{}"});
-load(); setMode(S.mode || "REF2VA"); render(); loadCatalog();
+load(); setMode(S.mode || "REF2VA"); render(); loadCatalog().then(() => loadHist()); restoreImgs(); restoreJobs();
 // 파일로 직접 열면(file://) 서버 API 를 못 부르므로 서버 주소로 보낸다
 if (location.protocol === "file:") {
   $("go").disabled = true;

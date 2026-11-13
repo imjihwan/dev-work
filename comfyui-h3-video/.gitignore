@@ -1,6 +1,8 @@
 # PC별 상태(처음엔 *.seed.json 에서 만들어짐)
 simple_ui/cards.json
 simple_ui/presets.json
+# 작업 이력(프롬프트·사진 이름 포함) — 개인 데이터
+simple_ui/history.json
 simple_ui/*.tmp
 # 모델·결과는 저장소에 넣지 않음
 *.safetensors

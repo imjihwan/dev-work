@@ -13,7 +13,7 @@
 1. **워크플로 구성요소를 임의로 바꾸지 않는다.** 사용자가 "DaSiWa 워크플로"를 쓰겠다고 했으면 모델·노드·텍스트 모델·VAE 를 다른 것으로 바꿔 끼우지 않는다. 파일이 없거나 막히면 바꾸지 말고 **무엇이 없는지 보고하고 받을지 묻는다.**
 2. **템플릿 노드 구조를 바꾸지 않는다.** 노드 추가·삭제·연결 변경 금지. 바꿀 수 있는 것은 [ARCHITECTURE §2](docs/ARCHITECTURE.md#2-템플릿-노드-지도)의 입력값뿐. 새 기능에 노드가 필요하면 별도 틀을 만들자고 제안한다.
 3. **모델·LoRA 파일은 저장소에 넣지 않는다.** 링크·크기·sha256 을 `models.json` 에 적는다.
-4. **개인 데이터를 커밋하지 않는다.** 사진(`ComfyUI/input`), 결과 영상, `cards.json`/`presets.json`(PC별 상태), 개인 프롬프트가 든 템플릿. 템플릿을 다시 뽑으면 `timeline_data.items`·프롬프트 칸을 비운다.
+4. **개인 데이터를 커밋하지 않는다.** 사진(`ComfyUI/input`), 결과 영상, `cards.json`/`presets.json`/`history.json`(PC별 상태·작업 이력), 개인 프롬프트가 든 템플릿. 템플릿을 다시 뽑으면 `timeline_data.items`·프롬프트 칸을 비운다.
 5. **실존 인물 사진**은 사용자 본인 또는 동의받은 사진일 때만 사실적 영상으로 만든다.
 6. **Civitai 로그인·캡차는 사람이 한다.** 자격 증명을 입력하지 않는다. 받은 파일은 `get_models.py` 로 검증·이동.
 7. 라이선스 판단(MiniMax H3 사용 지역 조항 등)은 사용자 몫. 알리기만 하고 임의로 파일을 지우지 않는다.
@@ -22,8 +22,8 @@
 
 | 파일 | 내용 | 고칠 때 볼 곳 |
 |---|---|---|
-| `simple_ui/server.py` | HTTP 서버(ThreadingHTTPServer), ComfyUI 호출, 진행률(WebSocket), 모델 카드, 조합, 반복 | 상단 상수(노드 ID) · `analyze()`·`effective()`(판정 규칙) · `build_and_queue()`(값 채우기) |
-| `simple_ui/index.html` | 화면 전체. 상태 객체 `S`(mode, model, steps, sampler, scheduler, shift_*, loras{name:strength}, trig), 카탈로그 `CAT` | `build()`(프롬프트 조립) · `drawModelCard()` 계열 · `poll()`(반복 진행) |
+| `simple_ui/server.py` | HTTP 서버(ThreadingHTTPServer), ComfyUI 호출, 진행률(WebSocket), 모델 카드, 조합, 반복, 작업 이력 | 상단 상수(노드 ID) · `analyze()`·`effective()`(판정 규칙) · `build_and_queue()`(값 채우기·이력 기록) · `status()`→`hist_result()`(결과 매핑) |
+| `simple_ui/index.html` | 화면 전체. 상태 객체 `S`(mode, model, steps, sampler, scheduler, shift_*, loras{name:strength}, trig), 카탈로그 `CAT` | `build()`(프롬프트 조립) · `drawModelCard()` 계열 · `poll()`(반복 진행) · `save()/load()`·`restoreImgs()`·`restoreJobs()`(새로고침 복원) · `loadHist()/loadFromHist()`(이력) |
 | `simple_ui/template_api.json` | DaSiWa C-MMH3-33 API 프롬프트 | 노드 ID 는 ARCHITECTURE §2 |
 | `models.json` | 받을 파일 목록 | MODELS.md 마지막 절 |
 | `versions.json` | 고정 버전 | 올릴 땐 실제로 돌려 본 뒤 |
@@ -64,4 +64,5 @@ python scripts/get_models.py --comfy <ComfyUI> --all --check --fast
 - ComfyUI `/interrupt` 에 `prompt_id` 를 주면 그 작업이 돌 때만 멈춘다(다른 작업 보호).
 - 대기열에서 지운 작업·ComfyUI 재시작 전 작업은 history 에 없어 `/api/status` 가 `unknown` — 화면은 중지 시 직접 "중지됨", 그 밖엔 `unknown` 5번 연속이면 "작업을 찾을 수 없음"으로 끝낸다.
 - H3 모델 어텐션은 템플릿의 `ModelAttentionBackend`(`comfy kitchen attention`)가 정한다. `--use-sage-attention` 같은 실행 옵션은 H3 본체에 적용되지 않는다(실측: 속도 변화 없음, 결과만 달라짐). 속도 개선을 시도할 땐 이 노드 값을 먼저 확인.
+- 이력 불러오기는 그때 최종 프롬프트와 화면 칸으로 다시 만든 프롬프트가 다르면 그때 프롬프트를 '직접 고친 프롬프트'로 넣는다(재현 우선). 생성 요청에 화면 상태를 더할 땐 `ui` 사본도 맞춰 늘린다.
 - 길이는 1~15초(H3 최대). 프레임 수는 17k+5 단위로 맞춰진다.

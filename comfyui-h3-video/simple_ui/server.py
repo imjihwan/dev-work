@@ -7,7 +7,7 @@ template_api.json = 원본 DaSiWa 워크플로를 ComfyUI 에서 한 번 실행�
 모델·LoRA 목록은 ComfyUI 가 보는 models 폴더 목록을 그대로 쓰고, 파일마다 '카드'(cards.json)에
 자동 판정(파일 헤더)·Civitai 정보(해시 조회)·사용자 기본값을 모아 둔다. 조합은 presets.json.
 """
-import base64, datetime, hashlib, html, io, json, os, queue, random, re, struct, threading
+import base64, datetime, hashlib, html, io, json, os, queue, random, re, struct, threading, time
 import urllib.error, urllib.parse, urllib.request, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -163,6 +163,31 @@ def _seed(path):
 
 _seed(CARDS)
 _seed(PRESETS)
+
+# ---------- 작업 이력: 생성할 때의 설정·프롬프트·사진 ↔ 결과 영상 (history.json, 이 PC 에만) ----------
+HIST = os.path.join(HERE, "history.json")
+HLOCK = threading.Lock()
+HIST_DB = _load_json(HIST, [])         # 오래된 것 → 최근 순
+HIST_MAX = 1000
+
+
+def hist_add(entries):
+    with HLOCK:
+        HIST_DB.extend(entries)
+        del HIST_DB[:-HIST_MAX]
+        _save_json(HIST, HIST_DB)
+
+
+def hist_result(pid, st):
+    """작업이 끝나면(완료·오류) 이력에 결과를 적는다. 상태가 바뀔 때만 파일에 쓴다."""
+    if st.get("state") not in ("done", "error", "lost"):
+        return
+    with HLOCK:
+        for e in HIST_DB:
+            if e["id"] == pid and e.get("state") != st["state"]:
+                e.update(state=st["state"], video=st.get("video"), error=st.get("error"), t_end=time.time())
+                _save_json(HIST, HIST_DB)
+                return
 CARD_DB = _load_json(CARDS, {"model": {}, "lora": {}})
 CARD_DB.setdefault("model", {})
 CARD_DB.setdefault("lora", {})
@@ -494,16 +519,17 @@ def build_and_queue(req):
     p[LORA]["inputs"]["stack_data"] = json.dumps(rows)
 
     # --- 사진·프롬프트 ---
-    items, sizes = [], []
+    items, sizes, names = [], [], []
     for i, data_url in enumerate(imgs):
         head, b64 = data_url.split(",", 1)
         raw = base64.b64decode(b64)
         im = Image.open(io.BytesIO(raw))
         sizes.append(im.size)
         ext = {"PNG": "png", "WEBP": "webp"}.get(im.format, "jpg")
+        names.append(upload(raw, ext))
         # REF2VA: slot = 사진 번호 / FL2VA: slot 0 = 첫 프레임, 1 = 끝 프레임 / I2VA: slot 0
         items.append({"id": f"image-{uuid.uuid4().int % 10**13}-{i}", "enabled": True, "order": i, "slot": i,
-                      "start": i, "duration": 1, "type": "image", "value": upload(raw, ext), "thumbnail": None,
+                      "start": i, "duration": 1, "type": "image", "value": names[-1], "thumbnail": None,
                       "source_width": im.size[0], "source_height": im.size[1]})
 
     aspect = req.get("aspect") or "auto"
@@ -541,6 +567,14 @@ def build_and_queue(req):
         with PLOCK:
             PROGRESS[r["prompt_id"]] = {"classes": classes, "pct": 0.0, "label": "대기"}
         jobs.append({"id": r["prompt_id"], "seed": s})
+    now = time.time()
+    hist_add([{"id": j["id"], "t": now, "seed": j["seed"], "state": "queued", "video": None, "error": None,
+               "mode": mode, "model": model, "steps": steps,
+               "sampler": p[SAMPLER]["inputs"]["sampler_name"], "scheduler": p[SCHED]["inputs"]["scheduler"],
+               "shift_video": p[SHIFT]["inputs"]["shift_video"], "shift_audio": p[SHIFT]["inputs"]["shift_audio"],
+               "loras": [{"name": x["name"], "strength": float(x.get("strength", 1))} for x in loras],
+               "aspect": aspect, "resolution": resolution, "duration": duration, "width": w, "height": h,
+               "count": count, "prompt": text, "images": names, "ui": req.get("ui")} for j in jobs])
     return {"jobs": jobs, "id": jobs[0]["id"], "seed": jobs[0]["seed"], "width": w, "height": h,
             "model": os.path.basename(model.replace("\\", "/")), "steps": steps, "loras": len(loras), "mode": mode}
 
@@ -552,6 +586,12 @@ def video_of(entry):
 
 
 def status(pid):
+    st = _status(pid)
+    hist_result(pid, st)
+    return st
+
+
+def _status(pid):
     h = json.load(comfy(f"/history/{urllib.parse.quote(pid)}"))
     if pid in h:
         e = h[pid]
@@ -574,6 +614,24 @@ def status(pid):
     if pid in pend:
         return {"state": "queued", "position": pend.index(pid) + 1}
     return {"state": "unknown"}
+
+
+def hist_list(offset, limit):
+    """최근 순. 아직 결과가 없는 항목은 지금 상태를 물어 채운다(ComfyUI 가 잊은 작업은 '결과 없음')."""
+    with HLOCK:
+        items = list(reversed(HIST_DB))
+    page = items[offset:offset + limit]
+    for i, e in enumerate(page):
+        if e.get("state") in ("queued", "running"):
+            try:
+                st = _status(e["id"])
+            except Exception:  # noqa: BLE001 — ComfyUI 꺼짐: 지금 상태만 모름
+                continue
+            if st["state"] == "unknown":
+                st = {"state": "lost", "error": "결과 없음(ComfyUI 재시작 등으로 중단)"}
+            hist_result(e["id"], st)
+            page[i] = dict(e, **{k: v for k, v in st.items() if k in ("state", "video", "error", "pct")})
+    return {"items": page, "total": len(items)}
 
 
 class H(BaseHTTPRequestHandler):
@@ -601,6 +659,23 @@ class H(BaseHTTPRequestHandler):
                 self.wfile.write(b)
             elif u.path == "/api/status":
                 self._json(status(q["id"]))
+            elif u.path == "/api/history":
+                self._json(hist_list(int(q.get("offset") or 0), min(100, int(q.get("limit") or 20))))
+            elif u.path == "/api/input":
+                # 이력 불러오기용: 이 화면이 올린 사진만(ComfyUI input 폴더의 simpleui_*)
+                name = q.get("name", "")
+                if not re.fullmatch(r"simpleui_[0-9a-f]{10}\.(jpg|png|webp)", name):
+                    raise ValueError("이 화면이 올린 사진이 아닙니다.")
+                try:
+                    r = comfy("/view?" + urllib.parse.urlencode({"filename": name, "type": "input"}))
+                except urllib.error.HTTPError:
+                    return self._json({"error": "사진 파일이 없습니다(input 폴더에서 지워짐)."}, 404)
+                b = r.read()
+                self.send_response(200)
+                self.send_header("Content-Type", r.headers.get("Content-Type", "image/jpeg"))
+                self.send_header("Content-Length", str(len(b)))
+                self.end_headers()
+                self.wfile.write(b)
             elif u.path == "/api/catalog":
                 self._json(catalog())
             elif u.path == "/api/fetch-state":
@@ -666,6 +741,17 @@ class H(BaseHTTPRequestHandler):
                 ps.pop(body.get("name"), None)
                 _save_json(PRESETS, ps)
                 self._json(ps)
+            elif self.path == "/api/history/delete":
+                # 기록만 지운다. 결과 영상·사진 파일은 그대로 둔다.
+                ids = set(body.get("ids") or [])
+                with HLOCK:
+                    if body.get("all"):
+                        HIST_DB.clear()
+                    else:
+                        HIST_DB[:] = [e for e in HIST_DB if e["id"] not in ids]
+                    _save_json(HIST, HIST_DB)
+                    total = len(HIST_DB)
+                self._json({"ok": True, "total": total})
             elif self.path == "/api/open-folder":
                 folder = os.path.join(OUTPUT, "video", datetime.date.today().isoformat())
                 os.startfile(folder if os.path.isdir(folder) else os.path.join(OUTPUT, "video"))
@@ -691,7 +777,7 @@ class H(BaseHTTPRequestHandler):
             self._json({"error": str(e)}, 400)
 
     def log_message(self, fmt, *a):
-        if not any(s in (a[0] if a else "") for s in ("/api/status", "/api/fetch-state")):
+        if not any(s in (a[0] if a else "") for s in ("/api/status", "/api/fetch-state", "/api/history", "/api/input")):
             print("%s %s" % (self.command, self.path), flush=True)
 
 
