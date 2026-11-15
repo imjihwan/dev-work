@@ -3,6 +3,11 @@ simple_ui/cards.json
 simple_ui/presets.json
 # 작업 이력(프롬프트·사진 이름 포함) — 개인 데이터
 simple_ui/history.json
+simple_ui/saved-settings.json
+simple_ui/queue-edit-recovery.json
+simple_ui/story_data/
+simple_ui/gallery_data/
+simple_ui/queue-style-backups/
 simple_ui/*.tmp
 # 모델·결과는 저장소에 넣지 않음
 *.safetensors
@@ -10,3 +15,74 @@ simple_ui/*.tmp
 *.part
 *.mp4
 __pycache__/
+local-prompt-helper/
+
+# 설치본·다운로드·현장 점검 자료는 소스 저장소와 분리
+/ComfyUI/
+/logs/
+/upstream/
+/downloads/
+/exports/
+/.venv/
+/venv/
+node_modules/
+.pytest_cache/
+.env
+.env.*
+!.env.example
+*.log
+*.pid
+*.tmp
+*.bak
+*.backup
+*.zip
+*.7z
+*.exe
+*.dll
+
+# 모든 위치의 PC별 상태 및 개인 작업 데이터
+**/cards.json
+**/presets.json
+**/history.json
+**/saved-settings.json
+**/queue-edit-recovery.json
+**/story_data/
+**/gallery_data/
+**/queue-style-backups/
+**/input/
+**/output/
+**/models/
+**/loras/
+*.sqlite
+*.sqlite3
+*.db
+*.latent
+*.npy
+*.npz
+
+# 모델 가중치와 사진·영상·오디오 원본/결과물
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.onnx
+*.engine
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.gif
+*.bmp
+*.heic
+*.mov
+*.mkv
+*.webm
+*.avi
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.aac
+
+# 특정 PC 주소가 들어간 현장용 방화벽 설정
+/Enable-Home-LAN.ps1

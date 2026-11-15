@@ -1,228 +1,57 @@
-# 설계 문서
+# 구조와 변경 지점
 
-간단 화면이 어떻게 ComfyUI 워크플로를 움직이는지, 무엇을 고정하고 무엇을 바꾸는지 정리한 문서입니다.
-코드를 고치거나 기능을 더하기 전에 이 문서를 먼저 읽으세요.
+## 1. 소스와 실행 상태
 
-## 1. 구성요소
+`simple_ui/`가 앱 소스다. 설치 시 `ComfyUI/simple_ui/`로 코드·초기 설정을 복사하며 실행 상태는 설치본에만 저장한다. 모델·사진·결과·상태 파일은 배포 소스에 포함하지 않는다.
 
-```mermaid
-flowchart LR
-  B["브라우저<br/>index.html"] -- "HTTP (127.0.0.1:8190)" --> S["simple_ui/server.py"]
-  S -- "/prompt /history /queue /view<br/>/upload/image /object_info" --> C["ComfyUI (127.0.0.1:8188)"]
-  S -- "WebSocket /ws (진행률)" --> C
-  S -- "헤더만 읽기" --> M[("ComfyUI/models")]
-  S -- "해시로 조회(선택)" --> V["Civitai API"]
-  C --> G["GPU"]
-  S --- T["template_api.json<br/>(워크플로 틀)"]
-  S --- K["cards.json / presets.json"]
-```
-
-| 구성요소 | 역할 | 비고 |
-|---|---|---|
-| ComfyUI | 실제 생성 엔진 | 고정 커밋([versions.json](../versions.json)) |
-| ComfyUI-DaSiWa-Nodes | MiniMaxH3Director(프롬프트·사진·모드 처리), SeedControl, LoRA 묶음, 이어붙이기, 영상 저장 | GPL-3.0 |
-| ComfyUI-KJNodes | 생성 중 미리보기(ModelPreviewOverrideKJ), torch 설정 | |
-| template_api.json | DaSiWa 워크플로 `C-MMH3-33` 을 한 번 실행해 뽑은 **API 프롬프트** | 노드 구조의 원본. 서버는 **값만** 바꿈 |
-| server.py | 화면 API, 템플릿 값 채우기, 진행률 추적, 모델 카드·조합 저장 | 표준 라이브러리 + Pillow + aiohttp(ComfyUI venv 에 이미 있음) |
-| index.html | 화면 전체(HTML+CSS+JS 한 파일) | 외부 라이브러리·CDN 없음 |
-
-### 왜 "틀에 값만 채우기"인가
-- DaSiWa 워크플로는 노드 수십 개가 얽혀 있어 직접 다시 짜면 원작자 구성과 어긋나기 쉽다.
-- 그래서 원본 워크플로를 그대로 실행한 API 프롬프트를 틀로 두고, 사용자가 바꿀 수 있는 **값**(사진·프롬프트·모델 파일명·스텝·LoRA 칸 등)만 덮어쓴다.
-- 노드를 추가·삭제하지 않으므로, 원본 워크플로와의 차이는 "어떤 값을 넣었나"뿐이다.
+| 파일 | 역할 |
+|---|---|
+| `server.py` | HTTP API, ComfyUI 연결, 프롬프트 구성, 대기열 편집/재시작, 작업 이력, 진행률 |
+| `index.html` | 일반 영상 폼, 최종 프롬프트, 사진 순차/개별 추가, 이력, 선택 재생, 탭 전환 |
+| `gallery.py`, `gallery.html` | 갤러리 인덱스·상태·원본 썸네일 캐시, 모바일 목록·재생·재생성 |
+| `prompt_helper.py` | CPU 모델 실행, 입력 범위 제한, 요청 부분만 수정, 독립적인 동작/시간 검토 |
+| `story.py`, `story_workflow.py`, `story.html` | 프로젝트 상태, 네 단계 생성·확정·병합, 별도 연속 생성 그래프 어댑터 |
+| `template_api.json` | 입력 프롬프트와 참조 사진 목록이 비어 있는 기본 API 그래프 |
+| `*.seed.json` | 최초 실행용 공개 초기 설정. PC별 `cards.json`·`presets.json`과 구분 |
 
 ## 2. 템플릿 노드 지도
 
-`server.py` 상단 상수와 1:1 대응. **노드 번호가 바뀌면(템플릿을 다시 뽑으면) 여기와 상수를 같이 고친다.**
+기본 그래프의 노드·연결은 유지하고 허용한 입력값만 바꾼다.
 
-| 상수 | 노드 ID | class_type | 서버가 바꾸는 입력 |
-|---|---|---|---|
-| `DIRECTOR` | `2730` | MiniMaxH3Director | `mode`, `prompt`, `width`, `height`, `duration`, `timeline_data`(items·프롬프트·해상도), `builder_state` |
-| `SEED` | `2739` | DaSiWa_SeedControl | `seed_value` (0이 아니면 그 값을 그대로 씀) |
-| `SAVE` | `2568` | DaSiWa_EnhancedVideoCombine | (읽기만) 결과 파일은 history 의 `outputs[2568].gifs` |
-| `LOADERS[0]` | `1512:2586` | UNETLoader | `unet_name` — Director 의 `fl2va_model` 입력 |
-| `LOADERS[1]` | `1512:2588` | UNETLoader | `unet_name` — Director 의 `ref2va_model` 입력 |
-| `SCHED` | `1512:2590` | BasicScheduler | `steps`, `scheduler` |
-| `SAMPLER` | `1512:2598` | KSamplerSelect | `sampler_name` |
-| `SHIFT` | `1512:2692` | MiniMaxH3SigmaShift | `shift_video`, `shift_audio` |
-| `LORA` | `2678` | DaSiWa_LTX2LoraLoader | `stack_data` — 10칸 `[{on, lora, str, vs, as}]`, 빈칸은 `lora:"None"` |
-
-그대로 두는 노드: CLIPLoader(`qwen3vl…nvfp4_awq`), VAELoader 2개(영상 int8·소리 fp32), ModelAttentionBackend(`comfy kitchen attention`), ModelPatchTorchSettings(fp16 누적), ModelPreviewOverrideKJ(`taeh3`), BasicGuider, SamplerCustomAdvanced, 이어붙이기 노드들.
-
-- Director 의 모델 입력은 **lazy** 라서 모드에 맞는 쪽 하나만 실제로 불러온다(`REF2VA` → `ref2va_model`, 그 외 → `fl2va_model`). 서버는 두 로더에 같은 파일을 넣는다.
-- LoRA 묶음은 Director 출력(선택된 모델) 뒤에 붙으므로 모드와 상관없이 적용된다.
-
-### '사진 1 첫 장면 고정' 틀 (참조 방식 + 옵션)
-
-참조 방식(REF2VA)은 사진을 모두 **같은 자격의 참고 자료**로 넘길 뿐 어느 사진도 첫 장면으로 고정하지 않는다(DaSiWa `nodes_minimax_h3_director.py` → 네이티브 `MiniMaxH3ReferenceToVideo`, 코드 확인). 그래서 "사진 1 기준"은 프롬프트 문장으로만 전달돼 잘 안 지켜진다.
-옵션을 켜면 서버(`add_anchor()`)가 기본 틀에 노드 2개를 더하고 연결 1곳을 바꾼다:
-
-| 노드 ID | class_type | 입력 |
-|---|---|---|
-| `9001` (`ANCHOR_IMG`) | LoadImage | `image` = 올린 사진 1 파일 |
-| `9002` (`ANCHOR`) | MiniMaxH3AddGuide (ComfyUI 네이티브) | `positive`·`latent` = `1512:2701`(Director Guide) 0·1, `vae` = `1512:2584`, `image` = `9001`, `frame_idx` = 0 |
-
-그리고 `1512:2592`(BasicGuider)의 `conditioning` 을 `1512:2701`→`9002` 로 바꾼다. 참조 사진은 그대로 모두 들어가고, 사진 1 이 0번째 프레임 키프레임(`minimax_keyframes`)으로 추가된다(모델 코드 `comfy/ldm/minimax/model.py` 가 키프레임과 참조를 함께 받음).
-- 옵션을 끄면 그래프는 기본 틀과 완전히 같다.
-- 서버는 넣기 전에 `1512:2592.conditioning == [1512:2701, 0]` 인지 확인하고, 템플릿이 바뀌어 다르면 오류로 멈춘다.
-- 검증 범위: 그래프 연결·입력 타입을 ComfyUI 노드 정의와 대조(통과). **실제 생성 결과는 미확인**(실험 기능) — 특히 터보(증류) 모델에서 키프레임 품질은 모름.
-
-## 3. 요청 한 번의 흐름
-
-```mermaid
-sequenceDiagram
-  participant UI as index.html
-  participant S as server.py
-  participant C as ComfyUI
-  UI->>S: POST /api/generate {images(dataURL), prompt, mode, model, steps, …, loras, seed, count}
-  S->>C: GET /object_info (모델·LoRA 이름 검증)
-  S->>C: POST /upload/image (사진마다)
-  S->>S: template_api.json 복사 → 값 채우기
-  loop count 번 (시드만 바꿔서)
-    S->>C: POST /prompt {prompt, client_id}
-  end
-  S-->>UI: {jobs:[{id, seed}], width, height, …}
-  C-->>S: WebSocket progress/executing (client_id 로 온 것만)
-  loop 2초마다
-    UI->>S: GET /api/status?id=…
-    S->>C: GET /history/{id}, /queue
-    S-->>UI: queued(순번) / running(pct, label) / done(video) / error
-  end
-  UI->>S: GET /api/video?filename=… (Range 지원 → 재생·다운로드)
-```
-
-### 진행률 계산
-WebSocket 이벤트를 prompt_id 별로 받아 노드 종류에 따라 구간을 나눈다(단조 증가만 허용).
-
-| 구간 | 노드 | % |
-|---|---|---|
-| 모델 불러오기 | 이름에 `Loader` | 2–10 |
-| 사진·프롬프트 처리 | 그 외 | 10–15 |
-| 영상 생성 | SamplerCustomAdvanced (스텝 진행) | 15–82 |
-| 디코딩 | 이름에 `Decode` | 82–95 |
-| 파일 저장 | VideoCombine | 95–99 |
-
-### 반복(count)
-- 같은 템플릿으로 `seed_value` 만 바꿔 `count`(1–20)개를 연속으로 대기열에 넣는다.
-- 시드를 적으면 `seed, seed+1, …`(재현 가능), 비우면 매번 랜덤.
-- 화면은 작업별로 상태를 따로 조회하고, 끝난 영상만 목록에 그린다(재생 중 영상은 다시 그리지 않음).
-- 작업이 남아 있을 때 다시 누르면(버튼 '대기열에 추가') 새 작업을 지금 목록 뒤에 붙인다. 서버는 매번 그대로 ComfyUI 대기열에 넣을 뿐이고, 순서대로 처리하는 건 ComfyUI 다. 목록·진행 상태는 localStorage 에 두어 새로고침 뒤에도 이어서 조회한다.
-- 중지: 대기열에서 먼저 빼고(`/queue delete`), 돌고 있는 것은 `prompt_id` 를 지정해 `/interrupt` — **다른 사람이 ComfyUI 화면에서 돌리는 작업은 건드리지 않는다.**
-
-## 4. 프롬프트 형식
-
-화면의 칸을 모아 Director 가 기대하는 형식으로 만든다(최종 프롬프트 칸에서 직접 고칠 수도 있음).
-
-**REF2VA (참조 사진)**
-```
-subject_definitions: <Picture 1> shows the main subject. Copy the face, hairstyle, outfit and background from <Picture 1>.
-summary: [트리거 단어] …
-retention_analysis: …(유지할 것)
-detailed_description: 분위기·카메라 [Shot 1] … [Shot 2] At 00:02.000, …
-overall_soundscape: …
-non_diegetic_music: N/A
-```
-- 사진이 여러 장이면 subject 문장을 **사진별 역할**로 쓴다(공식 H3 문서의 "참조마다 역할을 밝혀라" 권장): Picture 1 = 영상 전체의 기준(얼굴·머리·옷·체형·배경, 시작 장면), Picture 2~ = 얼굴 참고만(얼굴형·눈·코·입·피부), 그 사진들의 옷·머리·배경·조명·자세·소품·글자는 무시하고 그 장면으로 바뀌거나 섞이지 말 것. 사진마다 옷이 달라 옷이 바뀌던 문제, 사진 1 이 얼굴만 자른 사진일 때 첫 장면·배경이 다른 사진 것으로 나오던 문제 대응. 문구 효과는 미실측 — 확실한 건 사진 1 을 옷·배경이 다 보이는 사진으로 고르고 나머지를 얼굴만 남게 자르는 것.
-- 성별·생김새는 적지 않는다. 사진에서 가져오게 하는 것이 원칙.
-- 트리거 단어: 고른 LoRA 마다 Civitai 등록 단어(`civitai.trained_words`) + 사용자가 저장한 단어(`user.trigger`, 쉼표 구분)를 모아 **요약(첫·끝 방식은 integrated_multimodal_description) 맨 앞**에 넣는다(LoRA 제작자들이 프롬프트 앞쪽을 권함). 요약에 이미 들어 있는 단어는 빼고, 고급 설정의 트리거 체크를 끄면 넣지 않는다.
-- 장면(Shot): 첫 장면은 0초 고정, 나머지는 `At 00:02.000,` 처럼 시작 시각을 붙인다. 참조 방식에서 **컷 없이 한 번에 찍기**(`S.oneTake`, 기본 켬)면 `[Shot N]` 표기를 빼고 시간 표기만 이어 쓰며, `retention_analysis` 끝에 `ONE_TAKE_KEEP`(배경·카메라 위치·구도를 사진 1 그대로, 컷·장면 전환·새 장소 없음)을 붙인다(유지할 것에 이미 `no cuts` 가 있으면 생략). 끄면 장면마다 `[Shot N]`. 첫·끝 방식은 Director 머리말이 `[Shot 1]`/`Shot 2` 를 가리키므로 늘 `[Shot N]` 표기. 영상 길이 이상에서 시작하는 장면은 프롬프트에서 뺀다(`lateShots()`, 화면에 빨간 표시·안내). 길이 칸을 바꾸면(change) 장면 시각을 같은 비율로 늘이고 줄인다. 영상 밖 장면을 넣었을 때 앞 장면이 압축돼 손이 하나 더 생긴 사례가 있었다.
-- '따봉 예시'는 엄지척 → 손을 내리며 큰 웃음이 엷은 미소로 → 그 표정으로 돌아서 걷기 → 차분한 표정으로 나감, 4장면(웃는 얼굴 그대로 걸어 나가 어색하던 것 보완).
-
-**FL2VA / I2VA (첫·끝 장면)** — 사진 2장이면 FL2VA, 1장이면 I2VA 로 보낸다.
-```
-How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark …; Picture 2 (from Shot 2) aligns with the end mark …
-integrated_multimodal_description: [트리거 단어] 요약 분위기 장면들 유지할 것
-overall_soundscape: …
-non_diegetic_music: …
-```
-(머리말 문장은 DaSiWa Director JS 의 기본 문장을 그대로 사용.) timeline items 의 `slot` 0 = 첫 장면, 1 = 끝 장면.
-
-## 5. 모델 카드 (파일별 기본값)
-
-서버는 ComfyUI 가 보는 목록(`/object_info/UNETLoader`, `/object_info/LoraLoaderModelOnly`)을 그대로 쓰고, 파일마다 카드를 만든다. 카드는 `cards.json` 에 저장된다(처음엔 `cards.seed.json` 에서 시작).
-
-```
-card = { auto: 파일 헤더·이름 판정, civitai: 해시 조회 결과, user: 사용자가 저장한 값 }
-effective = 기본 규칙 ← civitai.suggest ← user   (오른쪽이 이김)
-```
-
-**auto 판정 규칙** (`analyze()`)
-| 항목 | 규칙 |
+| 노드 ID | 역할 |
 |---|---|
-| H3 본체 모델인가 | 헤더에 `audio_patch_proj.weight` 가 있거나 `modelspec.architecture == minimax_h3` |
-| H3 용 LoRA 인가 | LoRA 키의 모듈 이름(블록 번호 무시)이 H3 본체 모듈 이름과 60% 이상 겹치거나, 메타데이터에 `minimax-h3/minimax_h3` |
-| 방식 | 이름에 `fl2v` → 첫·끝 장면, `ref2v` → 참조 사진, `dasiwa` → 둘 다(REF2VA+FL2VA 혼합 모델), 단서 없음 → 둘 다 |
-| 터보 | 이름에 `turbo / distill / lightspeed / lightning` |
-| 스텝 힌트 | 이름의 `8step`, `4turbo` 같은 숫자 |
-| 형식 | 이름의 `int8 / w6a8 / w4a8 / fp8 / nvfp4 / bf16 …`, 없으면 텐서 dtype |
-| 사용 불가 | GGUF(불러오는 노드가 다름), H3 아님 |
+| `2730` | Director: 모드·프롬프트·참조 타임라인 |
+| `2739` | SeedControl |
+| `2568` | 결과 저장 |
+| `1512:2586`, `1512:2588` | 모드별 모델 로더 |
+| `1512:2590`, `1512:2598` | 스텝/스케줄러, 샘플러 |
+| `1512:2692` | video/audio shift |
+| `2678` | LoRA 슬롯 |
+| `1512:2701`, `1512:2592`, `1512:2584` | Guide, Guider, video VAE |
+| `9001`, `9002` | 승인된 첫 사진 고정 옵션이 켜졌을 때 추가하는 LoadImage와 frame-zero guide |
 
-**기본값 규칙** (`effective()`)
-- 모델: 터보면 스텝 `힌트 또는 4`·`euler`, 아니면 `20`·`res_multistep`. 스케줄러 `simple`, shift 영상 10·소리 3.
-- Civitai 설명문에서 `N-Step: Quality` 같은 문구를 찾으면 스텝을 그 값으로.
-- LoRA: 강도 1.0, 설명문에 `strength/weight 0.65` 같은 값이 있으면 그 값. 터보 LoRA 는 스텝 힌트를 가짐.
-- 화면: 터보가 아닌 모델에 터보 LoRA 를 넣으면 스텝을 그 LoRA 의 힌트로 바꾼다.
+네 편 이어 만들기는 `story_workflow.py`에서 그래프 복사본에 연속성 설정을 적용한다. 기본 템플릿 파일을 덮어쓰지 않는다. 자세한 연속 생성 원리는 [STORY](STORY.md)를 참고한다.
 
-**Civitai 조회**: 파일 전체 SHA256 → `GET /api/v1/model-versions/by-hash/{sha}` → 이름·기반 모델·트리거 단어·설명. 404 면 "Civitai 에 없음"으로 기록. LoRA(<4GB)는 처음 보일 때 자동, 본체 모델은 버튼(해시에 수십 초). 파일 크기·수정시각이 바뀌면 다시 판정한다.
+## 3. 대기열과 프롬프트
 
-**화면 표시 이름**(index.html `friendlyModel/friendlyLora`)도 이름 패턴 규칙이다: `dasiwa` → "DaSiWa v번호(+GXS)(+터보)", `minimax_h3_ref2va/fl2va` → "MiniMax H3 기본 · ○○용", 터보 LoRA → "터보 가속 N스텝", 그 외 → Civitai 이름 또는 파일명. 같은 파일이 폴더 두 곳에 있으면(이름·크기 같음) 하나만 보여 준다.
+`build_and_queue()`는 폼 입력을 그래프와 이력에 함께 저장한다. `replace_queued_prompt()`는 수정 직전 실제 대기열 상태를 재확인해 실행 중인 작업을 보호하고 기존 ID·우선순위·순서를 유지한다.
 
-## 6. 서버 API
+`bulk_queue_context()`는 전체 대기항목 편집 화면에 필요한 대상 ID와 첫 항목만 제공한다. `bulk_edit_queue()`의 `all_pending=true`는 저장 시 전체 대기 대상을 다시 결정한다. 선택된 편집 범위 외에는 사진·시드·모드·첫 장면 고정 등 항목별 설정을 보존한다.
 
-| 메서드·경로 | 설명 |
-|---|---|
-| `GET /` | index.html (no-store) |
-| `GET /api/catalog` | `{models, loras, samplers, schedulers, presets, default}` — 카드 포함. 처음 보는 작은 LoRA 는 Civitai 조회를 자동으로 대기열에 넣음 |
-| `POST /api/card/fetch {kind, name}` | Civitai 조회 시작 |
-| `POST /api/card/save {kind, name, values}` | 사용자 기본값 저장(모델: steps·sampler·scheduler·shift_video·shift_audio / LoRA: strength·steps·trigger). 기존 값에 덮어쓰고, 빈 값은 그 항목을 지움 |
-| `GET /api/fetch-state` | 조회 진행 상태 |
-| `POST /api/preset/save {name, data}` · `/api/preset/delete {name}` | 조합 저장·삭제 |
-| `POST /api/generate` | 아래 본문. 응답 `{jobs:[{id,seed}], id, seed, width, height, model, steps, loras, mode}` |
-| `GET /api/status?id=` | `queued(position) / running(pct,label) / done(video) / error(error) / unknown` |
-| `GET /api/video?filename&subfolder&type[&download=1]` | ComfyUI `/view` 중계(Range 지원) |
-| `POST /api/cancel {ids:[…]}` | 이 화면에서 만든 작업만 중지 |
-| `POST /api/open-folder` · `/api/open-models {kind}` | 탐색기로 결과·모델 폴더 열기 |
-| `GET /api/history?offset&limit` | 작업 이력(최근 순) `{items, total}`. 결과가 아직 없는 항목은 이때 상태를 물어 채움(ComfyUI 가 잊은 작업은 `lost`) |
-| `POST /api/history/delete {ids:[…]}` · `{all:true}` | 이력 기록만 지움(영상·사진 파일은 그대로) |
-| `GET /api/input?name=simpleui_….jpg` | 이력 불러오기용 사진. 이 화면이 올린 `simpleui_*` 이름만 허용 |
+브라우저의 `build()`와 프롬프트 동기화 함수가 일반 폼의 최종 프롬프트를 구성한다. 저장된 화면을 복원할 때 알려진 공통 문구만 마이그레이션하며 개별 동작·사용자 문장 전체를 재작성하지 않는다. 일회성 대기열 유지보수 스크립트는 사용자가 지정한 범위와 입력을 갖춘 별도 수동 도구다. 설치나 테스트에서 자동 실행하지 않는다.
 
-`/api/generate` 본문:
-```json
-{
-  "images": ["data:image/jpeg;base64,…"], "prompt": "…",
-  "mode": "REF2VA | FL2VA | I2VA",
-  "model": "MiniMaxH3\\dasiwa_…turbo_int8….safetensors",
-  "steps": 8, "sampler": "euler", "scheduler": "simple", "shift_video": 10, "shift_audio": 3,
-  "loras": [{"name": "xxx.safetensors", "strength": 0.8}],
-  "aspect": "auto | 16:9 | …", "resolution": "draft | auto | 720p | 1080p", "duration": 5,
-  "seed": "", "count": 1, "anchor": false,
-  "ui": {"f": {"summary": "…", …}, "shots": [["0", "…"]], "final": null, "trig": true}
-}
-```
-`ui` 는 화면 칸 그대로의 사본으로, 작업 이력에 같이 저장해 **불러오기** 때 칸을 다시 채우는 데만 쓴다(생성에는 안 씀).
+## 4. 갤러리와 재생
 
-검증: 사진 수(REF2VA 1–9, FL2VA 2, I2VA 1), 길이 1–15초(H3 최대 15초·24fps), 스텝 1–60, LoRA ≤10, 반복 1–20, 모델·LoRA 가 ComfyUI 목록에 있고 H3 용일 것.
+`VideoGallery`는 갤러리 메타데이터와 썸네일 캐시를 관리한다. 원본 사진 썸네일과 결과 영상 스트림은 분리하며 목록 자동 갱신이 열린 플레이어를 다시 만들지 않도록 한다.
 
-### 해상도
-- 기본(auto): 짧은 변 768, 첫 사진 비율, 32 배수.
-- draft(초안) = 0.4MP(공식 H3 문서의 빠른 시험용 크기, 어떤 화면비든 짧은 변이 H3 최소 384 이상), 720p ≈ 0.879MP, 1080p ≈ 1.978MP(같은 비율로 맞춤). 720p·1080p 는 Director JS 계산과 같음. auto 는 짧은 변 768.
+`/api/gallery/regenerate`는 대상/설정 출처 ID와 요청 토큰을 받는다. 토큰을 저장해 재시도 중복 제출을 막는다. 새 작업은 현재 실행 작업 다음의 가장 높은 대기 우선순위로 넣으며 기존 파일·작업을 덮어쓰지 않는다.
 
-## 7. 저장되는 데이터
+`/api/gallery/progress`는 실행 여부·진행률·대기 수와 재생성 상태에 필요한 최소 메타데이터를 반환한다. 프롬프트·파일명·모델 설정을 진행률 응답에 넣지 않는다.
 
-| 파일 | 내용 | 배포 |
-|---|---|---|
-| `simple_ui/cards.json` | 파일별 auto·civitai·user | PC 마다 생성(.gitignore). 처음엔 `cards.seed.json` 복사 |
-| `simple_ui/presets.json` | 조합 | PC 마다(.gitignore). 처음엔 `presets.seed.json` 복사 |
-| `simple_ui/history.json` | 작업 이력: 작업 id·시각·시드·모드·모델·스텝·샘플러·스케줄러·shift·LoRA·화면비·화질·크기·길이·최종 프롬프트·올린 사진 이름·화면 칸 사본(`ui`) ↔ 결과(`state`, `video`, `error`). 최근 1000개 | PC 마다(.gitignore) — 프롬프트가 들어 있으니 저장소에 넣지 않음 |
-| 브라우저 localStorage | 입력 칸·장면·시드·직접 고친 최종 프롬프트, 모델 선택, 마지막 작업 목록(새로고침하면 진행률·결과를 이어서 보여 줌) | 브라우저·주소별 |
-| 브라우저 IndexedDB `h3simple` | 넣어 둔 사진(새로고침 복원용. localStorage 는 5MB 한계라 따로 둠) | 브라우저·주소별 |
-| `ComfyUI/input/simpleui_*.jpg` | 업로드한 사진 | PC 에만 남음 |
-| `ComfyUI/output/video/날짜/*.mp4` | 결과 | |
+영상 프록시는 Range 요청과 Content-Range/Accept-Ranges 헤더를 전달하고 데이터를 작은 청크로 전송한다. 브라우저는 선택한 최대 3개만 재생한다. 갤러리 단일 이동은 같은 `<video>` 요소를 사용하며, 닫을 때 소스를 제거하고 `load()`로 스트림을 해제한다. 일반 이력 미리보기는 가시성 관찰로 로딩을 제한하고 화면 전환·재렌더링 때 해제한다.
 
-## 8. 지원 범위와 한계
+## 5. 업데이트 경계
 
-- 틀 하나(DaSiWa C-MMH3-33)만 쓴다. Wan·LTX 등 다른 계열 모델은 노드 구조가 달라 이 틀로 못 돌린다(틀을 하나 더 만들어야 함).
-- GGUF 는 불러오는 노드가 달라 막아 두었다.
-- 제작자가 별도 노드(예: Conditioning Bridge)를 권하는 LoRA 는 그 노드 없이 LoRA 만 적용된다.
-- int8 같은 압축 모델에 LoRA 를 얹으면 빠른 int8 계산 대신 일반 계산 경로를 탈 수 있어 느려질 수 있다(코드상 추정, 실측 안 함).
-- 서버·ComfyUI 모두 127.0.0.1 에만 열린다. 외부 공개용이 아니다(인증 없음).
+화면 수정은 원본 소스와 실행 복사본의 해시를 맞춘다. 검증한 임시 파일을 준비한 뒤 파일 단위로 교체한다. Python UI 변경이 필요한 경우 진행률 인계 메타데이터를 준비한 후 UI 프로세스만 재시작하며, ComfyUI 프로세스와 대기열은 유지한다. 실행 중인 이어 만들기 작업이 있으면 UI 재시작을 먼저 진행하지 않는다.
+
+개인 작업 내용 확인 없이 검증할 수 있도록 테스트는 임시 디렉터리·합성 입력·가짜 HTTP/대기열·가짜 DOM을 사용한다.

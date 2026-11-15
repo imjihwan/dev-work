@@ -1,0 +1,171 @@
+// Isolated UI checks: fake DOM and fetch only; never connects to the app.
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const html = fs.readFileSync(process.argv[2] || path.join(__dirname, '../simple_ui/index.html'), 'utf8');
+const script = html.match(/<script>([\s\S]*)<\/script>/)[1];
+const section = (start, end) => script.slice(script.indexOf(start), script.indexOf(end, script.indexOf(start)));
+const elements = new Map();
+const $ = id => {
+  if (!elements.has(id)) elements.set(id, {value:'', hidden:true, disabled:false, textContent:'', style:{}, children:[], querySelectorAll:()=>[]});
+  return elements.get(id);
+};
+const requests = [];
+let reply = {}, pickedName = 'safe settings', lastApplied, replyHandler=null;
+const context = vm.createContext({$, console, setTimeout, clearTimeout, Date, JSON, Map, Set, Object, encodeURIComponent,
+  FIELDS:['summary','duration','aspect','resolution'], images:['photo1','photo2','photo3','photo4','photo5'],
+  S:{mode:'REF2VA',model:'test-model',steps:4,loras:{},anchor:false},
+  CAT:{capabilities:{photo_sequence:true,bulk_edit:true,bulk_edit_all:true}}, manualFinal:true, imgsReady:true,
+  editingJobId:null,bulkEditingIds:[],bulkAllEditing:false,queueSubmitting:false,currentJobs:[],pollT0:0,pollGen:0,timer:null,
+  HIST:{items:[{id:'a',state:'queued'},{id:'b',state:'queued'},{id:'done',state:'done'}],selected:new Set()},
+  HSTATE:{queued:'대기',running:'만드는 중',error:'실패',lost:'결과 없음'},vurl:()=>'/api/video?filename=synthetic.mp4',
+  prompt:()=>pickedName,confirm:()=>true,
+  fetch:async (url,options) => {requests.push({url,body:options?.body ? JSON.parse(options.body) : null});return {ok:true,json:async()=>replyHandler ? replyHandler(url) : reply};},
+  isRef:()=>true,runCount:()=>20,sendMode:()=> 'REF2VA', drawGoInfo:()=>context.updateSequenceButton(),
+  setStatus:()=>{},curModel:()=>null,histModelName:x=>x,finished:x=>x.state==='done',
+  poll:jobs=>{context.currentJobs=jobs;},loadHist:()=>{},closeResult:()=>{},
+  loadFromHist:async entry=>{context.lastLoaded=entry;},apply:s=>{lastApplied=s;for (const [key,value] of Object.entries(s.f||{})) $(key).value=value;},setMode:()=>{},drawModelCard:()=>{},render:()=>{},saveImgs:()=>{},esc:x=>x
+});
+$('summary').value='safe summary';$('duration').value='5';$('aspect').value='auto';$('resolution').value='draft';
+$('final').value='safe prompt';$('seed').value='100';
+$('shots').children=[{querySelector:s=>({value:s==='input'?'0':'safe scene'})}];
+$('bulkFields').querySelectorAll=()=>[{value:'content'},{value:'video'}];
+vm.runInContext(section('function captureSettings()', '// ---------- 실행'), context);
+vm.runInContext(section('function updateSequenceButton()', '$("cancelEdit").onclick'), context);
+vm.runInContext(section('async function submitJobs(', '$("go").onclick'), context);
+vm.runInContext(section('let restartingJob =', '$("cancel").onclick'), context);
+vm.runInContext(section('function refreshQueueSelection()', 'async function deleteHistoryEntries('), context);
+vm.runInContext(section('let helperJobId=', 'function captureSettings()'), context);
+vm.runInContext(section('async function deleteHistoryEntries(', '$("histList").onclick'), context);
+vm.runInContext(section('function historyThumb(', 'function drawHist('), context);
+vm.runInContext(section('function storyModelSettings()', 'function selectAppTab('), context);
+
+(async()=>{
+  const snapshot=JSON.parse(JSON.stringify(context.captureSettings()));
+  assert.equal(snapshot.images.length,5);assert.equal(snapshot.seed,'100');assert.equal(snapshot.final,'safe prompt');
+  reply={items:[]};await $('settingsSave').onclick();
+  assert.equal(requests.at(-1).url,'/api/settings/save');assert.deepEqual(requests.at(-1).body.data,snapshot);
+  context.images.length=0;context.S.steps=99;reply={data:snapshot};
+  await $('settingsList').onclick({target:{closest:()=>({dataset:{setting:'safe settings'}})}});
+  assert.equal(context.images.length,5);assert.equal(context.S.steps,4);assert.equal(lastApplied.seed,'100');
+  reply={jobs:Array.from({length:5},(_,i)=>({id:'seq'+i,seed:100+i,width:768,height:768,steps:4,model:'test-model'}))};
+  await context.submitJobs(true);
+  const seq=requests.at(-1);assert.equal(seq.url,'/api/generate');assert.equal(seq.body.count,5);
+  assert.equal(seq.body.photo_sequence,true);assert.equal(seq.body.anchor,false);assert.equal(seq.body.images.length,5);
+  context.setQueueEdit({id:'a',seed:100},['a','b']);
+  assert.equal($('photoFields').disabled,true);assert.equal($('seed').disabled,true);assert.equal($('sequenceGo').disabled,true);
+  reply={jobs:[{id:'a',seed:100,width:768,height:768,steps:4,model:'test-model'}],failed:[{id:'b',error:'already running'}]};
+  await context.submitJobs();
+  const bulk=requests.at(-1);assert.equal(bulk.url,'/api/queue/bulk-edit');assert.equal(bulk.body.images.length,0);
+  assert.deepEqual(bulk.body.edit_ids,['a','b']);assert.deepEqual(bulk.body.bulk_fields,['content','video']);
+  assert.equal($('photoFields').disabled,false);assert.equal($('queueFeedback').hidden,false);
+  context.HIST.selected=new Set(['a','done']);context.refreshQueueSelection();
+  assert.equal(context.HIST.selected.has('done'),false);assert.equal($('selectQueued').indeterminate,true);
+  $('selectQueued').checked=true;$('selectQueued').onchange();assert.equal(context.HIST.selected.size,2);
+  // All-pending mode is independent of the loaded history page and its selection.
+  const allIds=Array.from({length:125},(_,index)=>'all-'+index);
+  context.HIST.items=[];context.HIST.selected.clear();context.refreshQueueSelection();
+  assert.equal($('bulkEditAll').disabled,false);
+  reply={ids:allIds,total:125,first:{id:allIds[0],seed:123,state:'queued'}};
+  await $('bulkEditAll').onclick();
+  assert.equal(requests.at(-1).url,'/api/queue/bulk-context');assert.equal(context.lastLoaded.id,'all-0');
+  assert.equal(context.bulkAllEditing,true);assert.equal(context.bulkEditingIds.length,125);
+  assert.equal($('go').textContent,'전체 대기항목 수정 저장');assert($('queueEditInfo').textContent.includes('저장 시점'));
+  assert($('photoFields').disabled&&$('seed').disabled);assert(!context.queueSubmitting);
+  reply={jobs:[{id:'added-after-editor-opened',seed:321,width:768,height:768,model:'test-model',steps:4,loras:[]}],failed:[],all_pending:true,target_count:1};
+  await context.submitJobs();
+  const allRequest=requests.at(-1);assert.equal(allRequest.url,'/api/queue/bulk-edit');assert.equal(allRequest.body.all_pending,true);
+  assert.deepEqual(allRequest.body.edit_ids,[]);assert.equal(context.bulkAllEditing,false);assert($('queueFeedback').textContent.includes('1개 수정 완료'));
+  reply={ids:[],total:0,first:null};await $('bulkEditAll').onclick();assert.equal(context.bulkAllEditing,false);assert(!context.queueSubmitting);assert(!$('go').disabled);
+  context.setQueueEdit({id:'snapshot',seed:123},['snapshot'],true);reply={jobs:[],failed:[],all_pending:true,target_count:0};
+  await context.submitJobs();assert($('queueFeedback').textContent.includes('수정할 대기항목이 없어'));assert.equal(context.bulkAllEditing,false);
+  context.currentJobs=[{id:'running',state:'running',seed:100},{id:'waiting',state:'queued',seed:101}];
+  reply={id:'restarted',replaces:'running',seed:100};
+  await context.restartCurrentJob('running');
+  assert.equal(requests.at(-1).url,'/api/queue/restart');assert.deepEqual(requests.at(-1).body,{id:'running'});
+  assert.deepEqual(context.currentJobs.map(x=>x.id),['restarted','waiting']);
+  assert.equal(context.currentJobs[0].seed,100);assert.equal(context.currentJobs[0].state,'queued');
+  const draft={f:{subject:'',summary:'Safe draft',style:'Natural light.',keep:'Keep appearance.',sound:'Quiet room.',music:'N/A'},shots:[[0,'A teapot rotates.']]};
+  const protectedFields={subject:'Keep my subject',style:'Keep my location and fixed camera',keep:'Keep the face and outfit from <Picture 1>'};
+  for (const [key,value] of Object.entries(protectedFields)) $(key).value=value;
+  $('helperIdea').value='safe teapot idea';$('helperContext').checked=false;
+  replyHandler=url=>url.endsWith('/start') ? {id:'helper-test'} : {state:'done',draft};
+  const beforeHelper=JSON.stringify(context.currentJobs),previousApplied=lastApplied;
+  await $('helperStart').onclick();
+  const helperRequest=requests.findLast(r=>r.url==='/api/prompt-helper/start');
+  assert(!('images' in helperRequest.body));assert(!('context' in helperRequest.body));
+  assert.deepEqual(helperRequest.body.fixed,protectedFields);
+  assert.equal(lastApplied,previousApplied,'Drafts must not apply automatically');
+  assert.equal($('helperDraft').hidden,false);
+  $('helperApply').onclick();assert.deepEqual(Object.keys(lastApplied.f),['summary','sound','music']);assert.equal(lastApplied.f.summary,draft.f.summary);
+  for (const [key,value] of Object.entries(protectedFields)) assert.equal($(key).value,value,'Helper must preserve '+key);
+  assert.equal(JSON.stringify(context.currentJobs),beforeHelper);
+  $('duration').value='7';const appliedBeforeMismatch=lastApplied;$('helperApply').onclick();assert.equal(lastApplied,appliedBeforeMismatch);
+  assert($('helperStatus').textContent.includes('다시 작성'));
+  $('helperContext').checked=true;await $('helperStart').onclick();
+  assert(requests.findLast(r=>r.url==='/api/prompt-helper/start').body.context.summary);
+  assert(!('style' in requests.findLast(r=>r.url==='/api/prompt-helper/start').body.context));
+  $('style').value='Camera edited after generation';
+  const beforeProtectedChange=lastApplied;$('helperApply').onclick();assert.equal(lastApplied,beforeProtectedChange);
+  assert.equal($('style').value,'Camera edited after generation');
+  const musicPatch={f:{music:'Gentle piano music.'},edit:true,changes:[{target:'music',index:0,before:'N/A',after:'Gentle piano music.'}]};
+  replyHandler=url=>url.endsWith('/start') ? {id:'edit-test'} : {state:'done',draft:musicPatch};
+  const untouchedSummary=$('summary').value,untouchedShots=$('shots').children;
+  await $('helperStart').onclick();
+  $('summary').value='Edited while the assistant was working';
+  const previousMusic=$('music').value;$('helperApply').onclick();assert.equal($('music').value,previousMusic);
+  assert($('helperStatus').textContent.includes('원문을 수정'));
+  $('summary').value=untouchedSummary;$('helperApply').onclick();
+  assert.equal($('music').value,'Gentle piano music.');assert.equal($('summary').value,untouchedSummary);
+  assert.equal($('shots').children,untouchedShots);assert($('helperPreview').value.includes('원문: N/A'));
+  context.manualFinal=true;$('final').value='summary: A teapot rotates.\n\nnon_diegetic_music: N/A\n';
+  const editedFinal=$('final').value.replace('N/A','Gentle piano music.');
+  replyHandler=url=>url.endsWith('/start') ? {id:'manual-edit-test'} : {state:'done',draft:{f:{},edit:true,final:editedFinal,changes:[{target:'prompt',index:0,before:'N/A',after:'Gentle piano music.'}]}};
+  await $('helperStart').onclick();
+  assert.equal(requests.findLast(r=>r.url==='/api/prompt-helper/start').body.manual_prompt,$('final').value);
+  $('helperApply').onclick();assert.equal($('final').value,editedFinal);assert.equal(context.manualFinal,true);
+  assert.equal($('summary').value,untouchedSummary);assert.equal($('shots').children,untouchedShots);
+  context.manualFinal=false;
+  const shotInputs=[{value:'0.00'},{value:'3.500'}],shotTexts=[{value:'  Original first action.  '},{value:'Original second action.'}];
+  $('shots').children=shotInputs.map((input,i)=>({querySelector:selector=>selector==='input' ? input : shotTexts[i]}));
+  const shotPatch={f:{},edit:true,shots:[['0.00','  Original first action.  '],['3.500','Changed second action.']],changes:[{target:'shot_text',index:1,before:'Original',after:'Changed'}]};
+  replyHandler=url=>url.endsWith('/start') ? {id:'shot-edit-test'} : {state:'done',draft:shotPatch};
+  await $('helperStart').onclick();$('helperApply').onclick();
+  assert.equal(shotInputs[0].value,'0.00');assert.equal(shotInputs[1].value,'3.500');
+  assert.equal(shotTexts[0].value,'  Original first action.  ');assert.equal(shotTexts[1].value,'Changed second action.');
+  const reviewedText=JSON.stringify(context.helperCurrentText()),reviewedQueue=JSON.stringify(context.currentJobs);
+  const review={status:'revise',summary:'시간 배분 수정 권장',issues:[{severity:'critical',category:'timing',at:'0–1초',issue:'동작이 너무 많습니다.',suggestion:'핵심 동작만 남기세요.'}]};
+  replyHandler=url=>url.endsWith('/start')?{id:'review-test'}:{state:'done',draft:{review_only:true,f:{},review}};
+  $('helperIdea').value='';$('helperContext').checked=false;
+  await $('helperReview').onclick();
+  const reviewRequest=requests.findLast(r=>r.url==='/api/prompt-helper/start').body;
+  assert.equal(reviewRequest.review_only,true);assert(reviewRequest.context.shots);assert(!('images' in reviewRequest));
+  assert.equal($('helperApply').hidden,true);assert($('helperReviewReport').textContent.includes('핵심 동작만'));
+  $('helperApply').onclick();assert.equal(JSON.stringify(context.helperCurrentText()),reviewedText);
+  assert.equal(JSON.stringify(context.currentJobs),reviewedQueue);
+  replyHandler=null;
+  context.currentJobs=[{id:'remove',state:'queued'},{id:'keep',state:'running'}];
+  context.HIST.selected.add('remove');reply={ids:['remove']};
+  await context.deleteHistoryEntries({ids:['remove']});
+  assert.deepEqual(context.currentJobs.map(x=>x.id),['keep']);assert(!context.HIST.selected.has('remove'));
+  reply={ids:['keep']};await context.deleteHistoryEntries({all:true});
+  assert.equal(context.currentJobs.length,0);assert.equal($('cancel').hidden,true);assert.equal($('restartCurrent').hidden,true);
+  const waitingThumb=context.historyThumb({state:'queued',position:2,images:['first-photo.png','second-photo.png']},0);
+  assert(waitingThumb.includes('first-photo.png'));assert(!waitingThumb.includes('second-photo.png'));
+  assert(waitingThumb.includes('입력 사진 1'));assert(waitingThumb.includes('대기 2번'));assert(waitingThumb.includes('thumbnail=1'));
+  assert(!waitingThumb.includes('<video'));assert(!waitingThumb.includes('data-play'));
+  const runningThumb=context.historyThumb({state:'running',pct:43,images:['first-photo.png']},1);
+  assert(runningThumb.includes('만드는 중 43%'));assert(runningThumb.includes('input-photo'));
+  const resultThumb=context.historyThumb({state:'done',video:{},images:['first-photo.png']},2);
+  assert(resultThumb.includes('▶ 결과 영상'));assert(resultThumb.includes('data-select-video='));assert(!resultThumb.includes('<img'));
+  assert(!context.historyThumb({state:'queued',position:1},3).includes('<img'));
+  const copiedSettings=context.storyModelSettings();
+  for(const field of ['subject','style','keep','images','prompt','history'])assert(!(field in copiedSettings));
+  assert.equal(copiedSettings.model,context.S.model);
+  assert(html.includes('4편 이어 만들기'));assert(html.includes('id="singleApp"'));assert(html.includes('id="storyFrame"'));
+  const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(x=>x[1]);
+  assert.equal(new Set(ids).size,ids.length,'HTML IDs must remain unique');
+  assert(!html.includes('id="example"'));assert(html.includes('현재 설정 저장하기'));
+  console.log('UI feature checks passed: settings, sequence, bulk edits, selection, restart, CPU prompt helper, unique IDs.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>결과 갤러리</title>
+<style>
+:root{color-scheme:light dark;--bg:#f6f6f4;--card:#fff;--ink:#1d1d1b;--mute:#6b6b66;--line:#e4e3de;--soft:#efeeea;--acc:#2f6fe4;--accent-bg:#e9effc;--danger:#b5462f}
+@media(prefers-color-scheme:dark){:root{--bg:#161615;--card:#1f1f1d;--ink:#ecebe6;--mute:#a09f98;--line:#34332f;--soft:#292925;--acc:#87adf7;--accent-bg:#22304a;--danger:#ff9a85}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,"Malgun Gothic",sans-serif}button,input,select{font:inherit;color:inherit}button,a,input,select{-webkit-tap-highlight-color:transparent}button{min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:9px;background:var(--card);cursor:pointer;touch-action:manipulation}button:disabled{opacity:.45;cursor:default}button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:3px}button.primary{background:var(--acc);border-color:var(--acc);color:#fff}button.danger{color:var(--danger)}[hidden]{display:none!important}
+main{max-width:1680px;margin:auto;padding:0 18px 40px}.toolbar{position:sticky;top:0;z-index:5;padding:12px 0 10px;background:var(--bg);border-bottom:1px solid var(--line)}.toolbar-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.filters{display:flex;gap:5px}.filters button{white-space:nowrap}.filters button[aria-pressed=true]{border-color:var(--acc);color:var(--acc);background:var(--accent-bg)}.filters small{font-size:11px;margin-left:4px}.search{flex:1;min-width:150px;display:flex;gap:8px}.search input{min-width:0;width:100%;min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:16px}.toolbar select{min-height:44px;border:1px solid var(--line);border-radius:9px;background:var(--card);padding:8px}.selection{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}.hint,.status{font-size:12px;color:var(--mute)}.hint{margin:8px 0 0}.status{margin-left:auto}.status.error{color:var(--danger)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px;padding-top:16px}.tile{min-width:0;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}.tile.selected{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}.cover{position:relative;aspect-ratio:4/3;background:var(--soft)}.cover-play{position:absolute;inset:0;display:block;width:100%;height:100%;padding:0;border:0;border-radius:0;background:transparent;overflow:hidden}.cover img{width:100%;height:100%;display:block;object-fit:contain}.source-label{position:absolute;bottom:7px;left:7px;padding:3px 6px;border-radius:4px;background:#0009;color:#fff;font-size:11px;pointer-events:none}.placeholder{display:grid;place-items:center;position:absolute;inset:0;font-size:12px;color:var(--mute)}.play-symbol{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;place-items:center;width:42px;height:42px;border-radius:50%;background:#0008;color:#fff;pointer-events:none}.pick{position:absolute;top:0;left:0;display:grid;place-items:center;width:48px;height:48px;cursor:pointer}.pick input{width:23px;height:23px;margin:0;accent-color:var(--acc);cursor:pointer}.favorite{position:absolute;top:4px;right:4px;border:0;background:#0009;color:#fff;width:44px;height:44px;padding:0;font-size:25px}.favorite[aria-pressed=true]{color:#ffdc72}.tile-body{padding:10px}.tile-date{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}.tile-meta{font-size:11px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:17px}.tile-actions{display:flex;gap:5px;margin-top:8px;align-items:center}.tile-actions button,.tile-actions a{flex:1;min-width:0;min-height:40px;font-size:12px;padding:8px 5px;text-align:center}.tile-actions a{display:block;color:var(--acc);text-decoration:none;border:1px solid var(--line);border-radius:9px}.empty{padding:60px 12px;text-align:center;color:var(--mute)}.sentinel{height:2px}.loading{text-align:center;color:var(--mute);font-size:13px;padding:18px}
+.viewer{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);padding:8px;width:min(var(--viewer-width,1000px),calc(100vw - 16px));max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow:auto;overscroll-behavior:contain}.viewer::backdrop{background:#000b}.viewer-close{position:absolute;right:12px;top:12px;z-index:2;min-height:36px;width:36px;padding:0;border:0;background:#0009;color:#fff;font-size:22px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.players{display:grid;gap:8px;align-items:start}.player{min-width:0}.stage{position:relative;aspect-ratio:var(--aspect,16/9);background:#111;border-radius:7px;overflow:hidden}.stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block}.lora-info{display:none;margin-top:7px;padding:7px;border-radius:6px;background:var(--soft);font-size:11px}.show-loras .lora-info{display:block}.lora-row{display:flex;gap:10px;justify-content:space-between}.lora-row span:first-child{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lora-row span:last-child{flex-shrink:0}.viewer-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}.viewer-tools select{min-height:44px;max-width:150px;padding:7px;border:1px solid var(--line);border-radius:7px;background:var(--card)}.viewer-status{font-size:12px;color:var(--mute);margin:5px 0 0}.confirm{max-width:min(400px,calc(100vw - 28px));border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);padding:20px}.confirm::backdrop{background:#0009}.confirm p{margin:0 0 16px}.confirm div{display:flex;justify-content:flex-end;gap:10px}
+.grid{overflow-anchor:none}
+.work-progress{margin-bottom:10px;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--card)}.work-progress-line{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:13px}.work-progress-line strong{font-variant-numeric:tabular-nums}.work-progress progress{display:block;width:100%;height:8px;margin-top:7px;accent-color:var(--acc)}.completion-notice{margin:8px 0 0;color:var(--acc);font-size:13px}.regenerated-badge{display:inline-block;padding:2px 6px;margin-bottom:5px;border-radius:5px;background:var(--accent-bg);color:var(--acc);font-size:11px;font-weight:600}.tile.completed-focus{outline:2px solid var(--acc);outline-offset:2px}
+.regenerate{width:100%;margin-top:8px;min-height:44px;color:var(--acc);font-size:12px}.tile.regenerate-target{outline:2px dashed var(--acc);outline-offset:2px}.regeneration-bar{display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:10px;padding:10px;border-radius:9px;background:var(--accent-bg);font-size:13px}.regeneration-bar button{flex-shrink:0}.regeneration-dialog{width:min(480px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;border:1px solid var(--line);border-radius:12px;padding:16px;background:var(--card);color:var(--ink)}.regeneration-dialog::backdrop{background:#000b}.regeneration-dialog h2{font-size:17px;margin:0 0 12px}.regeneration-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}.regeneration-pair figure{margin:0;min-width:0}.regeneration-pair img{display:block;width:100%;height:140px;object-fit:contain;background:var(--soft);border-radius:7px}.regeneration-pair figcaption{font-size:12px;margin:5px 0}.regeneration-buttons{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:12px}.regeneration-error{font-size:13px;color:var(--danger)}
+.viewer-nav{display:flex;align-items:center;gap:8px;margin-top:8px}.viewer-nav button{width:44px;flex-shrink:0;font-size:24px;padding:0}.viewer-nav span{flex:1;text-align:center;font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums}
+@media(min-width:1800px){.grid{grid-template-columns:repeat(6,minmax(0,1fr))}}@media(max-width:900px){.grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}}@media(max-width:600px){main{padding:0 10px calc(24px + env(safe-area-inset-bottom))}.toolbar{padding-top:6px}.toolbar-row{gap:6px}.filters{width:100%;gap:6px}.filters button{flex:1;padding:7px 5px}.search{min-width:120px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;padding-top:10px}.tile-body{padding:8px}.tile-date{font-size:12px}.tile-actions{gap:4px}.tile-actions button,.tile-actions a{font-size:11px}.selection button{font-size:12px;padding:7px 9px}.status{width:100%;margin:0;min-height:18px}.viewer-tools{gap:6px}.viewer-tools button{font-size:12px}.viewer{padding:6px}.players{gap:10px}}
+@media(max-width:330px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+  <header class="toolbar">
+    <h1 class="sr-only">결과 갤러리</h1>
+    <div class="work-progress" aria-label="현재 작업 진행률">
+      <div class="work-progress-line"><strong id="workProgressText">진행률 확인 중…</strong><span class="hint" id="workPending"></span></div>
+      <progress id="workProgress" max="100" aria-label="현재 실행 중인 작업 진행률"></progress>
+    </div>
+    <p class="completion-notice" id="completionNotice" role="status" hidden></p>
+    <div class="toolbar-row">
+      <div class="filters" role="group" aria-label="영상 분류">
+        <button type="button" data-mode="all" aria-pressed="true">전체 <small id="countAll">0</small></button>
+        <button type="button" data-mode="favorites" aria-pressed="false">★ 즐겨찾기 <small id="countFavorites">0</small></button>
+        <button type="button" data-mode="trash" aria-pressed="false">휴지통 <small id="countTrash">0</small></button>
+      </div>
+      <div class="search"><input id="search" type="search" placeholder="날짜 · 모델 검색" aria-label="갤러리 검색"></div>
+      <select id="order" aria-label="정렬"><option value="newest">최신순</option><option value="oldest">오래된순</option></select>
+      <button id="refresh" type="button" aria-label="갤러리 새로고침">↻</button>
+    </div>
+    <div class="selection">
+      <button type="button" id="playSelected" class="primary" disabled>선택 영상 재생 (0/3)</button>
+      <button type="button" id="clearSelected" hidden>선택 해제</button>
+      <button type="button" id="trashSelected" class="danger" hidden>선택 삭제</button>
+      <span class="status" id="status" role="status" aria-live="polite">불러오는 중…</span>
+    </div>
+    <p class="hint" id="hint">썸네일을 누르면 바로 재생 · 체크한 영상은 최대 3개 함께 재생 · 새 결과 자동 갱신</p>
+    <div class="regeneration-bar" id="regenerationBar" hidden><span><strong>가져올 설정을 선택하세요</strong><br>다른 영상의 ‘이 영상 설정 가져오기’를 누르세요. 프롬프트·모델·LoRA·스텝을 복사합니다.</span><button type="button" id="cancelRegeneration">취소</button></div>
+  </header>
+  <div class="grid" id="grid" aria-label="결과 영상 목록"></div>
+  <div class="empty" id="empty" hidden>아직 완료된 영상이 없습니다.</div>
+  <div class="loading" id="loading" hidden>더 불러오는 중…</div>
+  <div class="sentinel" id="sentinel" aria-hidden="true"></div>
+</main>
+<dialog class="viewer" id="viewer" aria-labelledby="viewerTitle">
+  <h2 class="sr-only" id="viewerTitle">선택 영상 재생</h2>
+  <button type="button" class="viewer-close" id="closeViewer" aria-label="재생 창 닫기">×</button>
+  <div class="players" id="players"></div>
+  <div class="viewer-nav" id="viewerNav" role="group" aria-label="갤러리 영상 이동" hidden>
+    <button type="button" id="previousVideo" aria-label="이전 영상" title="이전 영상">‹</button>
+    <span id="viewerPosition" aria-live="polite"></span>
+    <button type="button" id="nextVideo" aria-label="다음 영상" title="다음 영상">›</button>
+  </div>
+  <div class="viewer-tools" id="viewerTools" hidden>
+    <button type="button" id="replay">처음부터 함께 재생</button><button type="button" id="pause">전체 일시정지</button>
+    <select id="audio" aria-label="소리를 재생할 영상"></select>
+  </div>
+  <p class="viewer-status" id="viewerStatus" role="status"></p>
+</dialog>
+<dialog class="confirm" id="deleteDialog" aria-labelledby="deleteQuestion">
+  <p id="deleteQuestion"></p><p class="hint">갤러리 휴지통으로 이동합니다. 원본 영상과 작업 이력은 보관되며 언제든 복원할 수 있습니다.</p>
+  <div><button type="button" id="cancelDelete">취소</button><button type="button" class="danger" id="confirmDelete">휴지통으로 이동</button></div>
+</dialog>
+<dialog class="regeneration-dialog" id="regenerationDialog" aria-labelledby="regenerationTitle">
+  <h2 id="regenerationTitle">선택한 설정으로 우선 재생성</h2>
+  <div class="regeneration-pair" id="regenerationPair"></div>
+  <p class="hint">대상의 원본 사진·시드·길이·화질·첫 장면 고정은 유지합니다. 선택한 영상의 프롬프트·모델·LoRA·스텝 등 모델 설정을 가져옵니다.</p>
+  <p class="hint">현재 실행 중인 작업 다음에 생성하며, 기존 영상은 보관합니다.</p>
+  <p class="regeneration-error" id="regenerationError" role="alert"></p>
+  <div class="regeneration-buttons"><button type="button" id="changeRegenerationSource">다른 영상 선택</button><button type="button" class="primary" id="confirmRegeneration">우선 재생성</button></div>
+</dialog>
+<script>
+const $=id=>document.getElementById(id);
+const esc=value=>String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const base=value=>String(value||"").split(/[\\/]/).pop();
+const G={items:[],total:0,mode:"all",order:"newest",query:"",revision:"",selected:new Set(),loading:false,request:null,again:false,epoch:0,active:true,timer:null,searchTimer:null,busy:new Set(),deleteIds:[]};
+const PLAYER={entries:[],sizes:[],token:0,mediaToken:0,session:0,opener:null,overflow:"",navigating:false,swipe:null,ignoreClickUntil:0};
+const REGEN={target:null,source:null,requestId:null,busy:false};
+const ACTIVITY={timer:null,loading:false,states:new Map(),waiting:new Set(),ready:null};
+const REGEN_WAIT_KEY="h3simple.gallery.regeneration.waiting.v1";
+const PAGE=48,LORA_KEY="h3simple.loraOverlay.v1";
+const dateLabel=value=>new Date(value*1000).toLocaleString("ko-KR",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit"});
+function setStatus(message,error=false){$("status").textContent=message;$("status").classList.toggle("error",error);}
+async function api(url,body){
+  const response=await fetch(url,{cache:"no-store",...(body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{})});
+  const data=await response.json();if(!response.ok||data.error)throw new Error(data.error||"요청에 실패했습니다.");return data;
+}
+function galleryUrl(offset,limit,known=""){return "/api/gallery?"+new URLSearchParams({offset,limit,mode:G.mode,order:G.order,q:G.query,known,...(G.focus?{focus:G.focus}:{})});}
+function saveRegenerationWaiting(){try{localStorage.setItem(REGEN_WAIT_KEY,JSON.stringify([...ACTIVITY.waiting]));}catch{}}
+function rememberRegeneration(id){if(typeof id==="string"){ACTIVITY.waiting.add(id);saveRegenerationWaiting();}}
+function scheduleActivity(){clearTimeout(ACTIVITY.timer);if(G.active&&!document.hidden)ACTIVITY.timer=setTimeout(pollActivity,2500);}
+function renderActivity(data){
+  const pct=typeof data.pct==="number"&&Number.isFinite(data.pct)?Math.max(0,Math.min(100,Math.round(data.pct))):null;
+  $("workProgressText").textContent=data.running?(pct===null?"현재 작업 · 진행률 확인 중":"현재 작업 · "+pct+"%"):"현재 실행 중인 작업 없음";
+  if(data.running&&pct===null)$("workProgress").removeAttribute("value");else $("workProgress").value=data.running?pct:0;
+  $("workPending").textContent=data.pending>0?`대기 ${data.pending}개`:"";
+}
+async function pollActivity(){
+  if(ACTIVITY.loading||!G.active||document.hidden)return;
+  ACTIVITY.loading=true;
+  try{
+    const data=await api("/api/gallery/progress");if(!G.active||document.hidden)return;
+    renderActivity(data);
+    const next=new Map(),completed=[];
+    for(const job of data.jobs||[]){
+      const previous=ACTIVITY.states.get(job.id);next.set(job.id,job.state);
+      if(job.state==="done"&&(previous==="queued"||previous==="running"||ACTIVITY.waiting.has(job.id)))completed.push(job);
+      if(["error","lost"].includes(job.state))ACTIVITY.waiting.delete(job.id);
+    }
+    ACTIVITY.states=next;
+    if(completed.length){
+      completed.sort((a,b)=>(b.completed_at||0)-(a.completed_at||0));ACTIVITY.ready=completed[0].id;
+      for(const job of completed)ACTIVITY.waiting.delete(job.id);ACTIVITY.waiting.add(ACTIVITY.ready);
+      $("completionNotice").hidden=false;$("completionNotice").textContent="재생성 완료 · 새 결과를 맨 위에 표시합니다.";
+    }
+    saveRegenerationWaiting();
+    showCompletedRegeneration();
+    if(ACTIVITY.ready&&G.focus===ACTIVITY.ready&&!G.loading)loadGallery(false,true);
+  }catch{if(G.active&&!document.hidden){$("workProgressText").textContent="진행률 연결 확인 중…";$("workProgress").removeAttribute("value");$("workPending").textContent="";}}
+  finally{ACTIVITY.loading=false;scheduleActivity();}
+}
+function showCompletedRegeneration(){
+  const id=ACTIVITY.ready;
+  if(!id||!G.active||document.hidden||REGEN.target||REGEN.busy||$("viewer").open||$("deleteDialog").open||$("regenerationDialog").open)return;
+  if(G.focus!==id||G.mode!=="all"||G.order!=="newest"||G.query){
+    G.focus=id;G.mode="all";G.order="newest";G.query="";$("order").value="newest";$("search").value="";changeView(true);return;
+  }
+  if(!G.items.some(item=>item.source_id===id))return;
+  ACTIVITY.ready=null;ACTIVITY.waiting.delete(id);saveRegenerationWaiting();window.scrollTo({top:0,behavior:"smooth"});
+  $("completionNotice").hidden=false;$("completionNotice").textContent="재생성 완료 · 맨 위의 강조된 영상이 새 결과입니다.";
+}
+function setCounts(counts){for(const [key,id] of [["all","countAll"],["favorites","countFavorites"],["trash","countTrash"]])$(id).textContent=String(counts[key]||0);}
+function selection(){
+  const available=new Set(G.items.map(item=>item.id));for(const id of G.selected)if(!available.has(id))G.selected.delete(id);
+  $("grid").querySelectorAll("[data-pick]").forEach(input=>{input.checked=G.selected.has(input.dataset.pick);input.disabled=G.selected.size>=3&&!input.checked;input.closest(".tile").classList.toggle("selected",input.checked);});
+  $("playSelected").disabled=!G.selected.size;$("playSelected").textContent=`선택 영상 재생 (${G.selected.size}/3)`;
+  $("clearSelected").hidden=!G.selected.size;$("trashSelected").hidden=!G.selected.size;$("trashSelected").textContent=G.mode==="trash"?"선택 복원":"선택 삭제";
+}
+function regenerationButton(item){
+  return `<button type="button" class="regenerate" data-regenerate="${esc(item.id)}" ${item.source_id?'':'disabled title="원래 작업 이력이 남아 있어야 재생성할 수 있습니다."'}>${!item.source_id?'재생성 정보 없음':REGEN.target?'이 영상 설정 가져오기':'재생성'}</button>`;
+}
+function regenerationPreview(item,label){
+  return `<figure>${item.thumbnail?`<img src="${esc(item.thumbnail)}" alt="${esc(label)}의 원본 사진">`:''}<figcaption><strong>${esc(label)}</strong><br>${esc(dateLabel(item.created_at))}</figcaption></figure>`;
+}
+function chooseRegeneration(id){
+  if(REGEN.busy)return;
+  const item=G.items.find(entry=>entry.id===id)||PLAYER.entries.find(entry=>entry.id===id);
+  if(!item?.source_id)return;
+  closeViewer();
+  if(!REGEN.target){
+    REGEN.target={...item};$("regenerationBar").hidden=false;drawGallery();
+    setStatus("프롬프트와 모델 설정을 가져올 영상을 선택하세요.");return;
+  }
+  REGEN.source={...item};REGEN.requestId=Date.now().toString(36)+"-"+Math.random().toString(36).slice(2)+"-"+Math.random().toString(36).slice(2);
+  $("regenerationPair").innerHTML=regenerationPreview(REGEN.target,"재생성할 대상")+regenerationPreview(REGEN.source,"설정을 가져올 영상");
+  $("regenerationError").textContent="";$("regenerationDialog").showModal();$("confirmRegeneration").focus({preventScroll:true});
+}
+function cancelRegeneration(){
+  if(REGEN.busy)return;
+  REGEN.target=null;REGEN.source=null;REGEN.requestId=null;
+  $("regenerationBar").hidden=true;$("regenerationDialog").close();drawGallery();
+  showCompletedRegeneration();
+}
+async function submitRegeneration(){
+  if(REGEN.busy||!REGEN.target||!REGEN.source)return;
+  REGEN.busy=true;$("confirmRegeneration").disabled=true;$("changeRegenerationSource").disabled=true;$("cancelRegeneration").disabled=true;
+  $("regenerationError").textContent="";$("confirmRegeneration").textContent="등록 중…";
+  try{
+    const result=await api("/api/gallery/regenerate",{target_id:REGEN.target.source_id,source_id:REGEN.source.source_id,request_id:REGEN.requestId});
+    rememberRegeneration(result.id);
+    REGEN.busy=false;cancelRegeneration();
+    setStatus("우선 재생성을 등록했습니다. 현재 실행 중인 작업이 끝나면 먼저 시작합니다.");
+  }catch(error){$("regenerationError").textContent=error.message;}
+  finally{REGEN.busy=false;$("confirmRegeneration").disabled=false;$("changeRegenerationSource").disabled=false;$("cancelRegeneration").disabled=false;$("confirmRegeneration").textContent="우선 재생성";}
+}
+function tileHtml(item){
+  const time=dateLabel(item.created_at),size=(item.bytes/1024/1024).toFixed(1)+" MB";
+  const meta=[item.duration?item.duration+"초":"",item.width&&item.height?item.width+"×"+item.height:"",size].filter(Boolean).join(" · ");
+  const placeholder=item.thumbnail?"원본 사진 불러오는 중…":"원본 이미지 정보 없음";
+  return `<div class="cover"><button type="button" class="cover-play" data-play="${item.id}" aria-label="${esc(time)} 영상 재생"><span class="placeholder">${placeholder}</span>${item.thumbnail?`<img src="${esc(item.thumbnail)}" alt="생성에 사용한 첫 번째 원본 이미지" loading="lazy" decoding="async">`:""}<span class="source-label">원본 사진 1</span><span class="play-symbol">▶</span></button><label class="pick"><input type="checkbox" data-pick="${item.id}" aria-label="함께 재생할 영상 선택"></label>${item.trashed?"":`<button type="button" class="favorite" data-favorite="${item.id}" aria-pressed="${item.favorite}" aria-label="${item.favorite?"즐겨찾기 해제":"즐겨찾기 추가"}">${item.favorite?"★":"☆"}</button>`}</div><div class="tile-body">${item.regenerated?`<span class="regenerated-badge">${G.focus===item.source_id?"방금 재생성 완료":"재생성 완료"}</span>`:""}<div class="tile-date">${esc(time)}</div><div class="tile-meta">${esc(meta)}</div><div class="tile-meta" title="${esc(base(item.model))}">${esc(base(item.model))}</div><div class="tile-actions"><button type="button" data-play="${item.id}">재생</button><a href="${videoUrl(item,true)}" download>다운로드</a><button type="button" class="danger" data-remove="${item.id}">${item.trashed?"복원":"삭제"}</button></div>${regenerationButton(item)}</div>`;
+}
+function drawGallery(){
+  const grid=$("grid"),old=new Map([...grid.children].map(node=>[node.dataset.id,node]));
+  const anchor=window.scrollY>80?[...grid.children].find(node=>node.getBoundingClientRect().top>=0):null;
+  const anchorY=anchor?.getBoundingClientRect().top;
+  for(const [index,item] of G.items.entries()){
+    let node=old.get(item.id);if(!node){node=document.createElement("article");node.className="tile";node.dataset.id=item.id;}
+    const signature=JSON.stringify([item,!!REGEN.target,G.focus===item.source_id]);if(node.dataset.signature!==signature){node.innerHTML=tileHtml(item);node.dataset.signature=signature;node.querySelector("img")?.addEventListener("error",event=>{event.target.hidden=true;const placeholder=event.target.parentElement.querySelector(".placeholder");if(placeholder)placeholder.textContent="원본 사진을 불러올 수 없음";});}
+    node.classList.toggle("regenerate-target",item.id===REGEN.target?.id);
+    node.classList.toggle("completed-focus",!!G.focus&&item.source_id===G.focus);
+    old.delete(item.id);if(grid.children[index]!==node)grid.insertBefore(node,grid.children[index]||null);
+  }
+  old.forEach(node=>node.remove());selection();
+  $("empty").hidden=!!G.items.length;$("empty").textContent=G.query?"검색 결과가 없습니다.":G.mode==="favorites"?"즐겨찾기한 영상이 없습니다.":G.mode==="trash"?"휴지통이 비어 있습니다.":"아직 완료된 영상이 없습니다.";
+  if(anchor?.isConnected&&anchorY!=null){const delta=anchor.getBoundingClientRect().top-anchorY;if(Math.abs(delta)>1)window.scrollBy(0,delta);}
+}
+function schedule(){clearTimeout(G.timer);if(G.active&&!document.hidden)G.timer=setTimeout(()=>loadGallery(false,true),7000);}
+function loadGallery(more=false,quiet=false){
+  if(G.loading){if(!more)G.again=true;return G.request;}
+  G.request=fetchGallery(more,quiet);return G.request;
+}
+async function fetchGallery(more=false,quiet=false){
+  if(!G.active||document.hidden)return;
+  if(more&&G.items.length>=G.total)return;
+  G.loading=true;const epoch=G.epoch;$("loading").hidden=!more;
+  if(!quiet)setStatus(more?"더 불러오는 중…":"불러오는 중…");
+  try{
+    const target=more?PAGE:Math.max(PAGE,G.items.length),offset=more?G.items.length:0;
+    const first=await api(galleryUrl(offset,Math.min(200,target),!more?G.revision:""));
+    if(epoch!==G.epoch)return;
+    setCounts(first.counts);G.total=first.total;
+    if(!first.unchanged){
+      let incoming=first.items;
+      while(!more&&incoming.length<Math.min(target,first.total)){
+        const page=await api(galleryUrl(incoming.length,Math.min(200,target-incoming.length)));
+        if(epoch!==G.epoch)return;
+        if(page.revision!==first.revision){G.revision="";G.again=true;return;}
+        if(!page.items.length)break;incoming=incoming.concat(page.items);
+      }
+      const changedDuringPaging=more&&G.revision&&G.revision!==first.revision;
+      if(more){const known=new Set(G.items.map(item=>item.id));G.items=G.items.concat(incoming.filter(item=>!known.has(item.id)));}
+      else G.items=incoming;
+      G.revision=changedDuringPaging?"":first.revision;if(changedDuringPaging)G.again=true;drawGallery();
+    }
+    updateViewerNavigation();setStatus(`${G.total}개 · 자동 갱신 중`);
+    showCompletedRegeneration();
+  }catch(error){setStatus("불러오지 못했습니다. 새로고침해 주세요.",true);}
+  finally{G.loading=false;$("loading").hidden=true;if(G.again){G.again=false;loadGallery(false,true);}else schedule();}
+}
+function changeView(keepFocus=false){
+  if(!keepFocus)G.focus=null;
+  G.epoch++;G.revision="";G.items=[];G.total=0;G.selected.clear();drawGallery();
+  document.querySelectorAll("[data-mode]").forEach(button=>button.setAttribute("aria-pressed",String(button.dataset.mode===G.mode)));
+  $("hint").textContent=G.mode==="trash"?"삭제한 영상을 다시 복원할 수 있습니다. 원본 파일과 작업 이력은 보관됩니다.":"썸네일을 누르면 바로 재생 · 체크한 영상은 최대 3개 함께 재생 · 새 결과 자동 갱신";
+  if(!keepFocus)window.scrollTo({top:0,behavior:"instant"});loadGallery();
+}
+async function updateItems(ids,action,value){
+  if(ids.some(id=>G.busy.has(id)))return;
+  ids.forEach(id=>G.busy.add(id));
+  try{
+    await api("/api/gallery/update",{ids,action,...(action==="favorite"?{value}:{})});
+    if(action!=="favorite"){ids.forEach(id=>G.selected.delete(id));if(PLAYER.entries.some(item=>ids.includes(item.id)))closeViewer();}
+    G.revision="";await loadGallery(false,true);
+  }catch(error){setStatus(error.message,true);}
+  finally{ids.forEach(id=>G.busy.delete(id));}
+}
+function requestDelete(ids){
+  if(!ids.length)return;if(G.mode==="trash")return updateItems(ids,"restore");
+  G.deleteIds=ids;$("deleteQuestion").textContent=`영상 ${ids.length}개를 갤러리에서 삭제할까요?`;$("deleteDialog").showModal();
+}
+function videoUrl(item,download=false){return "/api/video?"+new URLSearchParams({...item.video,...(download?{download:1}:{})});}
+function loraHtml(item){
+  if(!Array.isArray(item.loras))return "LoRA 기록 없음";
+  if(!item.loras.length)return "LoRA 없음";
+  return `LoRA ${item.loras.length}개`+item.loras.map(lora=>`<div class="lora-row"><span>${esc(base(lora.name).replace(/\.(safetensors|gguf)$/i,""))}</span><span>${esc(lora.strength??"?")}</span></div>`).join("");
+}
+function setLoras(enabled){document.body.classList.toggle("show-loras",!!enabled);if(PLAYER.entries.length)layoutViewer();}
+function layoutViewer(){
+  const width=window.visualViewport?.width||window.innerWidth,height=window.visualViewport?.height||window.innerHeight;
+  const entries=PLAYER.entries;if(!entries.length)return;
+  const ratios=entries.map((item,index)=>{const size=PLAYER.sizes[index]||item;return Number(size.width)>0&&Number(size.height)>0?size.width/size.height:16/9;});
+  const columns=width<700?1:entries.length,ratio=columns===1?Math.min(...ratios):ratios.reduce((a,b)=>a+b,0);
+  const info=document.body.classList.contains("show-loras")?Math.max(...entries.map(item=>24+(item.loras?.length||0)*17)):0;
+  const panelWidth=Math.max(180,Math.min(width-16,entries.length===1?1100:1800,Math.max(120,height-150-info)*ratio+16+(columns-1)*8));
+  $("viewer").style.setProperty("--viewer-width",Math.floor(panelWidth)+"px");const minimum=Math.min(...ratios);
+  $("players").style.gridTemplateColumns=columns===1?"minmax(0,1fr)":ratios.map(value=>`minmax(0,${value/minimum}fr)`).join(" ");
+}
+function audio(){const value=$("audio").value;$("players").querySelectorAll("video").forEach((video,index)=>video.muted=value==="none"||index!==Number(value));}
+function pause(){PLAYER.token++;$("players").querySelectorAll("video").forEach(video=>video.pause());}
+async function replay(){
+  const token=++PLAYER.token,players=[...$("players").querySelectorAll("video")];audio();
+  players.forEach(video=>{video.pause();video.currentTime=0;});
+  const results=await Promise.allSettled(players.map(video=>video.play()));
+  if(token!==PLAYER.token||!$("viewer").open)return;
+  $("viewerStatus").textContent=results.some(result=>result.status==="rejected")?"영상의 재생 버튼을 눌러 주세요.":"";
+}
+function releasePlayers(){
+  PLAYER.mediaToken++;pause();$("players").querySelectorAll("video").forEach(video=>{video.onloadedmetadata=null;video.onerror=null;video.removeAttribute("src");video.load();});$("players").replaceChildren();
+}
+function renderPlayers(entries,sound=null){
+  const previous=[...$("players").querySelectorAll("video")],reuse=entries.length===1&&PLAYER.entries.length===1&&previous.length===1;
+  if(reuse){
+    // Safari grants playback permission per element. Keep it when swiping.
+    pause();const video=previous[0],item=entries[0],card=video.closest(".player");
+    video.parentElement.style.setProperty("--aspect",item.width&&item.height?item.width/item.height:16/9);
+    card.querySelector(".lora-info").innerHTML=loraHtml(item);
+    card.querySelector(".regeneration-control").innerHTML=regenerationButton(item);
+  }else{
+    releasePlayers();
+    $("players").innerHTML=entries.map((item,index)=>{const aspect=item.width&&item.height?item.width/item.height:16/9;return `<div class="player"><div class="stage" style="--aspect:${aspect}"><video controls loop playsinline preload="metadata" aria-label="영상 ${index+1}" src="${esc(videoUrl(item))}"></video></div><div class="lora-info">${loraHtml(item)}</div><div class="regeneration-control">${regenerationButton(item)}</div></div>`;}).join("");
+  }
+  PLAYER.entries=entries;PLAYER.sizes=[];PLAYER.swipe=null;const mediaToken=++PLAYER.mediaToken;
+  $("audio").innerHTML=entries.map((_,index)=>`<option value="${index}">영상 ${index+1} 소리</option>`).join("")+`<option value="none">모두 음소거</option>`;$("audio").value=sound?.muted?"none":"0";$("viewerTools").hidden=entries.length===1;$("viewerStatus").textContent="";
+  $("players").querySelectorAll("video").forEach((video,index)=>{
+    if(sound)video.volume=sound.volume;
+    video.onloadedmetadata=()=>{if(mediaToken!==PLAYER.mediaToken||!video.isConnected||!video.videoWidth||!video.videoHeight)return;PLAYER.sizes[index]={width:video.videoWidth,height:video.videoHeight};video.parentElement.style.setProperty("--aspect",video.videoWidth+"/"+video.videoHeight);layoutViewer();};
+    video.onerror=()=>{if(mediaToken===PLAYER.mediaToken&&video.isConnected)$("viewerStatus").textContent="영상을 불러오지 못했습니다.";};
+    if(reuse){video.src=videoUrl(entries[index]);video.load();}
+  });
+  updateViewerNavigation();layoutViewer();
+}
+function openViewer(id){
+  if(id&&!G.selected.has(id)){G.selected.clear();G.selected.add(id);selection();}
+  const entries=[...G.selected].map(key=>G.items.find(item=>item.id===key)).filter(Boolean);if(!entries.length||entries.length>3)return;
+  if($("viewer").open)closeViewer();PLAYER.session++;PLAYER.navigating=false;PLAYER.opener=document.activeElement;PLAYER.overflow=document.body.style.overflow;
+  renderPlayers(entries);
+  layoutViewer();document.body.style.overflow="hidden";$("viewer").showModal();$("closeViewer").focus({preventScroll:true});replay();
+}
+function closeViewer(){
+  if(!$("viewer").open)return;PLAYER.session++;PLAYER.navigating=false;PLAYER.swipe=null;PLAYER.ignoreClickUntil=0;releasePlayers();$("viewer").close();PLAYER.entries=[];PLAYER.sizes=[];updateViewerNavigation();document.body.style.overflow=PLAYER.overflow;if(G.active)PLAYER.opener?.focus({preventScroll:true});PLAYER.opener=null;setTimeout(showCompletedRegeneration,0);
+}
+function updateViewerNavigation(){
+  $("viewerNav").hidden=PLAYER.entries.length!==1;if(PLAYER.entries.length!==1)return;
+  const index=G.items.findIndex(item=>item.id===PLAYER.entries[0].id);
+  $("previousVideo").disabled=PLAYER.navigating||index<=0;
+  $("nextVideo").disabled=PLAYER.navigating||index<0||index+1>=G.total;
+  $("viewerPosition").textContent=index<0?"목록에서 제외된 영상":`${index+1} / ${G.total} · 좌우로 넘기기`;
+}
+async function moveViewer(direction){
+  if(!$("viewer").open||PLAYER.entries.length!==1||PLAYER.navigating)return;
+  const id=PLAYER.entries[0].id,session=PLAYER.session,epoch=G.epoch;
+  const current=()=>$("viewer").open&&PLAYER.session===session&&G.epoch===epoch&&PLAYER.entries[0]?.id===id;
+  PLAYER.navigating=true;updateViewerNavigation();
+  try{
+    let index=G.items.findIndex(item=>item.id===id);if(index<0)return;
+    // Do not await a background refresh when the adjacent item is already loaded:
+    // play() must remain inside the user's click/touch gesture on Safari.
+    if(!G.items[index+direction]){
+      while(G.loading){await G.request;if(!current())return;}
+      index=G.items.findIndex(item=>item.id===id);if(index<0)return;
+    }
+    if(direction>0&&index+1===G.items.length&&G.items.length<G.total){
+      $("viewerStatus").textContent="다음 영상을 불러오는 중…";await loadGallery(true,true);if(!current())return;
+      while(G.loading){await G.request;if(!current())return;}
+    }
+    index=G.items.findIndex(item=>item.id===id);if(index<0)return;
+    const next=G.items[index+direction];
+    if(!next){$("viewerStatus").textContent=direction<0?"첫 영상입니다.":G.items.length<G.total?"다음 영상을 불러오지 못했습니다. 다시 시도해 주세요.":"마지막 영상입니다.";return;}
+    const oldVideo=$("players").querySelectorAll("video")[0],sound={muted:oldVideo.muted,volume:oldVideo.volume};
+    const playerFocused=$("players").contains(document.activeElement);
+    G.selected.clear();G.selected.add(next.id);selection();renderPlayers([next],sound);
+    $("viewer").scrollTop=0;
+    if(playerFocused)$("closeViewer").focus({preventScroll:true});
+    replay();
+  }catch{if(current())$("viewerStatus").textContent="영상을 넘기지 못했습니다. 다시 시도해 주세요.";}
+  finally{if(PLAYER.session===session){PLAYER.navigating=false;updateViewerNavigation();}}
+}
+function startSwipe(event){
+  PLAYER.swipe=null;if(!$("viewer").open||PLAYER.entries.length!==1||PLAYER.navigating||event.touches.length!==1)return;
+  const video=event.target.closest?.("video");if(!video)return;
+  const point=event.touches[0],rect=video.getBoundingClientRect();
+  // Leave the native playback controls and seek bar to the browser.
+  if(point.clientY>=rect.bottom-Math.min(64,(rect.bottom-rect.top)*.35))return;
+  PLAYER.swipe={id:point.identifier,x:point.clientX,y:point.clientY,axis:null,entry:PLAYER.entries[0].id,threshold:Math.max(44,Math.min(80,(rect.right-rect.left)*.12))};
+}
+function trackSwipe(event){
+  const swipe=PLAYER.swipe;if(!swipe)return;if(event.touches.length!==1){PLAYER.swipe=null;return;}
+  const point=[...event.touches].find(touch=>touch.identifier===swipe.id);if(!point)return;
+  const dx=Math.abs(point.clientX-swipe.x),dy=Math.abs(point.clientY-swipe.y);if(dx<12&&dy<12)return;
+  if(!swipe.axis){if(dy>=dx){PLAYER.swipe=null;return;}swipe.axis="x";}
+  if(event.cancelable)event.preventDefault();
+}
+function endSwipe(event){
+  const swipe=PLAYER.swipe;PLAYER.swipe=null;if(!swipe||event.touches.length||PLAYER.entries[0]?.id!==swipe.entry)return;
+  const point=[...event.changedTouches].find(touch=>touch.identifier===swipe.id);if(!point)return;
+  const dx=point.clientX-swipe.x,dy=point.clientY-swipe.y;
+  const horizontal=Math.abs(dx)>=swipe.threshold&&Math.abs(dx)>Math.abs(dy)*1.5;
+  if(swipe.axis==="x"||horizontal){if(event.cancelable)event.preventDefault();PLAYER.ignoreClickUntil=Date.now()+350;}
+  if(horizontal)moveViewer(dx<0?1:-1);
+}
+$("grid").onchange=event=>{const id=event.target.dataset.pick;if(!id)return;if(event.target.checked&&G.selected.size<3)G.selected.add(id);else G.selected.delete(id);selection();};
+$("grid").onclick=event=>{
+  const button=event.target.closest("button");if(!button)return;
+  if(button.dataset.regenerate)return chooseRegeneration(button.dataset.regenerate);
+  if(button.dataset.play)return openViewer(button.dataset.play);
+  if(button.dataset.remove)return requestDelete([button.dataset.remove]);
+  const item=G.items.find(entry=>entry.id===button.dataset.favorite);if(item)updateItems([item.id],"favorite",!item.favorite);
+};
+document.querySelectorAll("[data-mode]").forEach(button=>button.onclick=()=>{G.mode=button.dataset.mode;changeView();});
+$("order").onchange=()=>{G.order=$("order").value;changeView();};
+$("search").oninput=()=>{clearTimeout(G.searchTimer);G.searchTimer=setTimeout(()=>{G.query=$("search").value;changeView();},300);};
+$("refresh").onclick=()=>{G.revision="";loadGallery();};$("playSelected").onclick=()=>openViewer();
+$("clearSelected").onclick=()=>{G.selected.clear();selection();};$("trashSelected").onclick=()=>requestDelete([...G.selected]);
+$("cancelDelete").onclick=()=>$("deleteDialog").close();$("confirmDelete").onclick=()=>{const ids=G.deleteIds;G.deleteIds=[];$("deleteDialog").close();updateItems(ids,"trash");};
+$("closeViewer").onclick=closeViewer;$("replay").onclick=replay;$("pause").onclick=pause;$("audio").onchange=audio;
+$("previousVideo").onclick=()=>moveViewer(-1);$("nextVideo").onclick=()=>moveViewer(1);
+$("players").addEventListener("touchstart",startSwipe,{passive:true});
+$("players").onclick=event=>{const button=event.target.closest("[data-regenerate]");if(button)chooseRegeneration(button.dataset.regenerate);};
+$("players").addEventListener("touchmove",trackSwipe,{passive:false});
+$("players").addEventListener("touchend",endSwipe,{passive:false});
+$("players").addEventListener("touchcancel",()=>{PLAYER.swipe=null;});
+$("players").addEventListener("click",event=>{if(event.detail!==0&&Date.now()<PLAYER.ignoreClickUntil){event.preventDefault();event.stopPropagation();}},{capture:true});
+$("viewer").addEventListener("keydown",event=>{
+  if(PLAYER.entries.length!==1||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey||event.target.closest?.("video,input,select,textarea"))return;
+  if(event.key==="ArrowLeft"||event.key==="ArrowRight"){event.preventDefault();moveViewer(event.key==="ArrowLeft"?-1:1);}
+});
+$("viewer").addEventListener("cancel",event=>{event.preventDefault();closeViewer();});
+$("viewer").addEventListener("click",event=>{if(event.target!==$("viewer"))return;const rect=$("viewer").getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)closeViewer();});
+$("cancelRegeneration").onclick=cancelRegeneration;$("confirmRegeneration").onclick=submitRegeneration;
+$("changeRegenerationSource").onclick=()=>{if(!REGEN.busy){REGEN.source=null;REGEN.requestId=null;$("regenerationDialog").close();}};
+$("regenerationDialog").addEventListener("cancel",event=>{event.preventDefault();if(!REGEN.busy){REGEN.source=null;REGEN.requestId=null;$("regenerationDialog").close();}});
+window.addEventListener("resize",layoutViewer);window.visualViewport?.addEventListener("resize",layoutViewer);
+document.addEventListener("visibilitychange",()=>{if(document.hidden){clearTimeout(G.timer);clearTimeout(ACTIVITY.timer);pause();}else{loadGallery(false,true);pollActivity();}});
+window.addEventListener("message",event=>{if(event.origin!==location.origin||event.source!==parent)return;if(event.data?.type==="gallery-active"){G.active=!!event.data.active;if(G.active){loadGallery(false,true);pollActivity();}else{clearTimeout(G.timer);clearTimeout(ACTIVITY.timer);closeViewer();}}if(event.data?.type==="lora-overlay-toggle")setLoras(event.data.enabled);});
+window.addEventListener("storage",event=>{if(event.key===LORA_KEY)setLoras(event.newValue==="1");});
+// Bootstrap only requests gallery/progress metadata and cached images; playback requires a click.
+try{setLoras(localStorage.getItem(LORA_KEY)==="1");}catch{}
+try{const waiting=JSON.parse(localStorage.getItem(REGEN_WAIT_KEY));if(Array.isArray(waiting))ACTIVITY.waiting=new Set(waiting.filter(id=>typeof id==="string"));}catch{}
+new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)&&G.items.length<G.total)loadGallery(true,true);},{rootMargin:"400px"}).observe($("sentinel"));
+loadGallery();pollActivity();
+</script>
+</body>
+</html>

@@ -1,0 +1,222 @@
+"""Check settings, rotating references and bulk edits without live requests or user media."""
+import ast
+import base64
+import io
+import json
+import os
+import random
+import re
+import tempfile
+import threading
+import time
+import unittest
+import urllib.error
+import urllib.parse
+import uuid
+from pathlib import Path
+from PIL import Image
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE = Path(os.environ.get("REFERENCE_TEST_SOURCE", ROOT / "simple_ui"))
+TREE = ast.parse((SOURCE / "server.py").read_text(encoding="utf-8"))
+NAMES = {"_load_json", "_save_json", "save_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "bulk_edit_queue", "bulk_queue_context"}
+
+
+class FeatureTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.sent, self.uploaded, self.edited = [], [], []
+        self.env = {"json":json, "os":os, "random":random, "re":re, "time":time, "uuid":uuid, "base64":base64, "io":io,
+                    "urllib":urllib, "Image":Image, "HERE":self.tmp.name, "CLIENT_ID":"test-client",
+                    "HLOCK":threading.Lock(), "PLOCK":threading.Lock(), "SETTINGS_LOCK":threading.Lock(),
+                    "HIST_DB":[], "HIST_MAX":1000, "PROGRESS":{},
+                    "HIST":os.path.join(self.tmp.name,"history.json"), "SETTINGS":os.path.join(self.tmp.name,"settings.json"),
+                    "TEMPLATE":str(ROOT / "simple_ui/template_api.json"),
+                    "card_for":lambda *args:{"auto":{"h3":True,"fmt":"int8"}},
+                    "object_options":lambda cls, field:["test-model.safetensors","other-model.safetensors"] if cls=="UNETLoader" else [],
+                    "comfy":self.comfy, "upload":self.upload, "replace_queued_prompt":self.replace}
+        for node in TREE.body:
+            if isinstance(node,ast.Assign):
+                try: ast.literal_eval(node.value)
+                except (ValueError,TypeError): continue
+                exec(compile(ast.Module(body=[node],type_ignores=[]),"constant","exec"),self.env)
+        functions=[n for n in TREE.body if isinstance(n,ast.FunctionDef) and n.name in NAMES]
+        exec(compile(ast.Module(body=functions,type_ignores=[]),"features","exec"),self.env)
+        self.photos=[]
+        for i in range(5):
+            output=io.BytesIO();Image.new("RGB",(16+i,8+i),(i*30,20,40)).save(output,format="PNG")
+            self.photos.append("data:image/png;base64,"+base64.b64encode(output.getvalue()).decode())
+
+    def upload(self, raw, ext):
+        self.uploaded.append(raw)
+        return f"reference-{len(self.uploaded)}.{ext}"
+
+    def response(self, value): return io.BytesIO(json.dumps(value).encode())
+
+    def comfy(self, path, data=None, headers=None):
+        if path=="/prompt":
+            payload=json.loads(data);pid=str(uuid.uuid4());self.sent.append((pid,payload))
+            return self.response({"prompt_id":pid,"node_errors":{}})
+        if path=="/queue":
+            return self.response({"queue_pending":[[i,pid,p["prompt"],{},[]] for i,(pid,p) in enumerate(self.sent)],"queue_running":[]})
+        raise AssertionError(path)
+
+    def replace(self, pid, prompt):
+        self.edited.append((pid,json.loads(json.dumps(prompt))))
+        return {"prompt_id":pid,"node_errors":{}}
+
+    def request(self, **changes):
+        req={"images":self.photos,"prompt":"safe test prompt","mode":"REF2VA","model":"test-model.safetensors",
+             "steps":4,"seed":"100","duration":5,"aspect":"auto","resolution":"draft","loras":[],
+             "ui":{"f":{"summary":"safe test prompt"},"shots":[[0,"test"]]}}
+        req.update(changes);return req
+
+    def sequence(self, anchor=True): return self.env["build_and_queue"](self.request(photo_sequence=True,count=20,anchor=anchor))
+
+    def test_nine_references_keep_picture_order_and_first_frame_anchor(self):
+        photos=(self.photos*2)[:9]
+        self.env["build_and_queue"](self.request(images=photos,count=1,anchor=True))
+        self.assertEqual(len(self.sent),1)
+        self.assertEqual(len(self.uploaded),9)
+        prompt=self.sent[0][1]["prompt"]
+        items=json.loads(prompt[self.env["DIRECTOR"]]["inputs"]["timeline_data"])["items"]
+        self.assertEqual([item["slot"] for item in items],list(range(9)))
+        self.assertEqual([item["order"] for item in items],list(range(9)))
+        self.assertEqual([item["value"] for item in items],[f"reference-{i}.png" for i in range(1,10)])
+        self.assertEqual(prompt[self.env["ANCHOR_IMG"]]["inputs"]["image"],"reference-1.png")
+        self.assertEqual(self.uploaded,[base64.b64decode(photo.split(",",1)[1]) for photo in photos])
+
+    def test_sequence_respects_disabled_anchor_and_keeps_all_rotated_references(self):
+        result=self.sequence(anchor=False)
+        self.assertEqual(len(result["jobs"]),5)
+        names=[f"reference-{i+1}.png" for i in range(5)]
+        for i,(_,payload) in enumerate(self.sent):
+            p=payload["prompt"]
+            self.assertNotIn(self.env["ANCHOR"],p)
+            self.assertNotIn(self.env["ANCHOR_IMG"],p)
+            self.assertFalse(result["jobs"][i]["anchor"])
+            timeline=json.loads(p[self.env["DIRECTOR"]]["inputs"]["timeline_data"])
+            self.assertEqual([item["value"] for item in timeline["items"]],names[i:]+names[:i])
+
+    def test_anchor_bulk_change_is_explicit_boolean_and_preserves_other_fields(self):
+        result=self.sequence()
+        before=json.loads(json.dumps(self.env["HIST_DB"]))
+        ids=[job["id"] for job in result["jobs"]]
+        with self.assertRaises(ValueError):
+            self.env["bulk_edit_queue"]({"edit_ids":ids,"bulk_fields":["anchor"],"anchor":"false"})
+        changed=self.env["bulk_edit_queue"]({"edit_ids":ids,"bulk_fields":["anchor"],"anchor":False})
+        self.assertEqual(len(changed["jobs"]),5)
+        for old,new,(_,graph) in zip(before,self.env["HIST_DB"],self.edited):
+            self.assertFalse(new["anchor"])
+            self.assertNotIn(self.env["ANCHOR"],graph)
+            for key in ("id","seed","images","mode","model","steps","prompt","ui","duration","sequence_index"):
+                self.assertEqual(old.get(key),new.get(key))
+
+    def test_five_photos_make_five_rotated_anchored_jobs(self):
+        result=self.sequence();self.assertEqual(len(result["jobs"]),5);self.assertEqual(len(self.uploaded),5)
+        names=[f"reference-{i+1}.png" for i in range(5)]
+        for i,(_,payload) in enumerate(self.sent):
+            p=payload["prompt"];tl=json.loads(p[self.env["DIRECTOR"]]["inputs"]["timeline_data"])
+            expected=names[i:]+names[:i]
+            self.assertEqual([x["value"] for x in tl["items"]],expected)
+            self.assertEqual([x["slot"] for x in tl["items"]],list(range(5)))
+            self.assertEqual(p[self.env["ANCHOR_IMG"]]["inputs"]["image"],expected[0])
+            self.assertEqual(p[self.env["SEED"]]["inputs"]["seed_value"],100+i)
+            self.assertEqual(result["jobs"][i]["images"],expected)
+
+    def test_regular_repeat_does_not_rotate_or_add_anchor(self):
+        result=self.env["build_and_queue"](self.request(count=2))
+        self.assertEqual(len(result["jobs"]),2)
+        self.assertEqual(result["jobs"][0]["images"],result["jobs"][1]["images"])
+        self.assertNotIn(self.env["ANCHOR_IMG"],self.sent[0][1]["prompt"])
+
+    def test_bulk_preserves_photos_order_seed_mode_and_anchor(self):
+        result=self.sequence();before=json.loads(json.dumps(self.env["HIST_DB"]));uploads=len(self.uploaded)
+        ids=[j["id"] for j in result["jobs"][:2]]
+        req=self.request(edit_ids=ids,bulk_fields=["content","model","video"],prompt="updated",model="other-model.safetensors",steps=8,duration=3,
+                         images=["forbidden replacement"],seed="999",mode="FL2VA",anchor=False)
+        outcome=self.env["bulk_edit_queue"](req)
+        self.assertEqual(len(outcome["jobs"]),2);self.assertEqual(outcome["failed"],[]);self.assertEqual(len(self.uploaded),uploads)
+        for i,(_,p) in enumerate(self.edited):
+            updated=next(e for e in self.env["HIST_DB"] if e["id"]==ids[i])
+            for key in ("images","seed","mode","anchor"):
+                self.assertEqual(updated[key],before[i][key])
+            self.assertEqual(updated["prompt"],"updated");self.assertEqual(updated["duration"],3)
+            self.assertEqual(p[self.env["ANCHOR_IMG"]]["inputs"]["image"],before[i]["images"][0])
+        self.assertEqual(self.env["HIST_DB"][2]["prompt"],before[2]["prompt"])
+
+    def test_bulk_skips_started_or_missing_item(self):
+        result=self.sequence()
+        req=self.request(edit_ids=[result["jobs"][0]["id"],"missing"],bulk_fields=["model"],steps=8)
+        outcome=self.env["bulk_edit_queue"](req)
+        self.assertEqual(len(outcome["jobs"]),1);self.assertEqual(len(outcome["failed"]),1)
+        self.assertEqual(self.env["HIST_DB"][0]["prompt"],"safe test prompt")
+
+    def test_sequence_cannot_replace_one_existing_job(self):
+        with self.assertRaises(ValueError): self.env["build_and_queue"](self.request(photo_sequence=True,edit_id="existing"))
+        self.assertEqual(self.sent,[])
+
+    def test_all_pending_context_excludes_running_and_foreign_and_copies_only_first_entry(self):
+        self.sequence()
+        items=[[i,pid,payload["prompt"],{},[]] for i,(pid,payload) in enumerate(self.sent)]
+        queue={"queue_running":[items[0]],"queue_pending":[items[3],[-1,"foreign",{}, {},[]],items[2],items[1],items[4]]}
+        self.env["comfy"]=lambda path:self.response(queue)
+        context=self.env["bulk_queue_context"]()
+        self.assertEqual(context["ids"],[item[1] for item in items[1:]])
+        self.assertEqual(context["total"],4)
+        self.assertEqual(context["first"]["id"],items[1][1])
+        self.assertEqual(context["first"]["position"],2)
+        context["first"]["ui"]["f"]["summary"]="edited copy"
+        self.assertEqual(self.env["HIST_DB"][1]["ui"]["f"]["summary"],"safe test prompt")
+
+    def test_all_pending_resolves_new_jobs_at_save_time_and_preserves_unselected_values(self):
+        self.sequence()
+        context=self.env["bulk_queue_context"]()
+        added=self.env["build_and_queue"](self.request(count=1,seed="333",anchor=True))
+        before=json.loads(json.dumps(self.env["HIST_DB"]))
+        items=[[i,pid,payload["prompt"],{},[]] for i,(pid,payload) in enumerate(self.sent)]
+        self.env["comfy"]=lambda path:self.response({"queue_running":[items[0]],"queue_pending":items[1:]+[[20,"foreign",{}, {},[]]]})
+        outcome=self.env["bulk_edit_queue"](self.request(all_pending=True,edit_ids=context["ids"],bulk_fields=["model"],model="other-model.safetensors",steps=8))
+        self.assertTrue(outcome["all_pending"])
+        self.assertEqual(outcome["target_count"],5)
+        self.assertEqual(outcome["failed"],[])
+        self.assertIn(added["id"],[job["id"] for job in outcome["jobs"]])
+        self.assertNotIn(items[0][1],[job["id"] for job in outcome["jobs"]])
+        self.assertEqual(self.env["HIST_DB"][0],before[0])
+        for old,new in zip(before[1:],self.env["HIST_DB"][1:]):
+            for key in ("images","seed","prompt","duration","aspect","resolution","anchor","mode","sequence_index"):
+                self.assertEqual(new[key],old[key],key)
+            self.assertEqual(new["model"],"other-model.safetensors")
+            self.assertEqual(new["steps"],8)
+
+    def test_all_pending_skips_a_job_that_starts_during_the_bulk_request(self):
+        result=self.sequence()
+        running_id=result["jobs"][0]["id"]
+        original=json.loads(json.dumps(self.env["HIST_DB"][0]))
+        def replace(pid,prompt):
+            if pid==running_id: raise ValueError("already started")
+            return self.replace(pid,prompt)
+        self.env["replace_queued_prompt"]=replace
+        response=self.env["bulk_edit_queue"](self.request(all_pending=True,bulk_fields=["model"],steps=8))
+        self.assertEqual(len(response["jobs"]),4)
+        self.assertEqual(len(response["failed"]),1)
+        self.assertEqual(self.env["HIST_DB"][0],original)
+
+    def test_all_pending_empty_and_invalid_scope(self):
+        self.assertEqual(self.env["bulk_queue_context"](),{"ids":[],"total":0,"first":None})
+        response=self.env["bulk_edit_queue"]({"all_pending":True,"bulk_fields":["model"],"steps":8})
+        self.assertEqual(response["jobs"],[])
+        self.assertEqual(response["target_count"],0)
+        with self.assertRaises(ValueError): self.env["bulk_edit_queue"]({"all_pending":"true","bulk_fields":["model"]})
+        self.assertFalse(self.sent)
+
+    def test_settings_roundtrip_and_invalid_photo_rejected(self):
+        data={"version":1,"f":{"summary":"safe","duration":"5"},"model":{"mode":"REF2VA","loras":{}},"images":self.photos,"seed":"123","shots":[[0,"safe"]]}
+        self.env["save_settings"](" saved ",data)
+        stored=self.env["_load_json"](self.env["SETTINGS"],{})
+        self.assertEqual(stored["saved"]["data"],data)
+        with self.assertRaises(ValueError): self.env["save_settings"]("bad",dict(data,images=['data:image/png;base64,\" onerror=bad']))
+
+
+if __name__=="__main__": unittest.main()

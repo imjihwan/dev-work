@@ -10,10 +10,30 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,"Malgun Gothic",sans-serif}
 .wrap{max-width:1180px;margin:0 auto;padding:20px 16px 60px;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:20px}
+.app-tabs{max-width:1180px;margin:14px auto 0;padding:0 16px;display:flex;gap:8px;flex-wrap:wrap}
+.app-tabs button{min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;font-size:13px;cursor:pointer}
+.app-tabs button[aria-selected=true]{background:var(--acc);color:white}
+.app-view-options{max-width:1180px;margin:8px auto 0;padding:0 16px;display:flex;justify-content:flex-end}
+.app-view-options label{display:flex;align-items:center;gap:6px;margin:0;font-size:12px;font-weight:400}
+.wrap[hidden],.story-frame[hidden],.gallery-frame[hidden]{display:none}
+.story-frame{width:100%;height:1100px;border:0;display:block;margin-top:14px}
+.gallery-frame{width:100%;height:calc(100dvh - 120px);min-height:320px;border:0;display:block;margin-top:8px}
+@media(max-width:600px){.app-tabs{gap:5px;padding:0 10px}.app-tabs button{flex:1;padding:7px 5px;font-size:12px}.app-view-options{padding:0 10px}}
 @media (max-width:900px){.wrap{grid-template-columns:1fr}}
 h1{font-size:20px;margin:0 0 4px;grid-column:1/-1}
 .sub{color:var(--mute);font-size:13px;margin:-14px 0 0;grid-column:1/-1}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.queue-actions{grid-column:1/-1;margin-bottom:0}
+.settings-actions,.section-title{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.photo-fields{border:0;padding:0;margin:0;min-width:0}
+.bulk-fields{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}
+.bulk-fields label{display:flex;gap:5px;margin:0;font-weight:400}
+.bulk-fields[hidden]{display:none}
+.bulk-all{width:100%;min-height:44px;margin:0 0 8px;background:var(--acc);border:1px solid var(--acc);border-radius:8px;color:var(--acc-ink);font:inherit;font-size:13px;font-weight:600;cursor:pointer}.bulk-all:disabled{opacity:.45;cursor:default}
+.prompt-helper{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:12px 0}
+.prompt-helper>summary{cursor:pointer;font-weight:600}
+.helper-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+#helperPreview{min-height:200px;font-size:13px}
 .card h2{font-size:15px;margin:0 0 10px}
 label{display:block;font-weight:600;font-size:13px;margin:12px 0 4px}
 label small{font-weight:400;color:var(--mute)}
@@ -104,31 +124,94 @@ a{color:var(--acc)}
 .search{margin:8px 0 0}
 .row5s{grid-template-columns:repeat(5,minmax(0,1fr))}
 @media (max-width:600px){.row5s{grid-template-columns:repeat(2,minmax(0,1fr))}}
-.runs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}
-.run{border:1px solid var(--line);border-radius:10px;padding:6px;font-size:12px}
-.run video{max-height:260px;border-radius:6px}
 .hrow{display:grid;grid-template-columns:96px minmax(0,1fr);gap:10px;padding:10px 0;border-top:1px solid var(--line)}
 .hrow:first-child{border-top:0}
-.hthumb{width:96px;height:96px;border-radius:8px;background:var(--soft);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--mute);overflow:hidden;text-align:center}
+.hthumb{position:relative;width:96px;height:96px;border-radius:8px;background:var(--soft);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--mute);overflow:hidden;text-align:center}
 .hthumb video{width:100%;height:100%;object-fit:cover;cursor:pointer}
+.hthumb img{width:100%;height:100%;object-fit:cover}
+.hthumb.input-photo{border:2px dashed var(--acc)}
+.hthumb-kind,.hthumb-state{position:absolute;color:#fff;pointer-events:none;font-size:10px;line-height:1.5;padding:2px 5px}
+.hthumb-kind{top:4px;left:4px;border-radius:4px;background:var(--acc)}
+.result-video .hthumb-kind{background:rgba(0,0,0,.78)}
+.hthumb-state{bottom:0;left:0;right:0;background:rgba(0,0,0,.72)}
 .htitle{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .hmeta{font-size:12px;color:var(--mute);margin-top:2px}
 .hmeta .bad{color:var(--warn)}
 .hact{display:flex;gap:12px;margin-top:6px;flex-wrap:wrap}
 .hact .del{color:var(--warn)}
+.queue-number{display:inline-block;padding:1px 6px;margin-right:6px;border-radius:6px;background:var(--acc-soft);color:var(--acc);font-size:12px;font-weight:600}
 .hprompt{white-space:pre-wrap;font-size:11px;background:var(--soft);border-radius:6px;padding:8px;margin:6px 0 0;max-height:220px;overflow:auto}
-.run .cap{display:flex;justify-content:space-between;gap:6px;margin-top:4px;color:var(--mute)}
-.run.wait{display:flex;align-items:center;justify-content:center;min-height:90px;color:var(--faint)}
-.run.err{color:var(--warn)}
+.video-stage{position:relative;min-width:0}
+.video-stage>video{display:block;width:100%}
+.video-lora-info{display:none;min-width:0;margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--soft);color:var(--ink);font-size:11px;line-height:1.4}
+.show-lora-overlay .video-lora-info{display:block}
+.lora-overlay-list{display:grid;grid-template-columns:minmax(0,1fr);gap:1px 10px;margin-top:2px}
+.lora-overlay-list.many{grid-template-columns:repeat(2,minmax(0,1fr))}
+.lora-overlay-row{display:flex;gap:6px;min-width:0;justify-content:space-between}
+.lora-overlay-name{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.lora-overlay-strength{flex-shrink:0;font-variant-numeric:tabular-nums}
+.history-details{position:fixed;z-index:1000;width:min(440px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;overscroll-behavior:contain;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);box-shadow:0 10px 36px rgba(0,0,0,.22);font-size:12px;overflow-wrap:anywhere}
+.history-details[hidden]{display:none}
+.history-details-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.history-details-head strong{font-size:14px}
+.history-details h3{font-size:12px;margin:14px 0 6px}
+.history-details ul{list-style:none;padding:0;margin:0}
+.history-details li{display:flex;gap:12px;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)}
+.history-details li span{min-width:0;white-space:pre-wrap}
+.history-details li b{flex-shrink:0;font-variant-numeric:tabular-nums;font-weight:500}
+.history-details dl{display:grid;grid-template-columns:100px minmax(0,1fr);gap:6px 12px;margin:0}
+.history-details dt{color:var(--mute)}
+.history-details dd{margin:0;min-width:0;white-space:pre-wrap}
+.compare-choice{display:inline-flex;align-items:center;gap:3px;margin:0 6px 0 0;font-size:11px;font-weight:400;color:var(--acc)}
+.history-play-selected{margin-right:6px;font-size:11px}
+.video-compare[hidden]{display:none}
+.video-compare{position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:16px}
+.video-compare-panel{position:relative;width:min(var(--playback-width,1180px),100%);max-height:calc(100dvh - 32px);overflow:auto;overscroll-behavior:contain;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:8px}
+.video-compare-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 0}.video-compare-tools[hidden]{display:none}
+#videoCompareTitle{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}#closeCompare{position:absolute;top:12px;right:12px;z-index:3;padding:4px 7px;border-radius:5px;background:rgba(0,0,0,.55);color:#fff}
+.video-compare-tools label{display:flex;align-items:center;gap:6px;margin:0;font-size:12px;font-weight:400}.video-compare-tools select{width:auto;padding:5px 8px}
+.video-compare-grid{display:grid;grid-template-columns:repeat(var(--video-columns,1),minmax(0,1fr));gap:12px}
+.video-compare-grid>div{min-width:0}
+.video-compare-grid .video-stage{height:auto;aspect-ratio:var(--video-aspect,16/9);background:#111;border-radius:8px;overflow:hidden}
+.video-compare-grid video{position:absolute;inset:0;width:100%;height:100%;max-height:none;display:block;object-fit:contain;aspect-ratio:auto}
+
+@media(max-width:600px){.video-compare{padding:8px}.video-compare-panel{padding:8px;max-height:calc(100dvh - 16px)}.video-compare-grid{gap:6px}.video-compare-tools{gap:6px}}
 </style>
 </head>
 <body>
-<div class="wrap">
+<nav class="app-tabs" role="tablist" aria-label="화면 선택"><button id="singleTab" role="tab" aria-selected="true" aria-controls="singleApp">기존 영상 만들기</button><button id="storyTab" role="tab" aria-selected="false" aria-controls="storyFrame">4편 이어 만들기 · 약 20초</button><button id="galleryTab" role="tab" aria-selected="false" aria-controls="galleryFrame">결과 갤러리</button></nav>
+<div class="app-view-options"><label><input type="checkbox" id="loraOverlayToggle"> LoRA 정보 표시</label></div>
+<iframe id="storyFrame" class="story-frame" title="4편 이어 만들기" hidden></iframe>
+<iframe id="galleryFrame" class="gallery-frame" title="결과 갤러리" hidden></iframe>
+<div class="wrap" id="singleApp" role="tabpanel" aria-labelledby="singleTab">
+  <div class="card queue-actions">
+    <button class="go" id="go">영상 만들기</button>
+    <div class="hint" id="goInfo" style="margin-top:6px"></div>
+    <button class="ghost" id="sequenceGo" disabled style="width:100%;margin-top:8px">사진 순차적 대기열 추가</button>
+    <div class="hint" id="sequenceHint"></div>
+    <input type="file" id="photoBatchFiles" accept="image/*" multiple hidden>
+    <button class="ghost" id="photoBatchGo" disabled style="width:100%;margin-top:8px">사진별 개별 대기열 추가</button>
+    <div class="hint">버튼을 눌러 사진을 선택하면 한 장당 한 작업씩 현재 설정으로 추가합니다. 반복 횟수와 기존 참조 사진 목록은 그대로 두며, 시드를 지정하면 모든 사진에 같은 시드를 씁니다.</div>
+    <button class="ghost" id="stopPhotoBatch" hidden>추가 중단</button><div class="hint" id="photoBatchStatus" role="status" aria-live="polite"></div>
+    <div class="note" id="queueFeedback" hidden></div>
+    <div class="note" id="queueEdit" hidden><span id="queueEditInfo"></span> <button class="textbtn" id="cancelEdit">수정 취소</button>
+      <div class="bulk-fields" id="bulkFields" hidden>
+        <label><input type="checkbox" value="content" checked>내용</label>
+        <label><input type="checkbox" value="model" checked>모델·LoRA</label>
+        <label><input type="checkbox" value="video" checked>화면·길이</label>
+      </div>
+    </div>
+    <div class="bar" id="bar" hidden><div></div></div>
+    <div class="status" id="status"></div>
+    <button class="ghost" id="restartCurrent" hidden style="margin-top:6px">현재 작업 재시작</button>
+    <button class="ghost" id="cancel" hidden style="margin-top:6px">중지</button>
+  </div>
   <h1>H3 영상 만들기</h1>
   <p class="sub">사진 넣고 → 무엇을 하는지 적고 → 모델 고르고 → 만들기. 영어로 쓰면 더 잘 알아듣습니다(한글도 됨).</p>
 
   <div>
     <div class="card">
+      <fieldset class="photo-fields" id="photoFields">
       <div class="seg" id="modeSeg">
         <button data-mode="REF2VA">참조 사진으로 만들기</button>
         <button data-mode="FL2VA">첫·끝 장면으로 만들기</button>
@@ -143,10 +226,30 @@ a{color:var(--acc)}
         <span><b>사진 1 을 첫 장면으로 고정</b> <small style="color:var(--mute)">(실험)</small><br>
         <small style="color:var(--mute)">영상이 사진 1 모습 그대로 시작합니다. 다른 사진은 얼굴 참고로만 쓰입니다. 끄면 모든 사진을 참고만 해서 첫 장면이 다른 사진 쪽으로 갈 수 있습니다.</small></span>
       </label>
+      </fieldset>
     </div>
 
     <div class="card">
-      <h2 style="display:flex;justify-content:space-between;align-items:center">2. 내용 <button class="ghost" id="example" style="font-size:12px;font-weight:400">따봉 예시로 채우기</button></h2>
+      <h2 class="section-title"><span>2. 내용</span><span class="settings-actions"><button class="ghost" id="settingsSave">현재 설정 저장하기</button><button class="ghost" id="settingsLoad">설정 불러오기</button></span></h2>
+      <div class="list" id="settingsList" hidden></div>
+      <details class="prompt-helper" open>
+        <summary>프롬프트 작성 도우미 · 로컬 CPU</summary>
+        <label for="helperIdea">어떤 영상을 만들까요?</label>
+        <textarea id="helperIdea" maxlength="4000" placeholder="예: 카페에서 커피잔을 내려놓고 창밖을 보는 5초 영상. 카메라는 천천히 접근. 음악 없이 주변 소리만."></textarea>
+        <label style="font-weight:400"><input type="checkbox" id="helperContext"> 현재 내용 칸도 함께 참고해 다듬기</label>
+        <div class="hint">체크하면 현재 프롬프트에서 요청한 부분만 수정합니다. 나머지 문장과 장면 시각은 그대로 유지합니다.</div>
+        <div class="hint">대상·사진 유지 조건·장소·분위기·카메라는 그대로 두고 요약·동작·소리·음악만 작성합니다. 외관은 &lt;Picture 1&gt;을 유지하며 사진은 읽지 않습니다.</div>
+        <div class="hint">동작의 준비·이동·접촉·반응·마무리를 자세히 작성하고, 별도 CPU 검토로 시간 부족과 동작 충돌을 점검합니다.</div>
+        <div class="helper-actions"><button class="ghost" id="helperStart">프롬프트 작성</button><button class="ghost" id="helperReview">현재 내용 동작·시간 검토</button><button class="ghost" id="helperCancel" hidden>작성 취소</button></div>
+        <div class="hint" id="helperStatus" role="status" aria-live="polite"></div>
+        <div id="helperDraft" hidden>
+          <label for="helperPreview">작성 결과</label>
+          <textarea id="helperPreview" readonly></textarea>
+          <div id="helperReviewReport" class="hint" style="white-space:pre-wrap" hidden></div>
+          <button class="ghost" id="helperApply" style="margin-top:8px">내용 칸에 적용</button>
+          <div class="hint">요약·장면별 동작·소리·음악만 적용합니다. 대상·유지 조건·장소·분위기·카메라와 사진·모델·시드·대기열은 그대로 유지됩니다.</div>
+        </div>
+      </details>
       <div id="subjectBox">
         <label>누가/무엇이 나오나 <small>— 비워 두면 사진에서 그대로 가져옴</small></label>
         <textarea id="subject" placeholder="(비워 두기 권장) 사진에 없는 걸 지정할 때만: 예) wearing a red jacket"></textarea>
@@ -157,20 +260,20 @@ a{color:var(--acc)}
       <input type="text" id="summary" placeholder="예: The mug slowly rotates.">
 
       <label>장면별 동작 <small>— 시작 시각(초)과 동작</small></label>
-      <div id="shots"></div>
+      <div id="shots"></div><div class="hint">장면별 동작·시각을 바꾸면 최종 프롬프트를 즉시 다시 만듭니다.</div>
       <div class="hint" id="shotHint" style="color:var(--warn)"></div>
       <button class="ghost" id="addShot" style="margin-top:8px">+ 장면 추가</button>
       <label id="oneTakeBox" style="display:flex;gap:8px;align-items:flex-start;font-weight:400;margin-top:10px">
         <input type="checkbox" id="oneTake" style="margin-top:3px">
         <span><b>컷 없이 한 번에 찍기</b><br>
-        <small style="color:var(--mute)">장면들을 컷([Shot 2], [Shot 3]…)으로 나누지 않고 한 장면 안의 시간 흐름(At 3초, …)으로 씁니다. 배경·카메라 위치를 사진 1 그대로 유지하라는 문장도 넣습니다. 끄면 장면마다 새 컷이 될 수 있습니다(장면 시각에 맞춰 배경이 바뀐 사례 있음).</small></span>
+        <small style="color:var(--mute)">장면들을 컷([Shot 2], [Shot 3]…)으로 나누지 않고 한 장면 안의 시간 흐름(At 3초, …)으로 씁니다. 같은 장소에서 새로 정한 카메라 구도를 유지하며, 배경 원근은 그 시점에 맞추도록 합니다. 끄면 장면마다 새 컷이 될 수 있습니다.</small></span>
       </label>
 
       <label>장소·분위기·카메라</label>
       <textarea id="style">Photorealistic live-action footage, soft natural light, real skin and fabric detail, no CGI. Static camera, medium shot.</textarea>
 
       <label>사진에서 그대로 유지할 것</label>
-      <input type="text" id="keep" value="Keep the face, hairstyle and outfit exactly as in <Picture 1>.">
+      <input type="text" id="keep" value="Keep the face and outfit exactly as in <Picture 1> throughout the video.">
 
       <div class="row">
         <div style="grid-column:span 2"><label>소리</label><input type="text" id="sound" placeholder="예: Quiet room tone."></div>
@@ -249,27 +352,39 @@ a{color:var(--acc)}
         <textarea id="final" spellcheck="false"></textarea>
         <div class="hint" id="finalHint">위 칸을 고치면 자동으로 다시 만들어집니다.</div>
         <button class="ghost" id="resetFinal" hidden>자동으로 되돌리기</button>
+        <button type="button" class="ghost" id="refreshFaceRefs" hidden>현재 사진 참조 문구만 반영</button>
       </details>
     </div>
   </div>
 
   <div>
-    <div class="card" style="position:sticky;top:12px">
-      <button class="go" id="go">영상 만들기</button>
-      <div class="hint" id="goInfo" style="margin-top:6px"></div>
-      <div class="bar" id="bar" hidden><div></div></div>
-      <div class="status" id="status"></div>
-      <button class="ghost" id="cancel" hidden style="margin-top:6px">중지</button>
-      <div id="result" style="margin-top:12px"></div>
-    </div>
     <button class="ghost" id="openFolder" style="width:100%;padding:10px">📂 결과 폴더 열기</button>
     <div class="card" style="margin-top:16px">
       <div class="sec-h"><h2 style="margin:0">작업 이력 <small id="histCount" style="font-weight:400;color:var(--mute)"></small></h2><button class="textbtn" id="histClear">전체 지우기</button></div>
       <div class="hint" style="margin-bottom:6px">만들 때의 사진·설정·프롬프트와 결과 영상을 함께 남깁니다. <b>불러오기</b>로 그때 구성을 화면에 다시 채웁니다. 기록을 지워도 영상 파일은 결과 폴더에 남습니다.</div>
+      <div class="hint" style="margin-bottom:6px">항목에 마우스를 올리거나 <b>설정</b>을 누르면 사용한 LoRA·강도와 생성 설정을 확인할 수 있습니다.</div>
+      <button type="button" class="bulk-all" id="bulkEditAll" disabled>전체 대기항목 일괄수정</button>
+      <div class="hint" style="margin-bottom:8px">목록을 끝까지 불러오지 않아도 이 화면에서 등록한 전체 대기항목을 수정합니다. 실행 중인 작업은 제외합니다.</div>
+      <div class="hact" style="margin-bottom:10px"><label style="margin:0;font-weight:400"><input type="checkbox" id="selectQueued">불러온 항목만 선택</label><button class="ghost" id="bulkEdit" disabled>선택 항목 일괄수정 (0)</button></div>
+      <div class="hact" style="margin-bottom:6px"><button class="ghost" id="compareVideos" disabled>선택 영상 재생 (0/3)</button><button class="textbtn" id="clearCompare" hidden>재생 선택 해제</button></div>
+      <div class="hint" style="margin-bottom:8px">완료 영상을 최대 3개까지 체크한 뒤 ‘선택 영상 재생’을 누르세요. 썸네일을 눌러서도 선택할 수 있습니다.</div>
       <div id="histList"></div>
-      <button class="ghost" id="histMore" hidden style="width:100%;margin-top:8px">더 보기</button>
+      <div class="hint" id="histEnd" role="status" aria-live="polite" style="min-height:1px;margin-top:8px" hidden></div>
     </div>
   </div>
+</div>
+
+<aside id="historyDetails" class="history-details" role="dialog" aria-modal="false" aria-labelledby="historyDetailsTitle" hidden>
+  <div class="history-details-head"><strong id="historyDetailsTitle">사용한 LoRA · 생성 설정</strong><button type="button" class="textbtn" id="historyDetailsClose" aria-label="작업 설정 닫기">✕ 닫기</button></div>
+  <div id="historyDetailsBody"></div>
+</aside>
+<div id="videoCompare" class="video-compare" role="dialog" aria-modal="true" aria-labelledby="videoCompareTitle" hidden>
+  <section class="video-compare-panel">
+    <h2 id="videoCompareTitle">선택 영상 재생</h2><button class="textbtn" id="closeCompare" aria-label="영상 재생 닫기">✕</button>
+    <div id="videoCompareGrid" class="video-compare-grid"></div>
+    <div class="video-compare-tools" id="videoCompareTools"><button class="ghost" id="comparePlay">처음부터 함께 재생</button><button class="ghost" id="comparePause">전체 일시정지</button><label>소리 <select id="compareAudio"><option value="0">영상 1</option><option value="none">모두 끄기</option></select></label></div>
+    <div id="videoCompareStatus" class="hint" role="status"></div>
+  </section>
 </div>
 
 <script>
@@ -277,11 +392,12 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const base = n => String(n).split(/[\\/]/).pop();
 const images = [];          // data URLs
-let manualFinal = false, timer = null;
+let manualFinal = false, timer = null, editingJobId = null, bulkEditingIds = [], queueSubmitting = false;
+let bulkAllEditing=false;
 const FIELDS = ["subject","summary","style","keep","sound","music","aspect","resolution","duration","count"];
 const PARAMS = ["steps","sampler","scheduler","shift_video","shift_audio"];
 let CAT = null;             // /api/catalog 결과
-const S = {mode:"REF2VA", model:"", steps:4, sampler:"euler", scheduler:"simple", shift_video:10, shift_audio:3, loras:{}, trig:true, anchor:false, oneTake:true};
+const S = {mode:"REF2VA", model:"", steps:4, sampler:"euler", scheduler:"simple", shift_video:10, shift_audio:3, loras:{}, trig:true, anchor:true, oneTake:true};
 const UI = {modelOpen:false, loraOpen:false, loraQ:"", info:{}};
 
 // ---------- 모드 ----------
@@ -321,32 +437,39 @@ async function restoreImgs(){
   try { const v = await IDB.get("images"); if (!images.length && Array.isArray(v)) images.push(...v.slice(0, maxImgs())); } catch {}
   imgsReady = true; drawThumbs();
 }
+let photoImportQueue=Promise.resolve();
 function addFiles(files){
-  for (const f of files){
-    if (!f.type.startsWith("image/")) continue;
-    const r = new FileReader();
-    r.onload = () => { if (images.length < maxImgs()) { images.push(r.result); drawThumbs(); } };
-    r.readAsDataURL(f);
-  }
+  if (bulkEditingIds.length) return Promise.resolve();
+  const selected=Array.from(files).filter(file=>file.type.startsWith("image/"));
+  // FileReader completion order must never decide which photo becomes Picture 1.
+  photoImportQueue=photoImportQueue.then(async()=>{
+    for(const file of selected){
+      if(bulkEditingIds.length||images.length>=maxImgs())break;
+      const data=await readPhotoDataUrl(file);
+      if(bulkEditingIds.length||images.length>=maxImgs())break;
+      images.push(data);drawThumbs();
+    }
+  }).catch(()=>setStatus("사진을 읽지 못했습니다. 등록된 순서를 확인하고 다시 추가해 주세요.","err"));
+  return photoImportQueue;
 }
 function photoLabel(i){
-  if (isRef()) return `사진 ${i+1} = &lt;Picture ${i+1}&gt;`;
+  if (isRef()) return `사진 ${i+1} · ${i===0?"전체 기준":"얼굴 보조"}`;
   return i === 0 ? "첫 장면" : "끝 장면";
 }
 function drawThumbs(){
   $("photoTitle").innerHTML = isRef()
     ? `1. 사진 <small style="font-weight:400;color:var(--mute)">(1~9장, 첫 사진 = 사진 1)</small>`
     : `1. 사진 <small style="font-weight:400;color:var(--mute)">(첫 장면 1장 + 끝 장면 1장(선택))</small>`;
-  $("photoHint").textContent = isRef() ? (images.length >= 2 ? "◀ ▶ 또는 끌어서 순서를 바꿉니다. 사진 1 이 영상의 옷·머리·배경 기준입니다." : "") : (images.length >= 2
+  $("photoHint").textContent = isRef() ? (images.length >= 2 ? "같은 인물의 사진을 넣어 주세요. 사진 1은 전체 기준, 사진 2~9는 얼굴 보조입니다. 보조 사진의 표정·고개 각도·옷·배경을 따라 바꾸도록 지시하지 않습니다. 여러 장을 함께 참조하려면 기본 ‘대기열 추가’를 사용하세요. ◀ ▶ 또는 끌어서 순서를 바꿀 수 있습니다." : "사진 1이 전체 기준입니다. 같은 인물의 선명한 얼굴 사진을 추가하면 다른 각도에서의 얼굴 특징을 보충할 수 있습니다.") : (images.length >= 2
     ? "영상이 첫 사진에서 시작해 두 번째 사진으로 끝납니다."
     : "첫 장면만 넣으면 그 사진에서 시작하는 영상이 됩니다. 끝 장면을 정하려면 사진을 하나 더 넣으세요.");
   $("thumbs").innerHTML = "";
-  const move = (from, to) => { if (to < 0 || to >= images.length || from === to) return; images.splice(to, 0, images.splice(from, 1)[0]); drawThumbs(); };
+  const move = (from, to) => { if (bulkEditingIds.length || to < 0 || to >= images.length || from === to) return; images.splice(to, 0, images.splice(from, 1)[0]); drawThumbs(); };
   images.forEach((src,i) => {
     const d = document.createElement("div"); d.className = "thumb"; d.draggable = true;
     d.innerHTML = `<img src="${src}" draggable="false"><span>${photoLabel(i)}</span><button title="빼기">×</button>`
       + `<div class="mv"><button title="앞으로" ${i ? "" : "hidden"}>◀</button><button title="뒤로" ${i < images.length - 1 ? "" : "hidden"}>▶</button></div>`;
-    d.querySelector(":scope > button").onclick = () => { images.splice(i,1); drawThumbs(); };
+    d.querySelector(":scope > button").onclick = () => { if (bulkEditingIds.length) return; images.splice(i,1); drawThumbs(); };
     const [l, r] = d.querySelectorAll(".mv button");
     l.onclick = () => move(i, i - 1); r.onclick = () => move(i, i + 1);
     d.ondragstart = e => { e.dataTransfer.setData("text/x-thumb", String(i)); e.dataTransfer.effectAllowed = "move"; d.classList.add("drag"); };
@@ -376,13 +499,13 @@ function addShot(t = "", text = ""){
   d.innerHTML = `<input type="number" step="0.5" min="0" placeholder="초" value="${t}"><textarea placeholder="예: 동작을 적으세요"></textarea><button title="삭제">×</button>`;
   if (n === 0) { d.querySelector("input").value = 0; d.querySelector("input").disabled = true; d.querySelector("button").style.visibility = "hidden"; }
   d.querySelector("textarea").value = text;
-  d.querySelector("button").onclick = () => { d.remove(); render(); };
-  d.oninput = render;
+  d.querySelector("button").onclick = () => { d.remove(); updatePromptFromFields(); };
+  d.oninput = updatePromptFromFields;
   $("shots").appendChild(d);
 }
 $("addShot").onclick = () => {
   const dur = Number($("duration").value) || 5, n = $("shots").children.length;
-  addShot(n ? Math.round(dur * n / (n + 1) * 2) / 2 : 0); render();
+  addShot(n ? Math.round(dur * n / (n + 1) * 2) / 2 : 0); updatePromptFromFields();
 };
 const ts = s => { const v = Math.max(0, Number(s)||0); const m = Math.floor(v/60); return `${String(m).padStart(2,"0")}:${(v-m*60).toFixed(3).padStart(6,"0")}`; };
 
@@ -403,9 +526,37 @@ function pics(n){ const p = [...Array(n)].map((_,i)=>`<Picture ${i+1}>`); return
 // 영상 길이 이상에서 시작하는 장면(첫 장면 제외) 번호
 const lateShots = () => { const dur = Number($("duration").value) || 5;
   return [...$("shots").children].map((d,i) => i && Number(d.querySelector("input").value) >= dur ? i : -1).filter(i => i > 0); };
-const ONE_TAKE_KEEP = "One continuous take: the background, camera position and framing stay exactly the same as in <Picture 1> for the whole video, with no cuts, no scene changes and no new locations.";
-function build(){
-  const n = Math.max(images.length, 1), v = id => $(id).value.trim();
+const ONE_TAKE_KEEP = "One continuous take: keep the camera viewpoint, position and framing established at the start of this video stable throughout the shot, with no cuts, no scene changes and no new locations. Preserve the same environment as <Picture 1>, allowing its perspective and occlusion to match the chosen viewpoint.";
+const FACE_REFERENCE_RETENTION="<Subject 1>: preserve one consistent facial identity throughout the shot. Keep the same underlying facial proportions, eye spacing, eyelid shape, nose, lips, jawline and natural asymmetries during blinking, speech and the expressions requested by the scene. Expression changes affect facial motion without changing the person, age or facial structure. Use <Picture 1> to resolve conflicting appearance details in the supplementary references.";
+function faceReferenceDefinition(count){
+  const other=Array.from({length:count-1},(_,index)=>`<Picture ${index+2}>`),labels=other.join(", ");
+  return `<Subject 1> is the same person shown in ${pics(count)}. These images describe one identity, not separate characters or a sequence of poses. <Picture 1> remains the primary reference for the face, hairstyle, body shape, outfit, existing accessories and scene. Use ${labels} only to clarify this person's facial structure from the available views. Do not copy their hairstyle, clothing, accessories, body pose, background, lighting, text or logos. Supplementary views do not request a head turn, a new expression, a camera move or a cut. Keep head direction, facial viewing angle and gaze governed by <Picture 1> and the existing scene instructions. Preserve the existing instructions for the upper-body pose and lower-body movement.`;
+}
+function stripFaceReferenceRules(text){
+  let result=text;
+  for(let count=2;count<=9;count++)result=result.split("\n"+faceReferenceDefinition(count)).join("");
+  return result.split("\n"+FACE_REFERENCE_RETENTION).join("");
+}
+function insertReferenceParagraph(text,section,paragraph){
+  const start=new RegExp("^"+section+":", "m").exec(text);
+  if(!start)return text+"\n"+paragraph;
+  const from=start.index+start[0].length,tail=text.slice(from);
+  const next=/\n(?:subject_definitions|summary|retention_analysis|detailed_description|integrated_multimodal_description|overall_soundscape|non_diegetic_music):/.exec(tail);
+  const end=next?from+next.index:text.length,body=text.slice(from,end),trailing=/\s*$/.exec(body)[0].length;
+  const position=end-trailing;
+  return text.slice(0,position)+"\n"+paragraph+text.slice(position);
+}
+function withFaceReferenceRules(text,count){
+  let result=stripFaceReferenceRules(text);
+  if(count<2)return result;
+  result=insertReferenceParagraph(result,"subject_definitions",faceReferenceDefinition(count));
+  return insertReferenceParagraph(result,"retention_analysis",FACE_REFERENCE_RETENTION);
+}
+function refreshFaceReferenceAction(){
+  $("refreshFaceRefs").hidden=!manualFinal||!isRef()||(images.length<2&&stripFaceReferenceRules($("final").value)===$("final").value);
+}
+function build(imageCount=images.length){
+  const n = Math.max(imageCount, 1), v = id => $(id).value.trim();
   const lc = s => s.charAt(0).toLowerCase() + s.slice(1);
   const late = lateShots();
   const oneTake = isRef() && S.oneTake !== false;
@@ -429,39 +580,41 @@ function build(){
     return [head, `integrated_multimodal_description: ${imd}`, sound, music].join("\n\n");
   }
   let subject = v("subject");
-  // 사진이 여러 장이면 사진마다 역할을 적는다(공식 H3 문서 권장): 사진 1 = 장면 전체(옷·머리·배경),
-  // 사진 2~ = 얼굴 참고만. 다른 사진의 옷·배경·조명·자세·글자가 섞이거나 장면이 그쪽으로 바뀌는 것 방지
-  const others = [...Array(n - 1)].map((_, i) => `<Picture ${i + 2}>`);
-  const othersText = others.length < 2 ? others.join("") : others.slice(0, -1).join(", ") + " and " + others.at(-1);
   const baseText = n>1
     ? `<Picture 1> is the main reference for the whole video: copy the face, hairstyle, outfit, body shape and background from <Picture 1>, and the video starts in the scene of <Picture 1>. `
-      + `${othersText} ${n > 2 ? "are face references" : "is a face reference"} only: ${n > 2 ? "they show" : "it shows"} the same person from other angles. `
-      + `Use ${n > 2 ? "them" : "it"} only for facial features and identity (face shape, eyes, nose, mouth, skin). `
-      + `Ignore everything else in ${othersText}: clothing, hairstyle, background, lighting, pose, props, text and logos. `
-      + `Never copy those into the video, and never cut to or blend in ${n > 2 ? "their scenes" : "its scene"}.`
     : `<Picture 1> shows the main subject. Copy the face, hairstyle, outfit and background from <Picture 1>.`;
   if (!subject) subject = baseText;
   else if (!/<Picture \d>/.test(subject)) subject = `${baseText} ${subject}`;
   const detail = [v("style"), shots.join(" ")].filter(Boolean).join(" ");
-  return [
+  return withFaceReferenceRules([
     `subject_definitions: ${subject}`,
     `summary: ${[trigText, v("summary")].filter(Boolean).join(" ")}`,
     `retention_analysis: ${[v("keep"), oneTake && !/no cuts/i.test(v("keep")) ? ONE_TAKE_KEEP : ""].filter(Boolean).join(" ")}`,
     `detailed_description: ${detail}`,
     sound, music,
-  ].join("\n\n");
+  ].join("\n\n"),n);
 }
 function render(){
   const late = lateShots(), dur = Number($("duration").value) || 5;
   [...$("shots").children].forEach((d,i) => d.querySelector("input").classList.toggle("late", late.includes(i)));
   $("shotHint").textContent = late.length ? `장면 ${late.map(i => i + 1).join(", ")}은(는) 영상 길이(${dur}초) 이후에 시작해서 프롬프트에서 뺐습니다. 시각을 ${dur}초보다 앞으로 당기거나 길이를 늘리세요.` : "";
   if (!manualFinal) $("final").value = build();
+  refreshFaceReferenceAction();
   drawGoInfo();
   save();
 }
-$("final").oninput = () => { manualFinal = true; $("resetFinal").hidden = false; $("finalHint").textContent = "직접 고친 프롬프트를 씁니다. 위 칸을 바꿔도 반영되지 않습니다."; save(); };
-$("resetFinal").onclick = () => { manualFinal = false; $("resetFinal").hidden = true; $("finalHint").textContent = "위 칸을 고치면 자동으로 다시 만들어집니다."; render(); };
-FIELDS.forEach(id => $(id).addEventListener("input", () => { render(); if (CAT && ["resolution","duration"].includes(id)) drawSpeed(); }));
+function updatePromptFromFields(){
+  manualFinal=false;$("resetFinal").hidden=true;$("finalHint").textContent="2번 내용·장면별 동작을 반영한 자동 프롬프트입니다.";render();
+}
+$("final").oninput = () => { manualFinal = true; $("resetFinal").hidden = false; $("finalHint").textContent = "직접 고친 최종 프롬프트를 사용합니다. 2번 내용·장면을 수정하면 자동 작성으로 전환됩니다. 사진 구성이 바뀌었다면 ‘현재 사진 참조 문구만 반영’을 사용할 수 있습니다."; refreshFaceReferenceAction();save(); };
+$("resetFinal").onclick = updatePromptFromFields;
+$("refreshFaceRefs").onclick=()=>{
+  if(!isRef())return;
+  $("final").value=withFaceReferenceRules($("final").value,images.length);
+  $("finalHint").textContent="현재 사진 구성에 맞춰 얼굴 참조 문구를 반영했습니다. 다른 문장·동작·시각과 직접 편집 상태는 유지합니다.";
+  refreshFaceReferenceAction();save();
+};
+FIELDS.forEach(id => $(id).addEventListener("input", () => { if(["subject","summary","style","keep","sound","music","duration"].includes(id))updatePromptFromFields();else render(); if (CAT && ["resolution","duration"].includes(id)) drawSpeed(); }));
 
 // =====================================================================
 // 3. 모델 — 차분한 구성: 조합 칩 / 모델 한 줄 / 속도 3단 / LoRA 목록 / 고급(접힘)
@@ -732,7 +885,7 @@ async function loadCatalog(manual){
     CAT = j;
     if (!S.model || !CAT.models.some(m => m.name === S.model)) { S.model = CAT.default.model; applyModelDefaults(); }
     for (const n of Object.keys(S.loras)) if (!CAT.loras.some(l => l.name === n)) delete S.loras[n];
-    drawModelCard(); render();
+    drawModelCard(); render(); refreshQueueSelection();
     if (manual === true) note(`폴더를 다시 읽었습니다: 모델 ${modelsShown().length}개, LoRA ${CAT.loras.length}개.`);
     clearTimeout(fetchTimer);
     if ([...CAT.models, ...CAT.loras].some(fetching)) fetchTimer = setTimeout(loadCatalog, 2500);
@@ -748,7 +901,7 @@ const EXAMPLE = {
     subject: "",
     summary: "One continuous shot: the person smiles brightly and gives a thumbs-up to the camera, then the big smile relaxes into a soft, natural faint smile, and they turn and walk out of the frame to the side.",
     style: "Photorealistic live-action footage filmed on a real camera, soft natural light, realistic skin texture and fabric detail, natural human motion, no CGI, no cartoon look. Static camera at chest height, medium shot, the person centered at the start.",
-    keep: "Keep the person's face, hairstyle, body shape, outfit and background exactly as in <Picture 1>. The outfit stays exactly the same from the first frame to the last frame, including the side and back views: no clothing change, no color change, no morphing. Do not add any hat, headband, accessory or object that is not in <Picture 1>. No text, letters, captions, logos or watermarks anywhere in the video.",
+    keep: "Keep the face and outfit exactly as in <Picture 1> throughout the video.",
     sound: "Quiet indoor room tone, soft clothing rustle and natural footsteps fading away.",
     music: "N/A", aspect: "auto", resolution: "auto", duration: "5",
   },
@@ -784,19 +937,253 @@ $("duration").addEventListener("change", () => {
     const inp = d.querySelector("input"), t = Number(inp.value);
     if (inp.value !== "" && t >= 0) inp.value = Math.round(t * nd / od * 10) / 10;
   });
-  render();
+  updatePromptFromFields();
 });
+
+const REFERENCE_STYLE_CURRENT = "Photorealistic live-action footage filmed on a real camera, with realistic skin texture, fabric detail and natural human motion. Use soft, coherent lighting that remains consistent with the reference environment. Preserve natural facial detail and stable color and exposure throughout the shot.\n\nUse a static medium shot from a comfortable portrait distance, with natural facial perspective. Keep the camera height and viewing direction compatible with the face angle in <Picture 1>. Keep the intended framing; pose instructions must not introduce an additional camera move or a wider shot.\n\nThe first frame begins exactly from the pose and composition in <Picture 1>. Keep the reference type of posture, such as sitting or standing. The target pose is a clear three-quarter direction of the lower body: the pelvis, hips, thighs and knees face approximately 45 degrees to one side of the upper torso's forward direction, halfway between facing straight ahead and facing fully sideways. Choose the person's own left or right to suit the reference pose, leg arrangement and face direction. Choose the side once and keep it for the whole shot.\n\nIf the reference lower body already has this angle, retain it without an extra turn. Otherwise, during the opening movement, smoothly pivot the pelvis and legs together into the target angle while the chest and shoulders keep their reference facing direction. Use a natural weight shift and only the small foot adjustment needed for balance. This is a horizontal turn around the body's vertical axis, shown by depth, foreshortening and natural near-side/far-side overlap; it is not a diagonal lean across the image or a camera rotation. Reach the target angle early and settle there, without overshooting, bouncing back or switching sides.\n\nKeep the head and face in the direction, tilt and facial viewing angle shown in <Picture 1> throughout the movement and through the final frame. Preserve facial proportions, natural asymmetries and the reference gaze; eye movements and expressions must not turn the head. Let the waist accommodate the lower-body turn without pulling the chest, shoulders or face around with it. Once the hips and knees reach their chosen 45-degree direction, keep them facing that direction through the final frame. The feet remain at the positions reached after this adjustment. Arm and shoulder movements must not rotate the pelvis back toward the camera or unwind the established angle.\n\nKeep waist detail understated and consistent with the reference body shape and clothing. Let skin and fabric respond subtly to the pose and movement, without emphasizing creases or altering body proportions. Preserve clothing coverage and the established lower-body angle, with smooth, unobtrusive changes across frames.\n\nPerform the specified actions in their requested order and at their requested times. Integrate any needed lower-body adjustment into the opening action without adding a separate waiting pose, delaying the action sequence or replacing the requested movement. Let the arms, shoulders and upper body move smoothly at natural speeds while retaining the reference facing direction. After the lower-body angle is established, maintain it during all subsequent actions. Allow subtle breathing, blinking and expressions without a gradual return to a frontal lower-body pose.\n\nUse one continuous shot with a stationary camera and stable framing, focus and exposure. No camera orbit, pan, tilt, roll, zoom, reframing or cuts. Preserve the person's identity, hairstyle, body shape, outfit and existing accessories from <Picture 1>. Keep facial proportions, hand anatomy, garment patterns and accessory shapes consistent from frame to frame, while allowing natural expressions, joint motion and fabric movement. Maintain their actual left-right details without horizontal mirroring. Keep the same environment, with perspective and occlusion consistent with the established camera viewpoint.";
+const REFERENCE_STYLE_REMOVED = ["Photorealistic live-action footage filmed on a real camera, with realistic skin texture, fabric detail and natural human motion. Use soft, coherent lighting with natural facial detail and stable color and exposure throughout the shot. No CGI or cartoon appearance.\n\nUse a static medium shot from a comfortable portrait distance, with natural facial perspective. Keep the camera height and viewing direction compatible with the original facial viewing angle in <Picture 1>. Keep the intended framing and a level camera; pose instructions must not introduce a camera move, a wider shot, a tilted horizon or a diagonal body lean.\n\nFrom the opening frame, preserve the person's reference posture and upper-body presentation while establishing an approximately 45-degree horizontal difference between the forward direction of the hips and knees and the forward direction of the upper torso. Choose the person's own left or right to suit the pose and face direction in <Picture 1>. Choose once for the opening pose and keep that same side and angle through the final frame. This is a three-dimensional turn around the body's vertical axis, visible through depth and natural foreshortening, not a rotation or slant within the flat image. The waist turn is already established in the first frame; do not perform a preparatory turn.\n\nKeep the chest and shoulders oriented consistently with the reference upper body, and preserve the original direction and viewing angle of the head and face in <Picture 1> from the first frame through the final frame. Do not turn the head toward the camera, toward the lower body, or along with arm movements. Preserve the reference facial proportions and natural asymmetries without changing the visible side of the face. Keep the reference gaze unless a specified action requires a small eye movement; eye movement must not reorient the head. Allow natural blinking and small expressions while maintaining the same head direction, tilt and facial viewing angle throughout.\n\nKeep the hips and knees facing their established direction and the feet in their starting positions for the entire shot, even when outside the frame. No gradual unwinding, return to a frontal lower-body pose, side switching, pelvis swivel or foot pivot. Arm, hand and shoulder movements must not drag the pelvis, knees or head into a new orientation. Keep waist detail understated and anatomically plausible: allow subtle skin compression and fabric folds where appropriate to the pose and clothing, without exaggerated creases, altered proportions or changes in clothing coverage. Let these small details respond smoothly while the established lower-body angle remains unchanged.\n\nPreserve all identifying and visible appearance details of the person from <Picture 1>: identity, facial features, hairstyle, hair color, skin tone, body shape and proportions, outfit, clothing layers, colors, patterns, materials and existing accessories, including any hat or glasses. Maintain their actual left-right details without horizontal mirroring. Keep the same clothing and accessories from the first frame to the last, including newly visible side areas, without additions, removals, replacements or morphing. Preserve natural hand anatomy and stable accessory shapes. Apart from the specified lower-body orientation and requested scene actions, retain the reference person's appearance and presentation. No text, captions, logos or watermarks.\n\nCreate a new, coherent background with a similar overall atmosphere, setting character, palette and lighting mood to <Picture 1>; do not copy its exact layout, furniture placement or perspective. Arrange any necessary seat or support naturally around the established pose, with believable contact, occlusion and shadows. Background objects must not force the hips or knees back to a frontal direction. Keep this newly established environment consistent from the opening frame through the final frame.\n\nBegin the specified actions directly from the opening pose. Preserve their requested order and timing, with smooth transitions and natural changes of speed, without extra actions, unintended jumps or unrequested pauses. Allow subtle breathing, blinking, expressions and small upper-body adjustments that preserve the established head direction and lower-body angle. Use one continuous shot with a stationary camera and stable framing, focus and exposure. No camera orbit, pan, tilt, roll, zoom, reframing, cuts or scene changes.", "Opening pose: the person's pelvis, hips, thighs and knees are already facing approximately 45 degrees to one side of the upper torso's forward direction. Their lower body has a clear three-quarter orientation in depth, halfway between facing straight ahead and facing fully sideways. Choose the person's own left or right to suit <Picture 1>, choose it once, and keep that same direction and angle through the final frame. Rotate the lower-body facing direction around the body's vertical axis; keep the horizon level and do not tilt or lean the person diagonally across the image.\n\nReconstruct this lower-body orientation even if the pelvis or legs face straight ahead in <Picture 1>. Place the feet and any seat or support to fit this new opening pose. Only after establishing that pose, keep the hips, knees and feet in those new positions for the whole shot. Do not preserve the source image's lower-body facing direction when it conflicts with the required 45-degree pose. Keep the reference type of posture, such as sitting or standing, without turning the entire person or camera to create the angle.\n\nKeep the upper torso and shoulders in their reference orientation. The head and face retain the direction, tilt and facial viewing angle shown in <Picture 1> from the first frame through the last. Keep the same visible side of the face and the reference gaze; small eye movements must not turn the head. Allow natural blinking, small expressions and breathing. Arm movements must not rotate the head or pull the pelvis, knees or feet back toward the camera. No gradual unwinding, side switching or return to a frontal lower-body pose.\n\nPreserve the person's appearance from <Picture 1>: identity, facial features, hairstyle and hair color, skin tone, body shape and proportions, outfit, clothing layers, colors, patterns, materials and all existing accessories, including any hat or glasses. Preserve actual left-right details without mirroring. Keep clothing coverage and accessory shapes stable throughout; no additions, removals, clothing changes or morphing. The deliberately changed lower-body orientation is separate from this appearance preservation. Keep skin compression and fabric folds at the waist subtle, anatomically plausible and consistent with the existing body shape and clothing, without exaggerated creases.\n\nPhotorealistic live-action footage, soft coherent light, realistic skin and fabric detail, stable exposure and natural human motion. Use a static medium shot at a comfortable portrait distance and a viewpoint compatible with the reference facial viewing angle. Create a new background with a similar atmosphere, setting character, palette and lighting mood to <Picture 1>, without copying its exact layout or furniture placement. Arrange any necessary seat or support around the established pose with believable contact and shadows; it must not determine or straighten the lower-body direction. Keep this newly established environment consistent throughout.\n\nStart the requested actions directly from the established opening pose, without a preparatory turn. Preserve their order and timing, with smooth transitions and natural changes of speed. Allow the specified arm and upper-body movements while keeping the reference head direction and the new lower-body orientation. Use one continuous shot with a fixed camera, framing, focus and exposure; no orbit, pan, tilt, roll, zoom, reframing, cuts or scene changes. No CGI or cartoon appearance, text, captions, logos or watermarks.", "Photorealistic live-action footage filmed on a real camera, with realistic skin texture, fabric detail and natural human motion. Use soft, coherent lighting that remains consistent with the reference environment. Preserve natural facial detail and stable color and exposure throughout the shot.\n\nUse a static medium shot from a comfortable portrait distance, with natural facial perspective. Keep the camera height and viewing direction compatible with the face angle in <Picture 1>. Keep the intended framing; pose instructions must not introduce an additional camera move or a wider shot.\n\nStart in an upright seated pose with the upper torso turned approximately 45 degrees relative to the forward direction of the hips and knees. Choose the person's own left or right for this turn to suit the pose and face direction in <Picture 1>. Make this choice once for the opening frame and keep the same side and angle through the final frame, without switching sides or gradually turning back. This is a horizontal turn around the body's vertical axis, expressed through depth and natural foreshortening. Keep the body upright without a sideways lean, and keep the camera level. The pose is already established in the first frame.\n\nKeep the chest, shoulders and head facing the reference face direction in <Picture 1>; set the lower-body direction relative to it to create the chosen waist turn. Preserve the reference head direction, facial viewing angle, facial proportions and natural asymmetries. Keep the reference gaze unless a specified action requires it to change. From the first frame to the last frame, keep the hips and knees facing their established direction and the feet in their starting positions, even when outside the frame. Arm and shoulder movements must not turn the pelvis toward the camera or change the lower-body direction.\n\nKeep waist detail understated and consistent with the reference body shape and clothing. Let skin and fabric respond subtly to the pose and movement, without emphasizing creases or altering body proportions. Preserve clothing coverage and the established lower-body angle, with smooth, unobtrusive changes across frames.\n\nBegin the specified actions directly from this opening pose, without a preparatory turn. Let the arms, shoulders and upper body perform the specified actions with smooth transitions and natural changes of speed. Preserve the requested order and timing, without unintended jumps between poses, extra actions or unrequested pauses. Allow subtle breathing, blinking, expressions and small upper-body adjustments. These small movements must keep the established lower-body angle and foot positions unchanged.\n\nUse one continuous shot with a stationary camera and stable framing, focus and exposure. No camera orbit, pan, tilt, roll, zoom, reframing or cuts. Preserve the person's identity, hairstyle, body shape, outfit and existing accessories from <Picture 1>. Keep facial proportions, hand anatomy, garment patterns and accessory shapes consistent from frame to frame, while allowing natural expressions, joint motion and fabric movement. Maintain their actual left-right details without horizontal mirroring. Keep the same environment, with perspective and occlusion consistent with the established camera viewpoint."];
+const REFERENCE_BACKGROUND_REMOVED = "Create a new, coherent background with a similar atmosphere, setting character, palette and lighting mood to <Picture 1>, without copying its exact layout, furniture placement or perspective. Keep this newly established environment consistent throughout the video.";
+const REFERENCE_BACKGROUND_RESTORED = "Keep the same environment, with perspective and occlusion consistent with the established camera viewpoint.";
+const REFERENCE_SUBJECT_REMOVED = "<Subject 1> is the person from <Picture 1>. Preserve this person's identity, face, hairstyle, body shape, outfit and existing accessories. Use <Picture 1> as an appearance reference; follow the described pose and background instead of copying the source composition.";
+const REFERENCE_SUBJECT_SINGLE = "<Picture 1> shows the main subject. Copy the face, hairstyle, outfit and background from <Picture 1>.";
+const REFERENCE_SUBJECT_MULTI = "<Picture 1> is the main reference for the whole video: copy the face, hairstyle, outfit, body shape and background from <Picture 1>, and the video starts in the scene of <Picture 1>.";
+const REFERENCE_SCOPE_REMOVED = "Reference preservation applies to the person's appearance, head direction and upper-body orientation. Replace the reference pelvis and leg facing direction with the approximately 45-degree lower-body orientation described below. Establish new foot positions appropriate to that opening pose, then keep that pose through the final frame. Appearance preservation must not restore the original lower-body direction.";
+const REFERENCE_CONTINUITY_REMOVED = "One continuous take: keep the camera viewpoint, position and framing established at the start of this video stable throughout the shot, with no cuts, no scene changes and no new locations. Keep the environment established in the opening frame consistent throughout the video.";
+const REFERENCE_CONTINUITY_RESTORED = "One continuous take: keep the camera viewpoint, position and framing established at the start of this video stable throughout the shot, with no cuts, no scene changes and no new locations. Preserve the same environment as <Picture 1>, allowing its perspective and occlusion to match the chosen viewpoint.";
+
+function restoreAnchoredSubject(text){
+  const start=text.length-text.trimStart().length;
+  if(!text.slice(start).startsWith(REFERENCE_SUBJECT_REMOVED))return text;
+  const previous=/<Picture\s+(?:[2-9]|\d{2,})>/.test(text)?REFERENCE_SUBJECT_MULTI:REFERENCE_SUBJECT_SINGLE;
+  return text.slice(0,start)+previous+text.slice(start+REFERENCE_SUBJECT_REMOVED.length);
+}
+function restoreAnchoredRetention(text){
+  return text.replace(" "+REFERENCE_SCOPE_REMOVED,"").replace(REFERENCE_SCOPE_REMOVED,"")
+    .replace(REFERENCE_CONTINUITY_REMOVED,REFERENCE_CONTINUITY_RESTORED)
+    .replace(REFERENCE_BACKGROUND_REMOVED,REFERENCE_BACKGROUND_RESTORED);
+}
+function restoreAnchoredSection(prompt,label,transform){
+  const ending="(?=\\n(?:subject_definitions|summary|retention_analysis|detailed_description|integrated_multimodal_description|overall_soundscape|non_diegetic_music):|$(?![\\s\\S]))";
+  return prompt.replace(new RegExp("(^"+label+":[ \\t]*)([\\s\\S]*?)"+ending,"m"),(_,head,body)=>head+transform(body));
+}
+function restoreAnchoredPrefix(text,previous,next){
+  if(previous===next)return text;
+  if(!String(previous||"").trim())return null;
+  const pattern=String(previous).trim().split(/\s+/).map(part=>part.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")).join("\\s+");
+  const match=new RegExp("^"+pattern).exec(text);
+  return match?next+text.slice(match[0].length):null;
+}
+function restoreAnchoredSaved(saved){
+  if(!saved?.f || ![...REFERENCE_STYLE_REMOVED,REFERENCE_STYLE_CURRENT].includes(saved.f.style?.trim()))return false;
+  const form={...saved.f,style:REFERENCE_STYLE_CURRENT};
+  if(typeof form.keep==="string")form.keep=restoreAnchoredRetention(form.keep);
+  if(typeof form.subject==="string")form.subject=restoreAnchoredSubject(form.subject);
+  let final=saved.final;
+  if(typeof final==="string"){
+    let replaced=false,valid=true;
+    const label=/(^|\n)detailed_description:/.test(final)?"detailed_description":"integrated_multimodal_description";
+    final=restoreAnchoredSection(final,label,body=>{
+      const next=restoreAnchoredPrefix(body,saved.f.style,form.style);
+      replaced=true;if(next===null){valid=false;return body;}return next;
+    });
+    if(!replaced||!valid)return false;
+    final=restoreAnchoredSection(final,"subject_definitions",restoreAnchoredSubject);
+    final=restoreAnchoredSection(final,"retention_analysis",restoreAnchoredRetention);
+  }
+  const changed=JSON.stringify(form)!==JSON.stringify(saved.f)||final!==saved.final;
+  saved.f=form;saved.final=final;return changed;
+}
+function restoreAnchoredModel(){
+  if(S.referenceDefaultsRevision==="first-frame-restored-v1")return false;
+  S.anchor=true;S.referenceDefaultsRevision="first-frame-restored-v1";return true;
+}
+const OPENING_POSE_PREFIX = "Begin in the exact pose shown in <Picture 1>. While beginning the specified opening action, gently pivot only the pelvis, hips and knees together to approximately 45 degrees relative to the upper torso's forward direction. Choose the natural left or right side suggested by the reference, and keep that same side throughout.\n\nKeep the chest, shoulders, head direction and facial viewing angle as in <Picture 1>. Allow only the small foot adjustment needed to settle into the angle. Once established, hold the lower-body direction through the final frame, without unwinding during arm movements. If the reference already has this angle, maintain it without an additional turn.\n\nThis is a three-dimensional horizontal turn around the body's vertical axis, not a sideways lean or camera movement.";
+
+function openingPosePattern(text){
+  return text.trim().split(/\s+/).map(part=>part.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")).join("\\s+");
+}
+function prependOpeningPose(text){
+  return new RegExp("^\\s*"+openingPosePattern(OPENING_POSE_PREFIX)).test(text)?text:OPENING_POSE_PREFIX+(text?"\n\n"+text:"");
+}
+function openingPosePrompt(prompt){
+  let found=false,valid=true;
+  const result=restoreAnchoredSection(prompt,"detailed_description",body=>{
+    found=true;
+    const common=new RegExp("^"+openingPosePattern(REFERENCE_STYLE_CURRENT)).exec(body);
+    if(!common){valid=false;return body;}
+    const tail=body.slice(common[0].length);
+    if(!tail.trim())return common[0]+" "+OPENING_POSE_PREFIX+tail;
+    let start=common[0].length+tail.length-tail.trimStart().length;
+    const marker=/^\[Shot 1\][ \t]*/.exec(body.slice(start));
+    if(marker)start+=marker[0].length;
+    if(new RegExp("^\\s*"+openingPosePattern(OPENING_POSE_PREFIX)).test(body.slice(start)))return body;
+    return body.slice(0,start)+OPENING_POSE_PREFIX+"\n\n"+body.slice(start);
+  });
+  return found&&valid?result:null;
+}
+function applyOpeningPoseSaved(saved){
+  const first=saved?.shots?.[0];
+  if(saved?.f?.style!==REFERENCE_STYLE_CURRENT||!Array.isArray(first)||first.length!==2||Number(first[0])!==0||typeof first[1]!=="string")return null;
+  const action=prependOpeningPose(first[1]);
+  const final=typeof saved.final==="string"?openingPosePrompt(saved.final):saved.final;
+  if(typeof saved.final==="string"&&final===null)return null;
+  const changed=action!==first[1]||final!==saved.final;
+  saved.shots=saved.shots.map((shot,i)=>i===0?[shot[0],action]:shot);
+  saved.final=final;return changed;
+}
 function load(){
   let s = null; try { s = JSON.parse(localStorage.getItem(KEY)); } catch {}
+  const referenceFormChanged=restoreAnchoredSaved(s);
+  const openingPoseKey=KEY+":opening-pose-v1";
+  const openingPoseChanged=localStorage.getItem(openingPoseKey)==="done"?null:applyOpeningPoseSaved(s);
   apply(s?.f ? s : EXAMPLE);
   if (s?.seed) $("seed").value = s.seed;
-  if (typeof s?.final === "string") { manualFinal = true; $("final").value = s.final; $("resetFinal").hidden = false; $("finalHint").textContent = "직접 고친 프롬프트를 씁니다. 위 칸을 바꿔도 반영되지 않습니다."; }
+  if (typeof s?.final === "string") { manualFinal = true; $("final").value = s.final; $("resetFinal").hidden = false; $("finalHint").textContent = "직접 고친 최종 프롬프트를 사용합니다. 2번 내용·장면을 수정하면 자동 작성으로 전환됩니다."; }
   try { const m = JSON.parse(localStorage.getItem(KEY_M)); if (m) Object.assign(S, m, {loras: m.loras || {}}); } catch {}
+  const referenceModelChanged=restoreAnchoredModel();
+  if(referenceFormChanged||referenceModelChanged||openingPoseChanged===true)save();
+  if(openingPoseChanged!==null)localStorage.setItem(openingPoseKey,"done");
 }
-$("example").onclick = () => { apply(EXAMPLE); render(); };
+// ---------- 로컬 CPU 프롬프트 도우미 ----------
+let helperJobId=null, helperDraft=null, helperConfig=null, helperOriginal=null;
+function helperCurrentText(){ return {
+  context:{...Object.fromEntries(["summary","sound","music"].map(key=>[key,$(key).value])),
+    shots:[...$("shots").children].map(d=>[d.querySelector("input").value,d.querySelector("textarea").value])},
+  manual_prompt:manualFinal ? $("final").value : null}; }
+function helperVideoConfig(){ return {duration:Number($("duration").value)||5,mode:sendMode(),one_take:isRef() && S.oneTake !== false,
+  fixed:Object.fromEntries(["subject","style","keep"].map(key=>[key,$(key).value]))}; }
+function helperMessage(text,error=false){ $("helperStatus").textContent=text; $("helperStatus").style.color=error ? "var(--warn)" : ""; }
+function helperBusy(busy){ $("helperStart").disabled=busy; $("helperReview").disabled=busy; $("helperCancel").hidden=!busy; $("helperCancel").disabled=false; }
+function formatPromptReview(review){
+  if(!review)return '';
+  const labels={ok:'큰 충돌 미검출',caution:'주의 사항 있음',revise:'수정 권장',unavailable:'검토 미완료'};
+  return `동작·시간 검토: ${labels[review.status]||'검토 결과'}\n${review.summary}\n`+(review.issues||[]).map(item=>`\n• ${item.at?item.at+' · ':''}${item.issue}${item.evidence?'\n  근거: '+item.evidence:''}\n  제안: ${item.suggestion}`).join('\n')+'\n\n텍스트 기준 검토입니다. 사진의 실제 자세와 생성 영상은 직접 확인해 주세요.';
+}
+async function runPromptHelper(reviewOnly=false){
+  if (helperJobId) return;
+  const idea=reviewOnly ? '현재 프롬프트의 동작과 시간 흐름을 검토해 주세요.' : $("helperIdea").value.trim();
+  if (!idea) return helperMessage("만들고 싶은 영상이나 수정 요청을 적어 주세요.",true);
+  helperBusy(true); helperDraft=null; $("helperDraft").hidden=true; $("helperApply").disabled=false; $("helperApply").hidden=reviewOnly; $("helperReviewReport").hidden=true;
+  helperConfig=helperVideoConfig();
+  const body={idea,...helperConfig,...(reviewOnly?{review_only:true}:{})};
+  helperOriginal=reviewOnly || $("helperContext").checked ? helperCurrentText() : null;
+  if (helperOriginal) Object.assign(body,helperOriginal);
+  helperMessage("CPU 도우미를 준비하고 있습니다…");
+  const started=Date.now();
+  try {
+    const r=await fetch("/api/prompt-helper/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const job=await r.json(); if (!r.ok) throw new Error(job.error || "도우미를 시작하지 못했습니다.");
+    helperJobId=job.id;
+    while (helperJobId) {
+      const response=await fetch("/api/prompt-helper/status?id="+encodeURIComponent(helperJobId)), state=await response.json();
+      if (!response.ok) throw new Error(state.error || "도우미 상태를 확인하지 못했습니다.");
+      if (state.state==="done") {
+        helperDraft=state.draft;
+        const labels={summary:"요약",sound:"소리",music:"음악",shot_text:"장면 동작",shot_time:"장면 시각",prompt:"최종 프롬프트"};
+        if (helperDraft.review_only) $("helperPreview").value='현재 프롬프트 검토 결과';
+        else if (helperDraft.edit) {
+          $("helperPreview").value=helperDraft.changes.map(change=>`${labels[change.target]}${change.target.startsWith("shot_") ? ` ${change.index+1}번` : ""}\n원문: ${change.before || "(비어 있음)"}\n수정: ${change.after || "(삭제)"}`).join("\n\n") || "요청에 따라 적용할 변경사항이 없습니다.";
+          $("helperApply").disabled=!helperDraft.changes.length;
+        } else $("helperPreview").value=["summary","sound","music"].map(key=>`${labels[key]}: ${helperDraft.f[key]}`).join("\n\n")
+          +"\n\n장면별 동작:\n"+helperDraft.shots.map(([t,text])=>`${t}초: ${text}`).join("\n\n");
+        $("helperReviewReport").textContent=formatPromptReview(helperDraft.review);$("helperReviewReport").hidden=!helperDraft.review;
+        $("helperDraft").hidden=false; helperMessage(helperDraft.review_only ? '현재 내용의 검토 결과입니다. 필요한 수정만 추가로 요청하세요.' : helperDraft.edit ? "변경할 부분과 검토 결과를 확인한 뒤 적용하세요. 나머지 내용은 유지됩니다." : "작성안과 동작·시간 검토 결과를 확인한 뒤 적용하세요."); break;
+      }
+      if (["error","cancelled"].includes(state.state)) throw new Error(state.error || "작성이 중지됐습니다.");
+      helperMessage(`${state.state==="starting" ? "CPU 모델 준비 중" : state.state==="reviewing" ? "CPU로 동작·시간 흐름 검토 중" : state.state==="enriching" ? "CPU로 같은 동작의 디테일 보강 중" : "CPU로 상세 동작 작성 중"}… ${Math.floor((Date.now()-started)/1000)}초 경과`);
+      await new Promise(resolve=>setTimeout(resolve,1500));
+    }
+  } catch(error){ helperMessage(error.message,true); }
+  finally { helperJobId=null; helperBusy(false); }
+}
+$("helperStart").onclick=()=>runPromptHelper(false);
+$("helperReview").onclick=()=>runPromptHelper(true);
+$("helperCancel").onclick = async () => {
+  if (!helperJobId) return;
+  $("helperCancel").disabled=true;
+  try {
+    const r=await fetch("/api/prompt-helper/cancel",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:helperJobId})});
+    if (!r.ok) throw new Error("취소 요청을 보내지 못했습니다.");
+    helperMessage("작성을 취소하고 CPU 메모리를 정리하고 있습니다…");
+  } catch(error){ helperMessage(error.message,true); $("helperCancel").disabled=false; }
+};
+$("helperApply").onclick = () => {
+  if (!helperDraft || helperDraft.review_only) return;
+  if (JSON.stringify(helperConfig)!==JSON.stringify(helperVideoConfig())) return helperMessage("영상 설정이나 고정 항목을 바꿨습니다. 현재 설정으로 다시 작성해 주세요.",true);
+  if (helperOriginal && JSON.stringify(helperOriginal)!==JSON.stringify(helperCurrentText())) return helperMessage("작성 중 원문을 수정했습니다. 현재 내용을 기준으로 다시 작성해 주세요.",true);
+  if (helperDraft.edit && !helperDraft.changes.length) return;
+  const fields=Object.fromEntries(["summary","sound","music"].filter(key=>typeof helperDraft.f[key]==="string").map(key=>[key,helperDraft.f[key]]));
+  if (helperDraft.edit && helperDraft.shots) {
+    for (const [key,value] of Object.entries(fields)) $(key).value=value;
+    helperDraft.shots.forEach(([time,text],i)=>{
+      const row=$("shots").children[i], input=row.querySelector("input"), area=row.querySelector("textarea");
+      if (input.value!==String(time)) input.value=time;
+      if (area.value!==text) area.value=text;
+    });
+  }
+  else if (helperDraft.shots) apply({f:fields,shots:helperDraft.shots});
+  else for (const [key,value] of Object.entries(fields)) $(key).value=value;
+  manualFinal=typeof helperDraft.final==="string";
+  if (manualFinal) $("final").value=helperDraft.final;
+  $("resetFinal").hidden=!manualFinal;
+  $("finalHint").textContent=manualFinal ? "부분 수정한 최종 프롬프트를 사용합니다. 2번 내용·장면을 수정하면 자동 작성으로 전환됩니다." : "위 칸을 고치면 자동으로 다시 만들어집니다.";
+  render(); helperMessage("내용 칸에 적용했습니다. 필요하면 각 칸을 수정하세요.");
+};
+
+function captureSettings(){
+  return {version:1, f:Object.fromEntries(FIELDS.map(id => [id,$(id).value])),
+    shots:[...$("shots").children].map(d => [d.querySelector("input").value,d.querySelector("textarea").value]),
+    seed:$("seed").value, final:manualFinal ? $("final").value : null,
+    model:JSON.parse(JSON.stringify(S)), images:[...images]};
+}
+$("settingsSave").onclick = async () => {
+  const name = prompt("설정 이름을 입력하세요.", $("summary").value.slice(0,40) || "내 설정")?.trim().slice(0,60);
+  if (!name) return;
+  $("settingsSave").disabled = true;
+  try {
+    const list = await (await fetch("/api/settings")).json();
+    if (list.items?.some(e => e.name === name) && !confirm("같은 이름의 설정을 덮어쓸까요?")) return;
+    const r = await fetch("/api/settings/save", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,data:captureSettings()})});
+    const data = await r.json(); if (!r.ok) throw new Error(data.error || "설정을 저장하지 못했습니다.");
+    $("settingsList").hidden = true; setStatus(`‘${data.name}’ 설정을 저장했습니다.`,"ok");
+  } catch (error) { setStatus(error.message,"err"); }
+  finally { $("settingsSave").disabled = false; }
+};
+$("settingsLoad").onclick = async () => {
+  if (!$("settingsList").hidden) { $("settingsList").hidden = true; return; }
+  try {
+    const r = await fetch("/api/settings"), data = await r.json();
+    if (!r.ok) throw new Error(data.error || "설정을 불러오지 못했습니다.");
+    $("settingsList").innerHTML = data.items.length ? data.items.map(e => `<button class="pick" data-setting="${esc(e.name)}">${esc(e.name)}</button>`).join("") : `<div class="empty" style="padding:10px">저장된 설정이 없습니다.</div>`;
+    $("settingsList").hidden = false;
+  } catch (error) { setStatus(error.message,"err"); }
+};
+$("settingsList").onclick = async ev => {
+  const button = ev.target.closest("[data-setting]"); if (!button) return;
+  button.disabled = true;
+  try {
+    const r = await fetch("/api/settings?name=" + encodeURIComponent(button.dataset.setting)), stored = await r.json();
+    if (!r.ok) throw new Error(stored.error || "설정을 불러오지 못했습니다.");
+    const snapshot = stored.data;
+    setQueueEdit(null);
+    for (const key of Object.keys(S)) if (Object.hasOwn(snapshot.model,key)) S[key] = snapshot.model[key];
+    apply(snapshot);
+    images.length = 0; images.push(...(snapshot.images || [])); imgsReady = true;
+    $("seed").value = snapshot.seed ?? "";
+    manualFinal = typeof snapshot.final === "string";
+    if (manualFinal) $("final").value = snapshot.final;
+    $("resetFinal").hidden = !manualFinal;
+    $("finalHint").textContent = manualFinal ? "저장한 최종 프롬프트를 사용합니다. 2번 내용·장면을 수정하면 자동 작성으로 전환됩니다." : "위 칸을 고치면 자동으로 다시 만들어집니다.";
+    setMode(S.mode); drawModelCard(); render(); saveImgs();
+    $("settingsList").hidden = true;
+    setStatus(`‘${button.dataset.setting}’ 설정을 불러왔습니다.`,"ok");
+  } catch (error) { setStatus(error.message,"err"); }
+  finally { button.disabled = false; }
+};
 
 // ---------- 실행 ----------
 function drawGoInfo(){
+  updateSequenceButton();
   if (!CAT) return;
   const m = curModel(), n = Object.keys(S.loras).length, c = runCount();
   $("goInfo").textContent = `${m ? friendlyModel(m) : base(S.model)} · ${S.steps}스텝${n ? ` · LoRA ${n}개` : ""}${isRef() && S.anchor ? " · 사진 1 첫 장면 고정" : ""}${c > 1 ? ` · ${c}번 반복` : ""} · ${etaText(c)}`;
@@ -806,63 +1193,173 @@ function drawGoInfo(){
     : "";
 }
 $("seed").addEventListener("input", () => { drawGoInfo(); save(); });
+function updateSequenceButton(){
+  $("sequenceGo").disabled = queueSubmitting || !!editingJobId || !!bulkEditingIds.length || !isRef() || !images.length || !CAT?.capabilities?.photo_sequence;
+  $("photoBatchGo").disabled = queueSubmitting || !!editingJobId || !!bulkEditingIds.length || !isRef() || !CAT;
+  $("sequenceHint").textContent = isRef() ? `사진 ${images.length}장을 번갈아 사진 1로 배치해 ${images.length}건을 추가합니다. 첫 장면 고정은 위 체크박스를 따릅니다.` : "사진 순차 추가는 참조 사진 방식에서 사용할 수 있습니다.";
+}
+function updateGoLabel(){ $("go").textContent = bulkAllEditing ? "전체 대기항목 수정 저장" : bulkEditingIds.length ? "일괄수정 저장" : editingJobId ? "수정 저장" : currentJobs.some(j => !finished(j)) ? "대기열에 추가" : "영상 만들기"; }
+function setQueueEdit(e, ids=[], all=false){
+  bulkAllEditing=!!all&&ids.length>0;
+  bulkEditingIds = [...ids]; editingJobId = ids.length ? null : e?.id || null;
+  const editing = !!editingJobId || !!ids.length;
+  $("queueEdit").hidden = !editing;
+  $("queueEditInfo").textContent = bulkAllEditing ? `전체 대기항목 수정 중 (현재 ${ids.length}개) · 저장 시점의 전체 대기항목에 적용하며 실행 중인 작업은 제외합니다. 사진·순서·방식·고정 옵션·시드는 각각 유지됩니다.` : ids.length ? `${ids.length}개 일괄수정 · 사진·순서·방식·고정 옵션·시드는 각각 유지됩니다.` : e ? `${e.position ? `대기 ${e.position}번` : "대기 항목"} 수정 중 · 시드 ${e.seed}` : "";
+  $("bulkFields").hidden = !ids.length;
+  $("photoFields").disabled = !!ids.length; $("seed").disabled = !!ids.length;
+  $("count").disabled = editing;
+  if (editing) $("count").value = 1;
+  updateGoLabel(); drawGoInfo();
+}
+$("cancelEdit").onclick = () => { setQueueEdit(null); setStatus("대기 항목 수정을 취소했습니다."); };
 function setStatus(t, cls=""){ $("status").textContent = t; $("status").className = "status " + cls; }
 const vurl = (v, dl) => `/api/video?${new URLSearchParams({...v, ...(dl?{download:1}:{})})}`;
-function showVideo(v){
-  $("result").innerHTML = `<video controls autoplay loop src="${vurl(v)}"></video><div class="links"><a href="${vurl(v,1)}">다운로드</a><span style="color:var(--mute)">${esc(v.subfolder)}\\${esc(v.filename)}</span><button class="textbtn" id="closeVid" style="margin-left:auto">✕ 닫기</button></div>`;
-  $("closeVid").onclick = closeResult;
+const LORA_OVERLAY_KEY="h3simple.loraOverlay.v1";
+function isLoraOverlayEnabled(){return $("loraOverlayToggle").checked;}
+function setLoraOverlayEnabled(enabled,persist=false){
+  $("loraOverlayToggle").checked=!!enabled;document.body.classList.toggle("show-lora-overlay",!!enabled);
+  if(persist)try{localStorage.setItem(LORA_OVERLAY_KEY,enabled?"1":"0");}catch{}
+  if(location.origin!=="null")$("storyFrame").contentWindow?.postMessage({type:"lora-overlay-toggle",enabled:!!enabled},location.origin);
+  if(location.origin!=="null")$("galleryFrame").contentWindow?.postMessage({type:"lora-overlay-toggle",enabled:!!enabled},location.origin);
 }
-// 결과·이력 보기 화면 닫기(재생 멈추고 비움). 만드는 중이면 진행 표시는 그대로 둔다
-function closeResult(){
-  $("result").querySelectorAll("video").forEach(x => x.pause());
-  $("result").innerHTML = "";
-  currentJobs.hidden = true;
-  if (!currentJobs.some(j => !finished(j))) {
-    setStatus(""); $("bar").hidden = true;
-    try { localStorage.removeItem(KEY_J); } catch {}
-  }
+function initLoraOverlay(){
+  let enabled=false;try{enabled=localStorage.getItem(LORA_OVERLAY_KEY)==="1";}catch{}
+  setLoraOverlayEnabled(enabled);
+  $("loraOverlayToggle").onchange=()=>setLoraOverlayEnabled($("loraOverlayToggle").checked,true);
+  window.addEventListener("storage",event=>{if(event.key===LORA_OVERLAY_KEY)setLoraOverlayEnabled(event.newValue==="1");});
 }
-// 여러 개(반복): 끝난 순서대로 작은 영상 목록. 하나면 기존처럼 큰 화면 하나.
-function drawRuns(jobs){
-  if (jobs.length === 1) { if (jobs[0].video) showVideo(jobs[0].video); return; }
-  let box = $("result").querySelector(".runs");
-  if (!box) { $("result").innerHTML = `<div class="links" style="justify-content:flex-end"><button class="textbtn" id="closeRuns">✕ 닫기</button></div><div class="runs"></div>`; $("closeRuns").onclick = closeResult; box = $("result").querySelector(".runs"); }
-  jobs.forEach((j, i) => {
-    // 바뀐 칸만 다시 그린다(재생 중인 영상이 처음으로 돌아가지 않게)
-    const key = j.video ? "done" : j.state === "error" ? "err" : j.state === "running" ? `run${j.pct || 0}` : "wait";
-    let el = box.children[i];
-    if (!el) { el = document.createElement("div"); box.appendChild(el); }
-    if (el.dataset.k === key) return;
-    el.dataset.k = key;
-    const cap = `<div class="cap"><span>${i + 1}번 · 시드 ${j.seed}</span>${j.video ? `<a href="${vurl(j.video,1)}">다운로드</a>` : ""}</div>`;
-    if (j.video) { el.className = "run"; el.innerHTML = `<video controls loop preload="metadata" src="${vurl(j.video)}"></video>${cap}`; }
-    else if (j.state === "error") { el.className = "run err"; el.innerHTML = `${i + 1}번 · 시드 ${j.seed}<br>${esc(j.error || "오류")}`; }
-    else { el.className = "run wait"; el.textContent = `${i + 1}번 · ${j.state === "running" ? `${j.pct || 0}%` : "대기"}`; }
+function loraOverlayHtml(loras){
+  if(!Array.isArray(loras))return "LoRA 기록 없음";
+  if(!loras.length)return "LoRA 없음";
+  return `LoRA ${loras.length}개<div class="lora-overlay-list${loras.length>5?" many":""}">${loras.map(l=>`<div class="lora-overlay-row"><span class="lora-overlay-name">${esc(base(l.name).replace(/\.(safetensors|gguf)$/i,""))}</span><span class="lora-overlay-strength">${esc(l.strength==null?"?":l.strength)}</span></div>`).join("")}</div>`;
+}
+function videoStageHtml(video,entry={}){
+  const saved=Array.isArray(entry.loras)?entry:HIST.items.find(item=>item.id===entry.id);
+  const ratio=Number(entry.width)/Number(entry.height),aspect=Number.isFinite(ratio)&&ratio>0?ratio:16/9;
+  return `<div class="video-stage" style="--video-aspect:${aspect}">${video}</div><div class="video-lora-info" data-job-id="${esc(entry.id || "")}">${loraOverlayHtml(saved?.loras)}</div>`;
+}
+function refreshVideoLoraOverlays(){
+  const entries=new Map([...currentJobs,...HIST.items].map(entry=>[entry.id,entry]));
+  document.querySelectorAll(".video-lora-info[data-job-id]").forEach(info=>{
+    const entry=entries.get(info.dataset.jobId);if(!Array.isArray(entry?.loras))return;
+    const html=loraOverlayHtml(entry.loras);if(info.innerHTML!==html)info.innerHTML=html;
   });
 }
-$("go").onclick = async () => {
-  if (!images.length) return setStatus("사진을 1장 이상 넣어 주세요.", "err");
+async function submitJobs(sequence=false){
+  if (queueSubmitting) return;
+  const editId = editingJobId, bulkIds = [...bulkEditingIds], allPending=bulkAllEditing;
+  if (!images.length && !bulkIds.length) return setStatus("사진을 1장 이상 넣어 주세요.", "err");
+  if (sequence && (!isRef() || editId || bulkIds.length)) return setStatus("사진 순차 추가는 참조 사진 방식의 새 작업에서 사용할 수 있습니다.","err");
+  const bulkFields = [...$("bulkFields").querySelectorAll("input:checked")].map(x => x.value);
+  if (bulkIds.length && !bulkFields.length) return setStatus("적용할 수정 항목을 선택해 주세요.","err");
+  queueSubmitting = true; updateSequenceButton(); $("queueFeedback").hidden = true;
+  $("cancelEdit").disabled = true;
   $("go").disabled = true; setStatus("올리는 중…");
   try {
-    const r = await fetch("/api/generate", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({
-      images, prompt: $("final").value, aspect: $("aspect").value, resolution: $("resolution").value,
+    if(!manualFinal)render();
+    const snapshot = captureSettings();
+    const r = await fetch(bulkIds.length ? "/api/queue/bulk-edit" : "/api/generate", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({
+      images:bulkIds.length ? [] : images, prompt: $("final").value, aspect: $("aspect").value, resolution: $("resolution").value, edit_id: editId,
+      edit_ids:allPending ? [] : bulkIds, all_pending:allPending, bulk_fields:bulkFields, photo_sequence:sequence,
       duration: $("duration").value, seed: $("seed").value, mode: sendMode(), model: S.model,
       steps: S.steps, sampler: S.sampler, scheduler: S.scheduler, shift_video: S.shift_video, shift_audio: S.shift_audio,
-      loras: Object.entries(S.loras).map(([name,strength]) => ({name, strength})), count: runCount(), anchor: isRef() && !!S.anchor,
-      ui: {f: Object.fromEntries(FIELDS.map(id => [id, $(id).value])), shots: [...$("shots").children].map(d => [d.querySelector("input").value, d.querySelector("textarea").value]),
-           final: manualFinal ? $("final").value : null, trig: S.trig, oneTake: S.oneTake !== false} })});
+      loras: Object.entries(S.loras).map(([name,strength]) => ({name, strength})), count: sequence ? images.length : runCount(), anchor: isRef() && !!S.anchor,
+      ui: {f:snapshot.f, shots:snapshot.shots, final:snapshot.final, trig:S.trig, oneTake:S.oneTake !== false} })});
     const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status);
     const m = curModel(), jobs = j.jobs || [{id: j.id, seed: j.seed}];
     const info = `${j.width}×${j.height}, ${m ? friendlyModel(m) : j.model} ${j.steps}스텝${j.loras ? `, LoRA ${j.loras}개` : ""}${j.anchor ? ", 사진 1 첫 장면 고정" : ""}`;
-    const add = jobs.map(x => ({...x, state: "queued", info: `${info}, 시드 ${x.seed}`}));
-    if (currentJobs.some(x => !finished(x))) poll(currentJobs.concat(add), pollT0, null);
+    const add = jobs.map(x => ({...x, state:"queued",
+      loras:Array.isArray(x.loras)?x.loras:bulkIds.length && !bulkFields.includes("model") ? HIST.items.find(entry=>entry.id===x.id)?.loras : Object.entries(snapshot.model.loras).map(([name,strength])=>({name,strength})),
+      info:`${x.width || j.width}×${x.height || j.height}, ${histModelName(x.model || j.model || S.model)} ${x.steps || j.steps}스텝, 시드 ${x.seed}${x.sequence_index ? ` · 사진 ${x.sequence_index}번을 첫 번째 참조로` : ""}`}));
+    if (editId || bulkIds.length) {
+      const replacements = new Map(add.map(x => [x.id,x]));
+      const known = new Set(currentJobs.map(x => x.id));
+      const updated = currentJobs.map(x => replacements.get(x.id) || x).concat(add.filter(x => !known.has(x.id)));
+      add.forEach(x => HIST.selected.delete(x.id));
+      setQueueEdit(null);
+      if (add.length) poll(updated, pollT0 || Date.now(), null);
+    }
+    else if (currentJobs.some(x => !finished(x))) poll(currentJobs.concat(add), pollT0, null);
     else poll(add, Date.now(), jobs.length > 1 ? info : `${info}, 시드 ${jobs[0].seed}`);
+    if (j.failed?.length) { $("queueFeedback").textContent = `${add.length}개 수정 완료, ${j.failed.length}개 미적용: ${j.failed[0].error}`; $("queueFeedback").hidden = false; }
+    else if(allPending){$("queueFeedback").textContent=add.length?`전체 대기항목 ${add.length}개 수정 완료 · 실행 중인 작업은 제외했습니다.`:"저장 시점에 수정할 대기항목이 없어 적용하지 않았습니다.";$("queueFeedback").hidden=false;}
     $("go").disabled = false;
-    loadHist();
+    loadHist(false, true);
   } catch (e) { setStatus("실패: " + e.message, "err"); $("go").disabled = false; }
-};
+  finally { queueSubmitting = false; $("cancelEdit").disabled = false; updateSequenceButton(); }
+}
+$("go").onclick = () => submitJobs();
+$("sequenceGo").onclick = () => submitJobs(true);
+let photoBatchStop=false;
+function readPhotoDataUrl(file){
+  return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error("사진을 읽지 못했습니다."));reader.readAsDataURL(file);});
+}
+async function submitIndividualPhotos(selectedFiles){
+  if(queueSubmitting)return;
+  const files=Array.from(selectedFiles||[]);
+  if(!files.length)return;
+  if(!isRef() || editingJobId || bulkEditingIds.length)return setStatus("참조 사진 방식에서 대기 항목 수정 모드를 끝낸 뒤 개별 추가해 주세요.","err");
+  if(files.some(file=>file.type && !file.type.startsWith("image/")))return setStatus("이미지 파일만 선택해 주세요.","err");
+  queueSubmitting=true;photoBatchStop=false;$("go").disabled=true;$("cancelEdit").disabled=true;updateSequenceButton();
+  $("stopPhotoBatch").hidden=false;$("stopPhotoBatch").disabled=false;
+  const added=[];let processed=0,failed=0,lastError="",uncertain=false;
+  try{
+    if(!manualFinal)render();const snapshot=captureSettings(),m=snapshot.model;
+    const prompt=manualFinal?$("final").value:build(1);
+    if(!prompt.trim())throw new Error("2번 내용을 작성해 주세요.");
+    const loras=Object.entries(m.loras).map(([name,strength])=>({name,strength}));
+    const request={prompt,mode:"REF2VA",aspect:snapshot.f.aspect,resolution:snapshot.f.resolution,duration:snapshot.f.duration,seed:snapshot.seed,
+      model:m.model,...Object.fromEntries(PARAMS.map(key=>[key,m[key]])),loras,count:1,anchor:!!m.anchor,photo_sequence:false,
+      ui:{f:{...snapshot.f,count:1},shots:snapshot.shots,final:snapshot.final,trig:m.trig,oneTake:m.oneTake!==false}};
+    for(let index=0;index<files.length && !photoBatchStop;index++){
+      $("photoBatchStatus").textContent=`사진별 추가 중 ${index+1}/${files.length} · ${added.length}개 등록${failed?`, ${failed}개 실패`:""}`;
+      let image;try{image=await readPhotoDataUrl(files[index]);}catch(error){failed++;processed++;lastError=`${index+1}번 사진: ${error.message}`;continue;}
+      if(photoBatchStop)break;
+      let response,result;
+      try{response=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...request,images:[image]})});result=await response.json();}
+      catch{uncertain=true;lastError=`${index+1}번 요청의 응답을 확인하지 못해 추가를 중단했습니다. 중복 방지를 위해 자동 재시도하지 않습니다.`;break;}
+      if(!response.ok){failed++;processed++;lastError=`${index+1}번 사진: ${result.error||"추가 실패"}`;if(response.status>=500)break;continue;}
+      const jobs=result.jobs||(result.id?[result]:[]);
+      if(jobs.length!==1 || !jobs[0].id){uncertain=true;lastError="등록 응답을 확인하지 못해 중복 요청 없이 중단했습니다.";break;}
+      const job=jobs[0];added.push({...job,state:"queued",loras:loras.map(item=>({...item})),
+        info:`${job.width||result.width}×${job.height||result.height}, ${histModelName(job.model||m.model)} ${job.steps||m.steps}스텝, 시드 ${job.seed}`});
+      processed++;if(added.length===1 || added.length%10===0)loadHist(false,true);
+    }
+  }catch(error){lastError=error.message;}
+  finally{
+    queueSubmitting=false;$("cancelEdit").disabled=false;$("go").disabled=false;$("stopPhotoBatch").hidden=true;updateSequenceButton();
+    if(added.length){const existing=currentJobs.filter(job=>!finished(job));poll(existing.concat(added),existing.length?pollT0:Date.now(),null);loadHist(false,true);}
+    const remaining=files.length-processed;
+    $("photoBatchStatus").textContent=`사진 ${files.length}장 중 ${added.length}개 개별 등록${failed?` · ${failed}개 실패`:""}${remaining?` · ${remaining}개 ${uncertain?"응답 미확인 또는 미처리":"미처리"}`:""}${photoBatchStop?" · 추가 중단":""}${lastError?"\n"+lastError:""}`;
+  }
+}
+$("photoBatchGo").onclick=()=>$("photoBatchFiles").click();
+$("photoBatchFiles").onchange=event=>{const files=Array.from(event.target.files||[]);event.target.value="";submitIndividualPhotos(files);};
+$("stopPhotoBatch").onclick=()=>{photoBatchStop=true;$("stopPhotoBatch").disabled=true;$("photoBatchStatus").textContent="현재 요청을 마친 뒤 추가를 중단합니다. 이미 등록한 작업은 유지됩니다.";};
 let currentJobs = [], pollT0 = 0;
 const finished = j => j.state === "done" || j.state === "error";
+let restartingJob = false;
+async function restartCurrentJob(id){
+  if (restartingJob) return;
+  restartingJob = true; $("restartCurrent").disabled = true;
+  try {
+    const r = await fetch("/api/queue/restart", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+    const result = await r.json(); if (!r.ok) throw new Error(result.error || "재시작하지 못했습니다.");
+    const existing = currentJobs.find(j => j.id === id) || {};
+    const next = {...existing,id:result.id,seed:result.seed,state:"queued",pct:0,label:"재시작 대기",video:null,error:null};
+    const jobs = currentJobs.filter(j => j.id !== id && j.id !== result.id);
+    jobs.unshift(next);
+    poll(jobs,Date.now(),null);
+    $("queueFeedback").textContent = result.warning || "현재 작업을 같은 사진·설정·시드로 재시작합니다. 다른 대기 항목의 순서는 유지됩니다.";
+    $("queueFeedback").hidden = false;
+    loadHist(false,true);
+  } catch (error) { setStatus(error.message,"err"); }
+  finally { restartingJob = false; $("restartCurrent").disabled = false; }
+}
+$("restartCurrent").onclick = () => {
+  const job = currentJobs.find(j => j.state === "running");
+  if (job) restartCurrentJob(job.id);
+};
 $("cancel").onclick = () => {
   const left = currentJobs.filter(j => !finished(j));
   if (!left.length) return;
@@ -875,7 +1372,6 @@ function saveJobs(o){ try { localStorage.setItem(KEY_J, JSON.stringify(o)); } ca
 function restoreJobs(){
   let o = null; try { o = JSON.parse(localStorage.getItem(KEY_J)); } catch {}
   if (!o?.jobs?.length) return;
-  o.jobs.hidden = !!o.hidden;
   poll(o.jobs, o.t0, o.info, o.t1);
 }
 let pollGen = 0;
@@ -884,27 +1380,30 @@ function poll(jobs, t0, info, t1){
   currentJobs = jobs; pollT0 = t0; jobs.forEach(j => j.miss = 0);
   clearTimeout(timer); $("cancel").hidden = false;
   $("cancel").textContent = jobs.length > 1 ? "남은 작업 모두 중지" : "중지";
-  $("result").innerHTML = "";
   const tick = async () => {
     if (gen !== pollGen) return;
-    for (const j of jobs.filter(x => !finished(x))) {
+    const unfinished=jobs.filter(x=>!finished(x));
+    const scan=jobs.length>20?unfinished.filter(x=>x.state==="running").concat(unfinished.filter(x=>x.state!=="running")):unfinished;
+    for (const j of scan) {
       let s; try { s = await (await fetch("/api/status?id=" + j.id)).json(); } catch { s = {state:"unknown"}; }
       if (s.state !== "unknown") { j.miss = 0; Object.assign(j, s); }
       // ComfyUI 가 다시 켜졌거나 다른 곳에서 지운 작업은 기록이 없어 계속 unknown → 몇 번 뒤 끝낸다
       else if (++j.miss >= 5) Object.assign(j, {state: "error", error: "작업을 찾을 수 없음(ComfyUI 재시작·삭제)"});
+      // Large photo batches are submitted in order; later pending jobs need no per-tick queue scan.
+      if(jobs.length>20 && !finished(j))break;
     }
     if (gen !== pollGen) return;
     const n = jobs.length, done = jobs.filter(x => x.state === "done").length, errs = jobs.filter(x => x.state === "error").length;
     if (done + errs === n && !t1) t1 = Date.now();
     const sec = Math.round(((t1 || Date.now()) - t0)/1000), mm = `${Math.floor(sec/60)}:${String(sec%60).padStart(2,"0")}`;
-    saveJobs({jobs, t0, info, t1, hidden: !!jobs.hidden});
+    saveJobs({jobs, t0, info, t1});
     const run = jobs.find(x => x.state === "running"), runIdx = jobs.indexOf(run);
+    $("restartCurrent").hidden = !run || !CAT?.capabilities?.restart_running;
     const pct = Math.round(((done + errs) + (run ? (run.pct || 0) / 100 : 0)) / n * 100);
     $("bar").hidden = false; $("bar").firstElementChild.style.width = pct + "%";
-    if (!jobs.hidden && (n > 1 || done)) drawRuns(jobs);
-    $("go").textContent = done + errs === n ? "영상 만들기" : "대기열에 추가";
+    updateGoLabel();
     if (done + errs === n) {
-      $("go").disabled = false; $("cancel").hidden = true;
+      $("go").disabled = queueSubmitting; $("cancel").hidden = true;
       if (!jobs.histDone) { jobs.histDone = true; loadHist(); }
       if (n === 1 && errs) { $("bar").hidden = true; setStatus("오류: " + jobs[0].error, "err"); return; }
       setStatus(`완료 (${mm}) · ${n > 1 ? `${done}개 완료${errs ? `, ${errs}개 실패·중지` : ""} · ` : ""}${info || ""}`, errs && !done ? "err" : "ok");
@@ -920,57 +1419,381 @@ function poll(jobs, t0, info, t1){
 // =====================================================================
 // 작업 이력 — 서버 history.json (설정·프롬프트·사진 ↔ 결과)
 // =====================================================================
-const HIST = {items: [], total: 0, t: null};
+const HIST = {items: [], rendered: [], selected:new Set(), total: 0, offset: 0, loading: false, error: false, pending: null, t: null};
 const RES_NAME = {draft: "초안", auto: "기본", "720p": "720p", "1080p": "1080p"};
 const HSTATE = {queued: "대기", running: "만드는 중", error: "실패", lost: "결과 없음"};
 function histModelName(name){ const m = CAT?.models.find(x => x.name === name); return m ? friendlyModel(m) : base(name); }
 function histTitle(e){ return e.ui?.f?.summary?.trim() || (e.prompt || "").split("\n").find(l => l.startsWith("summary:"))?.slice(8).trim() || "(요약 없음)"; }
-async function loadHist(more){
+async function loadHist(more, force=false){
+  if (HIST.loading) { if (!more) HIST.pending = (HIST.pending ?? false) || force; return; }
+  if (more && HIST.offset >= HIST.total) return;
+  HIST.loading = true; HIST.error = false; updateHistoryEnd();
   try {
-    const r = await (await fetch(`/api/history?offset=${more ? HIST.items.length : 0}&limit=20`)).json();
-    HIST.items = more ? HIST.items.concat(r.items) : r.items; HIST.total = r.total;
-  } catch { return; }
-  drawHist();
-  // 아직 끝나지 않은 항목이 보이면 조금 뒤 다시 읽는다
-  clearTimeout(HIST.t);
-  if (HIST.items.some(e => ["queued","running"].includes(e.state))) HIST.t = setTimeout(() => loadHist(), 10000);
+    const target = more ? 20 : Math.max(20, HIST.offset);
+    const items = more ? [...HIST.items] : [];
+    let offset = more ? HIST.offset : 0, fetched = 0, total = HIST.total;
+    do {
+      const response = await fetch(`/api/history?offset=${offset}&limit=${Math.min(100, target - fetched)}`);
+      if (!response.ok) throw new Error("이력을 불러오지 못했습니다.");
+      const r = await response.json();
+      items.push(...r.items); offset += r.items.length; fetched += r.items.length; total = r.total;
+      if (!r.items.length || offset >= total) break;
+    } while (fetched < target);
+    HIST.items = [...new Map(items.map(e => [e.id, e])).values()];
+    HIST.offset = offset; HIST.total = total;
+    drawHist();
+    refreshVideoLoraOverlays();
+  } catch { HIST.error = true; }
+  finally {
+    HIST.loading = false; updateHistoryEnd();
+    refreshQueueSelection();
+    clearTimeout(HIST.t);
+    if (HIST.items.some(e => ["queued","running"].includes(e.state))) HIST.t = setTimeout(() => loadHist(), 10000);
+    if (HIST.pending !== null) { const pending = HIST.pending; HIST.pending = null; loadHist(false, pending); }
+    else if (!HIST.error) requestAnimationFrame(maybeLoadHistory);
+  }
+}
+function updateHistoryEnd(){
+  $("histEnd").hidden = !HIST.loading && !HIST.error && HIST.offset >= HIST.total;
+  $("histEnd").textContent = HIST.loading ? "이력을 불러오는 중…" : HIST.error ? "불러오지 못했습니다. 다시 스크롤하면 재시도합니다." : "";
+}
+function maybeLoadHistory(){
+  if ($("singleApp").hidden || HIST.loading || (!HIST.error && HIST.offset >= HIST.total) || !$("videoCompare").hidden) return;
+  const rect = $("histEnd").getBoundingClientRect();
+  if (rect.top <= window.innerHeight + 400 && rect.bottom >= 0) loadHist(!HIST.error);
+}
+function historySettingsHtml(e){
+  const value = v => v == null || v === "" ? "기록 없음" : String(v);
+  const toggle = v => v === true ? "켬" : v === false ? "끔" : "기록 없음";
+  const settings = [
+    ["모델",value(e.model)], ["생성 방식",({REF2VA:"참조 사진",I2VA:"첫 프레임",FL2VA:"첫·끝 프레임"})[e.mode] || value(e.mode)],
+    ["크기",e.width != null && e.height != null ? `${e.width} × ${e.height}` : "기록 없음"],
+    ["화질 · 화면비",`${RES_NAME[e.resolution] || value(e.resolution)} · ${value(e.aspect)}`],
+    ["영상 길이",e.duration != null ? `${e.duration}초` : "기록 없음"],
+    ["스텝",value(e.steps)], ["샘플러",value(e.sampler)], ["스케줄러",value(e.scheduler)],
+    ["영상 shift",value(e.shift_video)], ["소리 shift",value(e.shift_audio)], ["시드",value(e.seed)],
+    ["첫 장면 고정",toggle(e.anchor)], ["원테이크",toggle(e.ui?.oneTake)], ["트리거 자동적용",toggle(e.ui?.trig)]
+  ];
+  const loras = Array.isArray(e.loras) ? e.loras.length
+    ? `<ul>${e.loras.map(l => `<li><span>${esc(value(l.name))}</span><b>강도 ${esc(value(l.strength))}</b></li>`).join("")}</ul>`
+    : `<div class="hint">사용한 LoRA 없음</div>` : `<div class="hint">LoRA 기록 없음</div>`;
+  return `<h3>LoRA · ${Array.isArray(e.loras) ? e.loras.length+"개" : "기록 없음"}</h3>${loras}<h3>생성할 때 저장된 설정</h3><dl>${settings.map(([label,text]) => `<dt>${esc(label)}</dt><dd>${esc(text)}</dd>`).join("")}</dl>`;
+}
+const HISTORY_DETAILS = {id:null,row:null,pinned:false,timer:null};
+function hideHistoryDetails(){
+  clearTimeout(HISTORY_DETAILS.timer);HISTORY_DETAILS.timer=null;
+  HISTORY_DETAILS.row?.querySelector("[data-history-settings]")?.setAttribute("aria-expanded","false");
+  $("historyDetails").hidden=true;HISTORY_DETAILS.id=null;HISTORY_DETAILS.row=null;HISTORY_DETAILS.pinned=false;
+}
+function positionHistoryDetails(){
+  const panel=$("historyDetails"), row=HISTORY_DETAILS.row;if(panel.hidden || !row)return;
+  const rect=row.getBoundingClientRect(), gap=12, width=panel.offsetWidth, height=panel.offsetHeight;
+  let left=rect.left-width-gap;
+  if(left<gap)left=rect.right+gap+width<=window.innerWidth-gap ? rect.right+gap : rect.left;
+  panel.style.left=Math.max(gap,Math.min(left,window.innerWidth-width-gap))+"px";
+  panel.style.top=Math.max(gap,Math.min(rect.top,window.innerHeight-height-gap))+"px";
+}
+function showHistoryDetails(row,pinned=false){
+  clearTimeout(HISTORY_DETAILS.timer);HISTORY_DETAILS.timer=null;
+  if(row?.isConnected===false)return;
+  const entry=HIST.rendered.find(e => e.id === row?.dataset.historyId);if(!entry)return;
+  HISTORY_DETAILS.row?.querySelector("[data-history-settings]")?.setAttribute("aria-expanded","false");
+  if(HISTORY_DETAILS.id!==entry.id || $("historyDetails").hidden)$("historyDetailsBody").innerHTML=historySettingsHtml(entry);
+  Object.assign(HISTORY_DETAILS,{id:entry.id,row,pinned});
+  row.querySelector("[data-history-settings]")?.setAttribute("aria-expanded","true");
+  $("historyDetails").hidden=false;positionHistoryDetails();
+}
+function syncHistoryDetails(){
+  if(HISTORY_DETAILS.id==null)return;
+  const row=[...$("histList").querySelectorAll("[data-history-id]")].find(row => row.dataset.historyId===HISTORY_DETAILS.id);
+  if(!row)return hideHistoryDetails();
+  HISTORY_DETAILS.row=row;row.querySelector("[data-history-settings]")?.setAttribute("aria-expanded","true");positionHistoryDetails();
+}
+function leaveHistoryDetails(){
+  clearTimeout(HISTORY_DETAILS.timer);HISTORY_DETAILS.timer=null;
+  if(!HISTORY_DETAILS.pinned)HISTORY_DETAILS.timer=setTimeout(hideHistoryDetails,200);
+}
+$("histList").addEventListener("pointerover",ev => {
+  if(ev.pointerType==="touch" || HISTORY_DETAILS.pinned)return;
+  const row=ev.target.closest("[data-history-id]");if(!row)return;
+  if(ev.target.closest("video")){hideHistoryDetails();return;}
+  const from=ev.relatedTarget?.nodeType ? ev.relatedTarget : null;
+  if(row.contains(from) && !from?.closest?.("video"))return;
+  clearTimeout(HISTORY_DETAILS.timer);HISTORY_DETAILS.timer=null;
+  if(row===HISTORY_DETAILS.row)return;
+  HISTORY_DETAILS.timer=setTimeout(() => showHistoryDetails(row),180);
+});
+$("histList").addEventListener("pointerout",ev => {
+  const row=ev.target.closest("[data-history-id]");
+  const to=ev.relatedTarget?.nodeType ? ev.relatedTarget : null;
+  if(row && !row.contains(to) && !$("historyDetails").contains(to))leaveHistoryDetails();
+});
+$("histList").addEventListener("focusin",ev => {
+  if(ev.target.matches("[data-history-settings]"))showHistoryDetails(ev.target.closest("[data-history-id]"));
+});
+$("historyDetails").addEventListener("pointerenter",() => {clearTimeout(HISTORY_DETAILS.timer);HISTORY_DETAILS.timer=null;});
+$("historyDetails").addEventListener("pointerleave",leaveHistoryDetails);
+$("historyDetailsClose").onclick=hideHistoryDetails;
+document.addEventListener("keydown",ev => {if(ev.key==="Escape")hideHistoryDetails();});
+document.addEventListener("pointerdown",ev => {
+  if(!$("historyDetails").hidden && !$("historyDetails").contains(ev.target) && !HISTORY_DETAILS.row?.contains(ev.target))hideHistoryDetails();
+});
+window.addEventListener("scroll",hideHistoryDetails,{passive:true});
+window.addEventListener("resize",hideHistoryDetails,{passive:true});
+const VIDEO_COMPARE={selected:new Set(),entries:[],actualSizes:[],playToken:0,opener:null,overflow:""};
+function refreshVideoCompareSelection(){
+  const available=new Set(HIST.items.filter(entry=>entry.video).map(entry=>entry.id));
+  for(const id of VIDEO_COMPARE.selected)if(!available.has(id))VIDEO_COMPARE.selected.delete(id);
+  const ids=[...VIDEO_COMPARE.selected];
+  $("histList").querySelectorAll("[data-compare]").forEach(input=>{
+    input.checked=VIDEO_COMPARE.selected.has(input.dataset.compare);input.disabled=ids.length>=3 && !input.checked;
+    input.setAttribute("aria-label",input.checked?`함께 재생할 영상 ${ids.indexOf(input.dataset.compare)+1}번 선택됨`:"함께 재생할 영상 선택");
+  });
+  $("compareVideos").disabled=!ids.length;$("compareVideos").textContent=`선택 영상 재생 (${ids.length}/3)`;$("clearCompare").hidden=!ids.length;
+  if(VIDEO_COMPARE.entries.some(entry=>!available.has(entry.id)))closeVideoComparison();
+}
+function setVideoPlaybackSelection(id,selected){
+  if(selected && HIST.items.some(entry=>entry.id===id && entry.video)){
+    if(VIDEO_COMPARE.selected.has(id) || VIDEO_COMPARE.selected.size<3)VIDEO_COMPARE.selected.add(id);
+  }else VIDEO_COMPARE.selected.delete(id);
+  refreshVideoCompareSelection();
+}
+function setVideoCompareAudio(){
+  const choice=$("compareAudio").value;
+  $("videoCompareGrid").querySelectorAll("video").forEach((video,index)=>{video.muted=choice==="none" || index!==Number(choice);});
+}
+function pauseVideoComparison(){
+  ++VIDEO_COMPARE.playToken;$("videoCompareGrid").querySelectorAll("video").forEach(video=>video.pause());
+  $("videoCompareStatus").textContent="";
+}
+async function playVideoComparison(){
+  const players=[...$("videoCompareGrid").querySelectorAll("video")];if(!players.length || players.length>3)return;
+  const token=++VIDEO_COMPARE.playToken;
+  players.forEach(video=>{video.pause();video.currentTime=0;});setVideoCompareAudio();
+  $("videoCompareStatus").textContent=`${players.length}개 영상 재생 준비 중…`;
+  const results=await Promise.allSettled(players.map(video=>video.play()));
+  if(token!==VIDEO_COMPARE.playToken || $("videoCompare").hidden)return;
+  if(results.some(result=>result.status==="rejected"))$("videoCompareStatus").textContent="재생하지 못한 영상이 있습니다. ‘처음부터 함께 재생’을 다시 눌러 주세요.";
+  else{const times=players.map(video=>video.currentTime);if(Math.max(...times)-Math.min(...times)>.12)players.forEach(video=>video.currentTime=0);$("videoCompareStatus").textContent="";}
+}
+function layoutVideoPlayback(entries){
+  const viewportWidth=window.visualViewport?.width||window.innerWidth,viewportHeight=window.visualViewport?.height||window.innerHeight;
+  const narrow=viewportWidth<=700,margin=viewportWidth<=600?8:16,gap=viewportWidth<=600?6:12,padding=16,columns=narrow?1:entries.length;
+  const ratios=entries.map((entry,index)=>{const size=VIDEO_COMPARE.actualSizes[index]||entry,ratio=Number(size.width)/Number(size.height);return Number.isFinite(ratio)&&ratio>0?ratio:16/9;});
+  const infoHeight=$("loraOverlayToggle").checked?Math.max(...entries.map(entry=>Array.isArray(entry.loras)&&entry.loras.length?(Math.ceil(entry.loras.length/(entry.loras.length>5?2:1))+1)*16+24:40)):0;
+  const availableHeight=Math.max(100,viewportHeight-margin*2-padding-(entries.length>1?48:0)-infoHeight-12);
+  const rowRatio=columns===1?Math.min(...ratios):ratios.reduce((a,b)=>a+b,0);
+  const width=Math.min(viewportWidth-margin*2,columns===1?1000:columns===2?1600:1920,availableHeight*rowRatio+gap*(columns-1)+padding);
+  $("videoCompare").style.setProperty("--playback-width",Math.round(width)+"px");
+  const grid=$("videoCompareGrid"),smallest=Math.min(...ratios);grid.style.setProperty("--video-columns",columns);grid.style.gridTemplateColumns=columns===1?"minmax(0,1fr)":ratios.map(ratio=>"minmax(0,"+(ratio/smallest)+"fr)").join(" ");grid.dataset.count=String(entries.length);
+  $("videoCompareTools").hidden=entries.length===1;
+}
+window.addEventListener("resize",()=>{if(VIDEO_COMPARE.entries.length)layoutVideoPlayback(VIDEO_COMPARE.entries);},{passive:true});
+window.visualViewport?.addEventListener("resize",()=>{if(VIDEO_COMPARE.entries.length)layoutVideoPlayback(VIDEO_COMPARE.entries);});
+function openVideoComparison(){
+  const entries=[...VIDEO_COMPARE.selected].map(id=>HIST.items.find(entry=>entry.id===id && entry.video)).filter(Boolean);
+  if(!entries.length || entries.length>3){refreshVideoCompareSelection();return;}
+  hideHistoryDetails();document.querySelectorAll("video").forEach(video=>video.pause());
+  VIDEO_COMPARE.entries=entries;VIDEO_COMPARE.actualSizes=[];VIDEO_COMPARE.opener=document.activeElement;VIDEO_COMPARE.overflow=document.body.style.overflow;
+  $("videoCompareTitle").textContent=`선택한 ${entries.length}개 영상 재생`;layoutVideoPlayback(entries);
+  const audioChoice=$("compareAudio").value;
+  $("compareAudio").innerHTML=entries.map((entry,index)=>`<option value="${index}">영상 ${index+1}</option>`).join("")+`<option value="none">모두 끄기</option>`;
+  $("compareAudio").value=audioChoice==="none" || (audioChoice!=="" && Number(audioChoice)>=0 && Number(audioChoice)<entries.length)?audioChoice:"0";
+  $("videoCompareGrid").innerHTML=entries.map((entry,index)=>`<div>${videoStageHtml(`<video controls loop playsinline preload="auto" tabindex="0" aria-label="영상 ${index+1}" src="${vurl(entry.video)}"></video>`,entry)}</div>`).join("");
+  $("videoCompareGrid").querySelectorAll("video").forEach((video,index)=>{
+    video.onerror=()=>$("videoCompareStatus").textContent="선택한 영상 중 불러오지 못한 영상이 있습니다.";
+    video.onloadedmetadata=()=>{if(video.isConnected===false || VIDEO_COMPARE.entries[index]?.id!==entries[index].id || !video.videoWidth || !video.videoHeight)return;VIDEO_COMPARE.actualSizes[index]={width:video.videoWidth,height:video.videoHeight};video.parentElement.style.setProperty("--video-aspect",video.videoWidth+"/"+video.videoHeight);layoutVideoPlayback(VIDEO_COMPARE.entries);};
+  });
+  $("videoCompare").hidden=false;syncHistoryPreviews();document.body.style.overflow="hidden";$("closeCompare").focus({preventScroll:true});playVideoComparison();
+}
+function closeVideoComparison(){
+  if($("videoCompare").hidden)return;
+  pauseVideoComparison();$("videoCompareGrid").querySelectorAll("video").forEach(video=>{video.removeAttribute("src");video.load();});
+  $("videoCompareGrid").replaceChildren();$("videoCompare").hidden=true;VIDEO_COMPARE.entries=[];VIDEO_COMPARE.actualSizes=[];syncHistoryPreviews();
+  document.body.style.overflow=VIDEO_COMPARE.overflow;VIDEO_COMPARE.opener?.focus({preventScroll:true});VIDEO_COMPARE.opener=null;
+}
+$("compareVideos").onclick=openVideoComparison;
+$("clearCompare").onclick=()=>{VIDEO_COMPARE.selected.clear();refreshVideoCompareSelection();};
+$("comparePlay").onclick=playVideoComparison;$("comparePause").onclick=pauseVideoComparison;$("compareAudio").onchange=setVideoCompareAudio;
+$("closeCompare").onclick=closeVideoComparison;
+$("videoCompare").addEventListener("click",event=>{if(event.target===$("videoCompare"))closeVideoComparison();});
+$("videoCompare").addEventListener("keydown",event=>{
+  if(event.key==="Escape"){event.preventDefault();closeVideoComparison();}
+  if(event.key==="Tab"){
+    const controls=[...$("videoCompare").querySelectorAll("button,select,video")].filter(control=>!control.disabled);
+    const first=controls[0],last=controls[controls.length-1];
+    if(event.shiftKey && document.activeElement===first){event.preventDefault();last?.focus({preventScroll:true});}
+    else if(!event.shiftKey && document.activeElement===last){event.preventDefault();first?.focus({preventScroll:true});}
+  }
+});
+const HISTORY_MEDIA={observer:null,visible:new Set()};
+function releaseHistoryPreview(video){
+  video.pause();
+  if(video.getAttribute("src")){video.removeAttribute("src");video.preload="none";video.load();}
+}
+function syncHistoryPreviews(){
+  const active=!document.hidden&&!$("singleApp").hidden&&$("videoCompare").hidden;
+  let loaded=0;
+  $("histList").querySelectorAll("video[data-preview-src]").forEach(video=>{
+    // Bound decoder/buffer use even after loading hundreds of history rows.
+    if(active&&HISTORY_MEDIA.visible.has(video)&&loaded<6){
+      loaded++;
+      if(!video.getAttribute("src")){video.preload="metadata";video.src=video.dataset.previewSrc;}
+    }else releaseHistoryPreview(video);
+  });
+}
+function resetHistoryPreviews(){
+  HISTORY_MEDIA.observer?.disconnect();HISTORY_MEDIA.visible.clear();
+  $("histList").querySelectorAll("video[data-preview-src]").forEach(releaseHistoryPreview);
+}
+function watchHistoryPreviews(){
+  if(typeof IntersectionObserver==="undefined")return;
+  HISTORY_MEDIA.observer??=new IntersectionObserver(entries=>{
+    for(const entry of entries){
+      if(entry.isIntersecting&&entry.target.isConnected)HISTORY_MEDIA.visible.add(entry.target);
+      else HISTORY_MEDIA.visible.delete(entry.target);
+    }
+    syncHistoryPreviews();
+  },{rootMargin:"0px",threshold:0});
+  $("histList").querySelectorAll("video[data-preview-src]").forEach(video=>{
+    HISTORY_MEDIA.observer.observe(video);
+    video.onmouseenter=()=>{if(window.matchMedia?.("(hover: hover) and (pointer: fine)").matches&&video.getAttribute("src")&&!document.hidden&&!$("singleApp").hidden&&$("videoCompare").hidden)video.play().catch(()=>{});};
+    video.onmouseleave=()=>video.pause();
+  });
+}
+document.addEventListener("visibilitychange",()=>{if(document.hidden)pauseVideoComparison();syncHistoryPreviews();});
+function historyThumb(e){
+  if (e.video) return `<div class="hthumb result-video"><video muted loop playsinline preload="none" data-preview-src="${esc(vurl(e.video))}#t=0.5" data-select-video="${esc(e.id||"")}" title="재생 선택 / 해제"></video><span class="hthumb-kind">▶ 결과 영상</span></div>`;
+  const state=e.state==="queued" ? (e.position ? `대기 ${e.position}번` : "대기 중")
+    : `${HSTATE[e.state] || e.state}${e.state==="running" && e.pct!=null ? ` ${e.pct}%` : ""}`;
+  if (e.images?.[0]) return `<div class="hthumb input-photo"><img loading="lazy" decoding="async" fetchpriority="low" src="/api/input?name=${encodeURIComponent(e.images[0])}&amp;thumbnail=1" alt="등록한 첫 번째 입력 사진" data-input-photo><span class="hthumb-kind">입력 사진 1</span><span class="hthumb-state">${esc(state)}</span></div>`;
+  return `<div class="hthumb">${esc(state)}</div>`;
 }
 function drawHist(){
+  resetHistoryPreviews();
+  HIST.rendered = HIST.items;
   $("histCount").textContent = HIST.total ? `${HIST.total}개` : "";
   $("histClear").hidden = !HIST.total;
-  $("histMore").hidden = HIST.items.length >= HIST.total;
-  if (!HIST.items.length) { $("histList").innerHTML = `<div class="empty">아직 기록이 없습니다.</div>`; return; }
+  if (!HIST.items.length) { hideHistoryDetails(); refreshQueueSelection(); refreshVideoCompareSelection(); $("histList").innerHTML = `<div class="empty">아직 기록이 없습니다.</div>`; return; }
   $("histList").innerHTML = HIST.items.map((e, i) => {
     const d = new Date(e.t * 1000), when = `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
-    const thumb = e.video ? `<video muted loop preload="metadata" src="${vurl(e.video)}#t=0.5" data-play="${i}"></video>`
-      : `${HSTATE[e.state] || e.state}${e.state === "running" && e.pct != null ? ` ${e.pct}%` : ""}`;
-    const lo = (e.loras?.length ? ` · LoRA ${e.loras.length}개` : "") + (e.anchor ? " · 첫 장면 고정" : "");
+    const queueLabel = e.state === "queued" ? (e.position ? `대기 ${e.position}번` : "대기 중") : "";
+    const lo = (e.loras?.length ? ` · LoRA ${e.loras.length}개` : "") + (e.anchor ? " · 첫 장면 고정" : "") + (e.sequence_index ? ` · 원본 사진 ${e.sequence_index}번을 첫 장면으로` : "");
     const meta = `${when} · ${e.mode === "REF2VA" ? "참조" : "첫·끝"} · ${esc(histModelName(e.model))} · ${e.steps}스텝${lo}<br>${RES_NAME[e.resolution] || esc(e.resolution)} ${e.width}×${e.height} · ${e.duration}초 · 시드 ${e.seed}`;
     const err = e.error && e.state !== "done" ? `<br><span class="bad">${esc(e.error)}</span>` : "";
-    return `<div class="hrow"><div class="hthumb">${thumb}</div><div>
-      <div class="htitle">${esc(histTitle(e))}</div><div class="hmeta">${meta}${err}</div>
-      <div class="hact">${e.video ? `<button class="textbtn" data-play="${i}">보기</button><a class="textbtn" href="${vurl(e.video,1)}">다운로드</a>` : ""}
-        <button class="textbtn" data-load="${i}">불러오기</button><button class="textbtn" data-prompt="${i}">프롬프트</button>
+    return `<div class="hrow" data-history-id="${esc(e.id)}">${historyThumb(e)}<div>
+      <div class="htitle">${e.video ? `<label class="compare-choice"><input type="checkbox" data-compare="${esc(e.id)}" aria-label="함께 재생할 영상 선택" ${VIDEO_COMPARE.selected.has(e.id)?"checked":""}></label><button type="button" class="textbtn history-play-selected" data-play-selected="${esc(e.id)}" title="체크한 영상 재생 · 선택이 없으면 이 영상 재생">재생</button>` : ""}${e.state === "queued" ? `<input type="checkbox" data-select="${esc(e.id)}" aria-label="대기 항목 선택" ${HIST.selected.has(e.id) ? "checked" : ""}> ` : ""}${queueLabel ? `<span class="queue-number">${queueLabel}</span>` : ""}${esc(histTitle(e))}</div><div class="hmeta">${meta}${err}</div>
+      <div class="hact">${e.video ? `<a class="textbtn" href="${vurl(e.video,1)}">다운로드</a>` : ""}
+        ${e.state === "queued" && CAT?.capabilities?.queue_edit ? `<button class="textbtn" data-edit="${i}">수정</button>` : ""}
+        ${e.state === "running" && CAT?.capabilities?.restart_running ? `<button class="textbtn" data-restart="${i}">현재 작업 재시작</button>` : ""}
+        <button class="textbtn" data-history-settings="${i}" aria-haspopup="dialog" aria-controls="historyDetails" aria-expanded="false">설정</button><button class="textbtn" data-load="${i}">불러오기</button><button class="textbtn" data-prompt="${i}">프롬프트</button>
         <button class="textbtn del" data-del="${i}">삭제</button></div>
       <pre class="hprompt" id="hp${i}" hidden></pre></div></div>`;
   }).join("");
-  $("histList").querySelectorAll("video[data-play]").forEach(v => { v.onmouseenter = () => v.play().catch(() => {}); v.onmouseleave = () => v.pause(); });
+  watchHistoryPreviews();
+  $("histList").querySelectorAll("img[data-input-photo]").forEach(image=>{ image.onerror=()=>{
+    image.hidden=true; image.parentElement.querySelector(".hthumb-kind").textContent="사진 없음";
+  }; });
+  refreshQueueSelection();
+  refreshVideoCompareSelection();
+  syncHistoryDetails();
+  requestAnimationFrame(maybeLoadHistory);
+}
+function refreshQueueSelection(){
+  const queued = new Set(HIST.items.filter(e => e.state === "queued").map(e => e.id));
+  for (const id of HIST.selected) if (!queued.has(id)) HIST.selected.delete(id);
+  $("histList").querySelectorAll("[data-select]").forEach(input => { input.checked = HIST.selected.has(input.dataset.select); input.disabled = !queued.has(input.dataset.select); });
+  $("bulkEditAll").disabled = !!HIST.bulkLoading || queueSubmitting || !CAT?.capabilities?.bulk_edit_all;
+  $("bulkEdit").disabled = !!HIST.bulkLoading || queueSubmitting || !HIST.selected.size || !CAT?.capabilities?.bulk_edit;
+  $("bulkEdit").textContent = `선택 항목 일괄수정 (${HIST.selected.size})`;
+  $("selectQueued").checked = queued.size > 0 && [...queued].every(id => HIST.selected.has(id));
+  $("selectQueued").indeterminate = HIST.selected.size > 0 && !$("selectQueued").checked;
+}
+$("histList").onchange = ev => {
+  if(ev.target.dataset.compare){
+    setVideoPlaybackSelection(ev.target.dataset.compare,ev.target.checked);return;
+  }
+  const id = ev.target.dataset.select; if (!id) return;
+  if (ev.target.checked) HIST.selected.add(id); else HIST.selected.delete(id);
+  refreshQueueSelection();
+};
+$("selectQueued").onchange = () => { HIST.selected.clear(); if ($("selectQueued").checked) HIST.items.filter(e => e.state === "queued").forEach(e => HIST.selected.add(e.id)); refreshQueueSelection(); };
+async function beginBulkEdit(all=false){
+  if(!CAT||queueSubmitting||HIST.bulkLoading)return;
+  if(all&&!CAT.capabilities?.bulk_edit_all)return;
+  HIST.bulkLoading=true;queueSubmitting=true;$("go").disabled=true;updateSequenceButton();refreshQueueSelection();
+  try {
+    let ids=[...HIST.selected], first=HIST.items.find(e=>e.id===ids[0]);
+    if(all){
+      const response=await fetch("/api/queue/bulk-context",{cache:"no-store"}),data=await response.json();
+      if(!response.ok||data.error)throw new Error(data.error||"전체 대기항목을 불러오지 못했습니다.");
+      ids=data.ids;first=data.first;
+    }
+    if(!first||!ids.length){setStatus("수정할 대기항목이 없습니다.");return;}
+    setQueueEdit(null);await loadFromHist(first);setQueueEdit(first,ids,all);
+    setStatus(all?"전체 대기항목 수정 모드입니다. 적용할 항목을 고르고 수정한 뒤 맨 위 ‘전체 대기항목 수정 저장’을 누르세요.":"적용할 항목을 고르고 내용을 수정한 뒤 맨 위 ‘일괄수정 저장’을 누르세요.");
+  }
+  catch (error) { setStatus(error.message,"err"); }
+  finally { HIST.bulkLoading=false;queueSubmitting=false;$("go").disabled=false;updateSequenceButton();refreshQueueSelection(); }
+}
+$("bulkEdit").onclick=()=>beginBulkEdit();
+$("bulkEditAll").onclick=()=>beginBulkEdit(true);
+async function deleteHistoryEntries(body){
+  const response=await fetch("/api/history/delete", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const result=await response.json();
+  if (!response.ok) throw new Error(result.error || "삭제하지 못했습니다. 작업이력을 유지합니다.");
+  const removed=new Set(result.ids);
+  removed.forEach(id=>HIST.selected.delete(id));
+  if (removed.has(editingJobId) || bulkEditingIds.some(id=>removed.has(id))) setQueueEdit(null);
+  const remaining=currentJobs.filter(job=>!removed.has(job.id));
+  if (remaining.length!==currentJobs.length) {
+    if (remaining.length) poll(remaining,pollT0,null);
+    else {
+      ++pollGen; clearTimeout(timer); currentJobs=[];
+      $("cancel").hidden=true; $("restartCurrent").hidden=true;
+      setStatus("");$("bar").hidden=true;try{localStorage.removeItem(KEY_J);}catch{}updateGoLabel();
+    }
+  }
+  loadHist(false,true);
 }
 $("histList").onclick = async ev => {
-  const t = ev.target.closest("[data-play],[data-load],[data-prompt],[data-del]"); if (!t) return;
-  const e = HIST.items[Number(t.dataset.play ?? t.dataset.load ?? t.dataset.prompt ?? t.dataset.del)]; if (!e) return;
-  if (t.dataset.play != null) { showVideo(e.video); setStatus(`이력: 시드 ${e.seed} · ${histModelName(e.model)} ${e.steps}스텝`, "ok"); window.scrollTo({top: 0, behavior: "smooth"}); }
+  const t = ev.target.closest("[data-play-selected],[data-select-video],[data-load],[data-prompt],[data-del],[data-edit],[data-restart],[data-history-settings]"); if (!t) return;
+  if(t.dataset.playSelected!=null){hideHistoryDetails();refreshVideoCompareSelection();if(!VIDEO_COMPARE.selected.has(t.dataset.playSelected)){VIDEO_COMPARE.selected.clear();setVideoPlaybackSelection(t.dataset.playSelected,true);}openVideoComparison();return;}
+  if(t.dataset.selectVideo!=null){hideHistoryDetails();setVideoPlaybackSelection(t.dataset.selectVideo,!VIDEO_COMPARE.selected.has(t.dataset.selectVideo));return;}
+  const e = HIST.rendered[Number(t.dataset.load ?? t.dataset.prompt ?? t.dataset.del ?? t.dataset.edit ?? t.dataset.restart ?? t.dataset.historySettings)]; if (!e) return;
+  if(t.dataset.historySettings!=null){
+    if(HISTORY_DETAILS.id===e.id && HISTORY_DETAILS.pinned)hideHistoryDetails();else showHistoryDetails(t.closest("[data-history-id]"),true);
+    return;
+  }
+  hideHistoryDetails();
+  if (t.dataset.restart != null) { await restartCurrentJob(e.id); }
+  else if (t.dataset.edit != null) {
+    try {
+      const state = await (await fetch("/api/status?id=" + encodeURIComponent(e.id))).json();
+      if (state.state !== "queued") throw new Error("이미 생성이 시작됐거나 대기열에서 빠진 항목입니다.");
+      if (!CAT) throw new Error("모델 목록을 불러오는 중입니다. 잠시 후 다시 시도해 주세요.");
+      await loadFromHist(e); setQueueEdit(e);
+      setStatus("내용을 수정한 뒤 맨 위의 ‘수정 저장’을 누르세요.");
+    } catch (error) { setStatus(error.message, "err"); }
+  }
   else if (t.dataset.prompt != null) { const pre = $("hp" + t.dataset.prompt); pre.textContent = e.prompt; pre.hidden = !pre.hidden; }
   else if (t.dataset.del != null) {
-    if (!confirm("이 기록을 지울까요? (영상 파일은 결과 폴더에 남습니다)")) return;
-    await fetch("/api/history/delete", {method:"POST", body: JSON.stringify({ids: [e.id]})}); loadHist();
+    if (!confirm("이 작업을 삭제할까요? 대기열에서도 삭제하고, 실행 중이면 중지합니다. 영상 파일은 유지됩니다.")) return;
+    t.disabled=true;
+    try { await deleteHistoryEntries({ids:[e.id]}); }
+    catch(error){ setStatus(error.message,"err"); }
+    finally { t.disabled=false; }
   }
-  else loadFromHist(e);
+  else { setQueueEdit(null); loadFromHist(e); }
 };
-$("histMore").onclick = () => loadHist(true);
+window.addEventListener("scroll", maybeLoadHistory, {passive: true});
+window.addEventListener("resize", maybeLoadHistory);
 $("histClear").onclick = async () => {
-  if (!confirm(`작업 이력 ${HIST.total}개를 모두 지울까요? (영상 파일은 결과 폴더에 남습니다)`)) return;
-  await fetch("/api/history/delete", {method:"POST", body: JSON.stringify({all: true})}); loadHist();
+  if (!confirm(`작업이력 ${HIST.total}개를 모두 삭제할까요? 해당 작업은 대기열에서도 삭제하고, 실행 중이면 중지합니다. 영상 파일은 유지됩니다.`)) return;
+  $("histClear").disabled=true;
+  try { await deleteHistoryEntries({all:true}); }
+  catch(error){ setStatus(error.message,"err"); }
+  finally { $("histClear").disabled=false; }
 };
 // 그때 구성을 화면에 다시 채운다: 사진·내용·모델·스텝·LoRA·화질·길이·시드(그대로 넣어 같은 결과 재현)
 async function loadFromHist(e){
@@ -1001,13 +1824,30 @@ async function loadFromHist(e){
   manualFinal = false; $("resetFinal").hidden = true; $("finalHint").textContent = "위 칸을 고치면 자동으로 다시 만들어집니다.";
   drawThumbs(); drawModelCard();
   // 화면 칸으로 다시 만든 프롬프트가 그때와 다르면(직접 고쳤던 경우 등) 그때 프롬프트를 그대로 쓴다
-  if ($("final").value !== e.prompt) { manualFinal = true; $("final").value = e.prompt; $("resetFinal").hidden = false; $("finalHint").textContent = "이력에서 불러온 프롬프트를 그대로 씁니다. 위 칸을 바꿔도 반영되지 않습니다."; }
+  if ($("final").value !== e.prompt) { manualFinal = true; $("final").value = e.prompt; $("resetFinal").hidden = false; $("finalHint").textContent = "이력의 최종 프롬프트를 사용합니다. 2번 내용·장면을 수정하면 자동 작성으로 전환됩니다."; }
   render();
   window.scrollTo({top: 0, behavior: "smooth"});
   setStatus(`이력에서 불러왔습니다 (시드 ${e.seed})${warn.length ? ` — ${warn.join(", ")}` : ""}. 같은 시드로 만들면 같은 결과가 나옵니다.`, warn.length ? "err" : "ok");
 }
 
 $("openFolder").onclick = () => fetch("/api/open-folder", {method:"POST", body:"{}"});
+function storyModelSettings(){return {model:S.model,steps:S.steps,sampler:S.sampler,scheduler:S.scheduler,shift_video:S.shift_video,shift_audio:S.shift_audio,loras:Object.entries(S.loras).map(([name,strength])=>({name,strength}))};}
+function sizeGalleryFrame(){if(!$("galleryFrame").hidden)$("galleryFrame").style.height=Math.max(320,(window.visualViewport?.height||window.innerHeight)-$("galleryFrame").getBoundingClientRect().top-8)+"px";}
+function selectAppTab(view){
+  if(view!=="single"){hideHistoryDetails();closeVideoComparison();}
+  $("singleApp").hidden=view!=="single";$("storyFrame").hidden=view!=="story";$("galleryFrame").hidden=view!=="gallery";
+  syncHistoryPreviews();
+  for(const [name,id] of [["single","singleTab"],["story","storyTab"],["gallery","galleryTab"]])$(id).setAttribute("aria-selected",String(view===name));
+  if(view==="story"&&!$("storyFrame").getAttribute("src"))$("storyFrame").src="/story";
+  if(view==="gallery"&&!$("galleryFrame").getAttribute("src"))$("galleryFrame").src="/gallery";
+  if(location.origin!=="null")$("galleryFrame").contentWindow?.postMessage({type:"gallery-active",active:view==="gallery"},location.origin);
+  sizeGalleryFrame();
+}
+$("singleTab").onclick=()=>selectAppTab("single");$("storyTab").onclick=()=>selectAppTab("story");$("galleryTab").onclick=()=>selectAppTab("gallery");
+$("galleryFrame").onload=()=>{if(location.origin!=="null"){$("galleryFrame").contentWindow?.postMessage({type:"gallery-active",active:!$("galleryFrame").hidden},location.origin);$("galleryFrame").contentWindow?.postMessage({type:"lora-overlay-toggle",enabled:isLoraOverlayEnabled()},location.origin);}};
+window.addEventListener("resize",sizeGalleryFrame);window.visualViewport?.addEventListener("resize",sizeGalleryFrame);
+window.addEventListener("message",event=>{if(event.origin===location.origin&&event.source===$("storyFrame").contentWindow&&event.data?.type==="story-resize"&&Number.isFinite(event.data.height))$("storyFrame").style.height=Math.max(800,Math.min(60000,event.data.height))+"px";});
+initLoraOverlay();
 load(); setMode(S.mode || "REF2VA"); render(); loadCatalog().then(() => loadHist()); restoreImgs(); restoreJobs();
 // 파일로 직접 열면(file://) 서버 API 를 못 부르므로 서버 주소로 보낸다
 if (location.protocol === "file:") {

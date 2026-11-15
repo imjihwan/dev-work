@@ -1,5 +1,19 @@
 {
   "_comment": "모델·LoRA 목록(기계용). dest 는 ComfyUI 폴더 기준 상대 경로. source=hf 는 스크립트가 바로 받고, source=civitai 는 로그인이 필요해 브라우저로 받은 뒤 스크립트가 옮기고 검증한다. sha256 은 배포처가 공개한 값.",
+  "prompt_helper": {
+    "model": {
+      "url": "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/f6d5376be1edb4d416d56da11e5397a961aca8ae/Qwen3.5-2B-Q4_K_M.gguf",
+      "filename": "Qwen3.5-2B-Q4_K_M.gguf",
+      "size": 1280835840,
+      "sha256": "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223"
+    },
+    "runtime": {
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12374/llama-b12374-bin-win-cpu-x64.zip",
+      "filename": "llama-b12374-bin-win-cpu-x64.zip",
+      "size": 25117080,
+      "sha256": "73629652b2ced9dd89d054e185f3b2beb5476f90bb1853834a89647fc558e70e"
+    }
+  },
   "files": [
     {
       "id": "dasiwa_v5_turbo_int8",

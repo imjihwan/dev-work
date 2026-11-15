@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>4편 이어 만들기</title>
+<style>
+:root{--bg:#f6f6f4;--card:#fff;--ink:#1d1d1b;--mute:#6b6b66;--line:#e4e3de;--soft:#f1f0ec;--acc:#2f6fe4;--warn:#b5462f;--ok:#1e8a4c}
+@media(prefers-color-scheme:dark){:root{--bg:#161615;--card:#1f1f1d;--ink:#ecebe6;--mute:#a09f98;--line:#34332f;--soft:#262623;--acc:#6b9af2;--warn:#ff8b73;--ok:#4fc27e}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,"Malgun Gothic",sans-serif}.page{max-width:1180px;margin:auto;padding:0 16px 40px}h1{font-size:22px;margin:8px 0}h2{font-size:17px;margin:0 0 10px}h3{font-size:15px;margin:0}.card{padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--card);margin-top:16px}.toolbar,.actions,.row,.stepnav{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.toolbar{justify-content:space-between}.row>*{flex:1;min-width:140px}.hint{font-size:12px;color:var(--mute);margin:6px 0}.status{white-space:pre-wrap;margin:8px 0;font-size:13px}.bad{color:var(--warn)}.good{color:var(--ok)}label{display:block;font-size:13px;font-weight:600;margin:12px 0 4px}input,textarea,select,button{font:inherit}input,textarea,select{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--bg);color:var(--ink)}textarea{min-height:64px;resize:vertical}button,.download{border:1px solid var(--line);background:var(--card);color:var(--acc);border-radius:8px;padding:8px 12px;cursor:pointer;text-decoration:none;font-size:13px}button.primary{background:var(--acc);color:white;border-color:var(--acc)}button:disabled{opacity:.42;cursor:default}fieldset{border:0;padding:0;margin:0;min-width:0}details>summary{cursor:pointer;font-size:13px;font-weight:600;padding:8px 0}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.grid>.card{margin:0}.steps{margin:16px 0}.stepnav button{color:var(--mute)}.stepnav button.accepted{color:var(--ok);border-color:var(--ok)}.stepnav button.current{color:var(--acc);border-color:var(--acc)}.photos{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.photos img{width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}.shot{display:grid;grid-template-columns:70px minmax(0,1fr) 30px;gap:6px;margin:7px 0;align-items:start}.shot input{padding:8px 5px}.shot button{padding:8px 3px}.shot textarea{min-height:54px}.preview video{display:block;width:100%;max-height:480px;background:#111;margin-top:10px;border-radius:8px}.ai-preview{white-space:pre-wrap;background:var(--soft);border-radius:8px;padding:10px;max-height:300px;overflow:auto;font-size:12px}.lora{display:grid;grid-template-columns:minmax(0,1fr) 80px 34px;gap:6px;margin:6px 0}.project-code{max-width:350px;font-size:12px}.state{font-size:12px;color:var(--mute);font-weight:400}.progress{height:5px;border-radius:3px;background:var(--soft);margin:8px 0}.progress>span{display:block;height:100%;background:var(--acc);width:0;transition:width .2s}.note{padding:10px;border-radius:8px;background:var(--soft);font-size:13px}.actions{margin-top:10px}.media-actions[hidden],.preview[hidden],[hidden]{display:none!important}@media(max-width:760px){.grid{grid-template-columns:1fr}.page{padding:0 10px 30px}.toolbar{align-items:flex-start}.row>*{min-width:120px}}
+.preview{position:relative;padding-top:10px}.preview video{margin-top:0}
+.lora-overlay{display:none;position:absolute;top:18px;right:8px;z-index:1;width:min(360px,calc(100% - 16px));padding:5px 8px;border-radius:6px;background:rgba(0,0,0,.58);color:rgba(255,255,255,.94);font:11px/1.35 system-ui,"Malgun Gothic",sans-serif;pointer-events:none}
+.show-lora-overlay .lora-overlay{display:block}
+.lora-overlay-list{display:grid;grid-template-columns:minmax(0,1fr);gap:1px 10px;margin-top:2px}.lora-overlay-list.many{grid-template-columns:repeat(2,minmax(0,1fr))}
+.lora-overlay-row{display:flex;gap:6px;min-width:0;justify-content:space-between}.lora-overlay-name{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.lora-overlay-strength{flex-shrink:0;font-variant-numeric:tabular-nums}
+</style></head><body><main class="page">
+<header class="toolbar"><div><h1>4편 이어 만들기</h1><div class="hint">원본 사진으로 1번을 만들고, 직전 영상의 끝 구간과 원본 사진을 함께 참조해 이어갑니다.</div></div><div class="actions"><button id="newProject">새 프로젝트</button><button id="saveProject" class="primary">프로젝트 저장</button><button id="projectCode">프로젝트 코드 복사</button></div></header>
+<div class="row"><div><label for="title">프로젝트 이름</label><input id="title" maxlength="80" placeholder="이어 만들기 프로젝트"></div><div><label for="savedProjects">이 기기에 저장한 프로젝트</label><select id="savedProjects"><option value="">선택</option></select></div><div><label for="openCode">다른 기기의 프로젝트 코드</label><div class="actions" style="margin:0;flex-wrap:nowrap"><input id="openCode" class="project-code" placeholder="복사한 프로젝트 코드"><button id="openProject">열기</button></div></div></div>
+<div id="notice" class="status" role="status" aria-live="polite"></div>
+<nav class="stepnav steps" aria-label="진행 단계"><button data-jump="commonCard">공통 설정</button><button data-jump="clip0" data-step="0">1번</button><button data-jump="clip1" data-step="1">2번</button><button data-jump="clip2" data-step="2">3번</button><button data-jump="clip3" data-step="3">4번</button><button data-jump="mergeCard">최종 병합</button></nav>
+<div class="note">각 편은 약 5초입니다. 생성 후 직접 확인하고 <b>이 단계 확정</b>을 눌러야 다음 편이 열립니다. 앞 단계를 수정하거나 다시 생성하면 후속 단계는 재검토가 필요합니다.</div>
+<section class="card" id="commonCard"><h2>공통 원본 사진·고정 설정</h2><fieldset id="commonFields">
+<label for="photoFiles">원본 사진 · 첫 번째 사진이 공통 기준</label><input id="photoFiles" type="file" accept="image/*" multiple><div id="photos" class="photos"></div><div class="hint">원본 사진의 비율을 기준으로 영상 크기를 정하고, 네 편 모두 같은 크기·24 FPS·모델·LoRA를 사용합니다.</div>
+<div class="row"><div><label for="model">모델</label><select id="model"></select></div><div><label for="steps">스텝</label><input id="steps" type="number" min="1" max="60" value="8"></div><div><label for="resolution">공통 화질</label><select id="resolution"><option value="draft">초안</option><option value="auto" selected>기본</option><option value="720p">720p</option><option value="1080p">1080p</option></select></div><div><label for="aspect">공통 비율</label><select id="aspect"><option value="auto">원본 사진 기준</option><option value="16:9">16:9</option><option value="9:16">9:16</option><option value="1:1">1:1</option><option value="4:3">4:3</option><option value="3:4">3:4</option></select></div></div>
+<label>LoRA</label><div id="loras"></div><div class="actions"><button id="addLora">LoRA 추가</button><button id="importSettings">기존 탭의 모델·LoRA 설정 가져오기</button></div>
+<details><summary>고정 조건·고급 설정</summary><label for="subject">누가/무엇이 나오나</label><textarea id="subject" placeholder="비우면 원본 사진 기준"></textarea><label for="keep">사진에서 그대로 유지할 것</label><textarea id="keep">Keep the face and outfit exactly as in &lt;Picture 1&gt; throughout the video.</textarea><label for="style">장소·분위기·카메라</label><textarea id="style">Photorealistic live-action footage. Preserve the original environment and lighting. One continuous shot with a fixed camera.</textarea><div class="row"><div><label for="sampler">샘플러</label><select id="sampler"></select></div><div><label for="scheduler">스케줄러</label><select id="scheduler"></select></div><div><label for="shift_video">영상 shift</label><input type="number" step="0.5" id="shift_video" value="5"></div><div><label for="shift_audio">소리 shift</label><input type="number" step="0.5" id="shift_audio" value="5"></div></div></details>
+<details><summary>연결 지점의 상태 직접 지정 · 선택 사항</summary><div class="hint">비워도 실제 앞 영상의 끝 상태를 이어받습니다. 입력하면 프롬프트 작성과 생성에 함께 반영합니다.</div><div id="boundaries"></div></details>
+</fieldset><div class="hint">공통 조건을 바꿔 저장하면 이미 생성한 네 편 모두 재검토가 필요합니다. 프롬프트 AI는 고정 조건을 수정하지 않습니다.</div></section>
+<section class="grid" id="clips" style="margin-top:16px"></section>
+<section class="card" id="mergeCard"><h2>최종 병합 · 약 20초</h2><div class="hint">네 편을 모두 확정한 뒤 한 영상으로 합칩니다. 개별 영상은 유지됩니다.</div><label for="bgm">전체 배경음악 · 선택 사항</label><input id="bgm" type="file" accept="audio/*"><div class="actions"><button id="clearBgm">전체 배경음악 해제</button><button id="merge" class="primary" disabled>확정한 4편 병합</button><button id="cancel" hidden>현재 단계만 중지</button></div><div id="mergeStatus" class="status"></div><div class="actions media-actions" id="mergedActions" hidden><button id="showMerged">병합 영상 보기</button><a class="download" id="downloadMerged">다운로드</a></div><div id="mergedPreview" class="preview" hidden></div></section>
+</main><script>
+const $=id=>document.getElementById(id), COUNT=4;
+const COMMON=['model','steps','aspect','resolution','subject','style','keep','sampler','scheduler','shift_video','shift_audio'];
+let catalog=null, project=null, dirty=false, newImages=null, newBgm=undefined, ai=null, pollTimer=null, saving=false;
+let advancedLoras=[];
+const previews=new Map();
+const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function say(text,bad=false){$('notice').textContent=text;$('notice').className='status '+(bad?'bad':'');}
+async function api(path,body){const response=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const value=await response.json();if(!response.ok)throw new Error(value.error||'요청을 완료하지 못했습니다.');return value;}
+function markDirty(){dirty=true;$('saveProject').textContent='변경사항 저장';updateStatus();}
+function defaults(){return {title:'',common:{model:catalog.default.model,steps:catalog.default.steps||8,aspect:'auto',resolution:'auto',subject:'',keep:'Keep the face and outfit exactly as in <Picture 1> throughout the video.',style:'Photorealistic live-action footage. Preserve the original environment and lighting. One continuous shot with a fixed camera.',sampler:catalog.default.sampler,scheduler:catalog.default.scheduler,shift_video:catalog.default.shift_video||5,shift_audio:catalog.default.shift_audio||5,loras:[]},boundaries:['','','','',''],clips:Array.from({length:COUNT},()=>({scenario:'',seed:'',draft:{f:{summary:'',sound:'Natural ambient sound.',music:'N/A'},shots:[['0','']]}}))};}
+function addShot(index,time='',text=''){
+  const box=$('shots'+index);if(box.children.length>=6)return;
+  const row=document.createElement('div');row.className='shot';row.innerHTML='<input type="number" min="0" max="4.999" step="0.1" aria-label="시작 시각"><textarea aria-label="장면 동작"></textarea><button title="장면 삭제">×</button>';
+  row.querySelector('input').value=time;row.querySelector('textarea').value=text;
+  row.querySelector('button').onclick=()=>{if(box.children.length>1){row.remove();markDirty();}};
+  row.oninput=markDirty;box.appendChild(row);
+}
+function fillDraft(index,draft){
+  for(const key of ['summary','sound','music'])$(key+index).value=draft.f?.[key]??'';
+  $('shots'+index).replaceChildren();for(const [time,text] of draft.shots||[['0','']])addShot(index,time,text);
+}
+function readDraft(index){return {f:Object.fromEntries(['summary','sound','music'].map(key=>[key,$(key+index).value])),shots:[...$('shots'+index).children].map(row=>[row.querySelector('input').value,row.querySelector('textarea').value])};}
+function readDefinition(){return {title:$('title').value,common:{...Object.fromEntries(COMMON.map(key=>[key,['steps','shift_video','shift_audio'].includes(key)?Number($(key).value):$(key).value])),loras:advancedLoras.map(item=>({...item}))},boundaries:Array.from({length:5},(_,i)=>$('boundary'+i).value),clips:Array.from({length:COUNT},(_,i)=>({scenario:$('scenario'+i).value,seed:$('seed'+i).value,draft:readDraft(i)}))};}
+function drawLoras(){
+  $('loras').replaceChildren();advancedLoras.forEach((item,index)=>{
+    const row=document.createElement('div');row.className='lora';row.innerHTML='<select aria-label="LoRA"></select><input type="number" step="0.05" aria-label="강도"><button title="LoRA 제거">×</button>';
+    const select=row.querySelector('select');select.innerHTML=catalog.loras.filter(value=>value.auto?.h3!==false).map(value=>`<option value="${esc(value.name)}">${esc(value.name.split(/[\\/]/).pop())}</option>`).join('');select.value=item.name;
+    row.querySelector('input').value=item.strength;select.onchange=()=>{item.name=select.value;markDirty();};row.querySelector('input').oninput=event=>{item.strength=Number(event.target.value);markDirty();};row.querySelector('button').onclick=()=>{advancedLoras.splice(index,1);drawLoras();markDirty();};$('loras').appendChild(row);
+  });
+}
+function fill(definition){
+  $('title').value=definition.title||'';for(const key of COMMON)$(key).value=definition.common[key]??'';
+  advancedLoras=structuredClone(definition.common.loras||[]);drawLoras();
+  for(let i=0;i<5;i++)$('boundary'+i).value=definition.boundaries?.[i]||'';
+  for(let i=0;i<COUNT;i++){const clip=definition.clips[i];$('scenario'+i).value=clip.scenario||'';$('seed'+i).value=clip.seed||'';fillDraft(i,clip.draft||{});}
+}
+function drawPhotos(){
+  $('photos').replaceChildren();const photos=newImages!==null?newImages:(project?.photos||[]).map(photo=>'/api/input?name='+encodeURIComponent(photo.name)+'&thumbnail=1');
+  photos.forEach((source,index)=>{const img=document.createElement('img');img.src=source;img.alt=`공통 원본 사진 ${index+1}`;$('photos').appendChild(img);});
+}
+function accepted(run){return run?.state==='done'&&run.approved&&!run.stale;}
+function videoUrl(which,download=false){return '/api/story/video?'+new URLSearchParams({id:project.id,clip:String(which),...(download?{download:'1'}:{})});}
+function loraOverlayHtml(loras){
+  if(!Array.isArray(loras))return 'LoRA 기록 없음';if(!loras.length)return 'LoRA 없음';
+  return `LoRA ${loras.length}개<div class="lora-overlay-list${loras.length>5?' many':''}">${loras.map(l=>`<div class="lora-overlay-row"><span class="lora-overlay-name">${esc(String(l.name??'').split(/[\\/]/).pop().replace(/\.(safetensors|gguf)$/i,''))}</span><span class="lora-overlay-strength">${esc(l.strength==null?'?':l.strength)}</span></div>`).join('')}</div>`;
+}
+function initLoraOverlay(){
+  const apply=enabled=>document.body.classList.toggle('show-lora-overlay',!!enabled);
+  let enabled=false;try{enabled=window.parent!==window && typeof window.parent.isLoraOverlayEnabled==='function'?window.parent.isLoraOverlayEnabled():localStorage.getItem('h3simple.loraOverlay.v1')==='1';}catch{}
+  apply(enabled);
+  window.addEventListener('message',event=>{if(event.origin===location.origin && event.source===window.parent && event.data?.type==='lora-overlay-toggle')apply(event.data.enabled===true);});
+  window.addEventListener('storage',event=>{if(event.key==='h3simple.loraOverlay.v1')apply(event.newValue==='1');});
+}
+function showVideo(which,container){
+  const box=$(container);if(box.querySelector('video')){box.querySelector('video').pause();box.replaceChildren();box.hidden=true;return;}
+  const video=document.createElement('video');video.controls=true;video.playsInline=true;video.preload='metadata';video.src=videoUrl(which);box.appendChild(video);
+  const overlay=document.createElement('div');overlay.className='lora-overlay';overlay.ariaHidden='true';
+  const run=which==='merged'?project.merged:project.renders[Number(which)];
+  overlay.innerHTML=loraOverlayHtml(run && !run.stale?project.definition.common.loras:null);box.appendChild(overlay);box.hidden=false;
+}
+function statusText(run){
+  if(!run||run.state==='empty')return '아직 생성하지 않았습니다.';
+  if(run.state==='queued')return `대기 중${run.position?' · '+run.position+'번째':''}`;
+  if(run.state==='running')return `생성 중 · ${run.pct||0}% · ${run.label||''}`;
+  if(run.state==='error')return run.error||'중단됨 · 다시 생성할 수 있습니다.';
+  if(run.stale)return '재검토 필요 · 앞 단계나 설정이 바뀌었습니다.';
+  if(run.approved)return '확정 완료 · 다음 단계에서 참조합니다.';
+  if(run.state==='done')return '생성 완료 · 직접 확인 후 확정해 주세요.';
+  return '생성 요청 준비 중…';
+}
+function updateStatus(){
+  const active=project?.active;for(let i=0;i<COUNT;i++){
+    const run=project?.renders[i],ready=accepted(run),previous=i===0||accepted(project?.renders[i-1]);
+    $('state'+i).textContent=statusText(run);$('state'+i).className='status '+(run?.stale||run?.state==='error'?'bad':ready?'good':'');
+    $('bar'+i).style.width=(run?.state==='done'?100:run?.pct||0)+'%';
+    $('generate'+i).disabled=!!active||!previous||!!ai;$('approve'+i).disabled=!!active||run?.state!=='done'||!!run?.stale||ready||dirty;
+    for(const key of ['aiNew','aiEdit','aiReview'])$(key+i).disabled=!!ai;
+    $('generate'+i).textContent=run?.state==='done'||run?.stale?'이 편 다시 생성':`${i+1}번 영상 생성`;
+    $('media'+i).hidden=!run?.has_video;$('download'+i).href=project?videoUrl(i,true):'#';
+    const step=document.querySelector(`[data-step="${i}"]`);step.classList.toggle('accepted',!!ready);step.classList.toggle('current',!ready&&previous);
+  }
+  $('commonFields').disabled=!!active;$('saveProject').disabled=!!active||saving;$('newProject').disabled=!!active||!!ai;
+  $('cancel').hidden=!active;$('merge').disabled=!!active||dirty||!project?.renders.every(accepted);
+  $('mergeStatus').textContent=active?.kind==='merge'?'CPU로 병합 중…':project?.merge_error|| (project?.merged?'병합 완료 · 약 20초':'네 편을 모두 확정하면 병합할 수 있습니다.');
+  $('mergedActions').hidden=!project?.merged;if(project?.merged)$('downloadMerged').href=videoUrl('merged',true);
+}
+function remember(){try{const entries=JSON.parse(localStorage.getItem('h3.story.projects')||'[]').filter(value=>value.id!==project.id);entries.unshift({id:project.id,title:project.definition.title||'이어 만들기 프로젝트'});localStorage.setItem('h3.story.projects',JSON.stringify(entries.slice(0,30)));localStorage.setItem('h3.story.current',project.id);}catch{}drawSaved();}
+function drawSaved(){let entries=[];try{entries=JSON.parse(localStorage.getItem('h3.story.projects')||'[]');}catch{}$('savedProjects').innerHTML='<option value="">선택</option>'+entries.map(value=>`<option value="${esc(value.id)}">${esc(value.title)}</option>`).join('');if(project)$('savedProjects').value=project.id;}
+async function saveProject(){
+  if(saving)throw new Error('저장 중입니다. 잠시 후 다시 시도해 주세요.');saving=true;updateStatus();
+  try{const body={definition:readDefinition()};if(project)Object.assign(body,{id:project.id,revision:project.revision});if(newImages!==null)body.images=newImages;if(newBgm!==undefined)body.bgm=newBgm;
+    project=await api('/api/story/save',body);newImages=null;newBgm=undefined;dirty=false;$('saveProject').textContent='프로젝트 저장';remember();drawPhotos();updateStatus();return project;
+  }finally{saving=false;updateStatus();}
+}
+async function loadProject(id){if(dirty&&!confirm('저장하지 않은 변경사항을 두고 프로젝트를 불러올까요?'))return;project=await api('/api/story/project?id='+encodeURIComponent(id));fill(project.definition);newImages=null;newBgm=undefined;dirty=false;previews.clear();document.querySelectorAll('.preview').forEach(box=>{box.querySelectorAll('video').forEach(video=>video.pause());box.replaceChildren();box.hidden=true;});drawPhotos();remember();updateStatus();say('프로젝트를 불러왔습니다.');}
+async function action(path,index){try{await saveProject();project=await api(path,{id:project.id,index});updateStatus();say(path.endsWith('approve')?'이 단계를 확정했습니다. 다음 편은 진행 버튼을 눌러 생성하세요.':'요청했습니다. 이 프로젝트의 현재 단계만 처리합니다.');}catch(error){say(error.message,true);}}
+function aiIdea(index,edit){const scenario=$('scenario'+index).value.trim(),request=$('edit'+index).value.trim();if(edit&&!request)throw new Error('추가 수정 요청을 적어 주세요.');if(!edit&&!scenario)throw new Error('이 편의 시나리오를 적어 주세요.');return edit?request:scenario;}
+function formatPromptReview(review){
+  if(!review)return '';
+  const labels={ok:'큰 충돌 미검출',caution:'주의 사항 있음',revise:'수정 권장',unavailable:'검토 미완료'};
+  return `동작·시간 검토: ${labels[review.status]||'검토 결과'}\n${review.summary}\n`+(review.issues||[]).map(item=>`\n• ${item.at?item.at+' · ':''}${item.issue}${item.evidence?'\n  근거: '+item.evidence:''}\n  제안: ${item.suggestion}`).join('\n')+'\n\n텍스트 기준 검토입니다. 사진의 실제 자세와 생성 영상은 직접 확인해 주세요.';
+}
+async function writePrompt(index,edit,reviewOnly=false){
+  if(ai)return say('프롬프트 도우미가 작성 중입니다.',true);
+  let baseline;try{
+    const idea=reviewOnly?'현재 편의 동작과 시간 흐름을 검토해 주세요.':aiIdea(index,edit),definition=readDefinition();baseline=JSON.stringify(definition);const clip=definition.clips[index];
+    const body={idea,duration:5,mode:'REF2VA',one_take:true,fixed:Object.fromEntries(['subject','style','keep'].map(key=>[key,definition.common[key]])),story_context:{clip_index:index,scenarios:definition.clips.map(value=>value.scenario+'\nPlanned summary: '+(value.draft.f.summary||'')),opening_state:definition.boundaries[index],ending_state:definition.boundaries[index+1]}};
+    if(edit||reviewOnly)body.context={...clip.draft.f,shots:clip.draft.shots};
+    if(reviewOnly)body.review_only=true;
+    ai={index,id:null};updateStatus();$('aiState'+index).textContent='CPU 도우미 준비 중…';$('aiCancel'+index).hidden=false;
+    const job=await api('/api/prompt-helper/start',body);ai.id=job.id;
+    while(ai){const state=await api('/api/prompt-helper/status?id='+encodeURIComponent(job.id));
+      if(state.state==='done'){
+        previews.set(index,{draft:state.draft,baseline});const draft=state.draft;
+        const preview=draft.review_only?'현재 편의 프롬프트 검토 결과':draft.edit?draft.changes.map(change=>`${change.target}${change.target.startsWith('shot_')?' '+(change.index+1)+'번':''}\n원문: ${change.before||'(비어 있음)'}\n수정: ${change.after||'(삭제)'}`).join('\n\n')||'적용할 변경사항이 없습니다.':`요약: ${draft.f.summary}\n\n${draft.shots.map(([time,text])=>`${time}초: ${text}`).join('\n\n')}\n\n소리: ${draft.f.sound}\n음악: ${draft.f.music}`;
+        $('aiPreview'+index).textContent=preview+(draft.review?'\n\n'+formatPromptReview(draft.review):'');
+        $('aiResult'+index).hidden=false;$('aiApply'+index).hidden=!!draft.review_only;$('aiApply'+index).disabled=!!draft.edit&&!draft.changes.length;$('aiState'+index).textContent=draft.review_only?'검토 결과를 보고 필요한 수정을 추가로 요청하세요.':'작성안과 검토 결과를 확인 후 이 편에만 적용하세요.';break;}
+      if(['error','cancelled'].includes(state.state))throw new Error(state.error||'작성이 중단됐습니다.');
+      $('aiState'+index).textContent=state.state==='starting'?'CPU 모델 준비 중…':state.state==='reviewing'?'CPU로 동작·시간 흐름 검토 중…':state.state==='enriching'?'CPU로 같은 동작의 디테일 보강 중…':'CPU로 현재 편의 상세 동작 작성 중…';await new Promise(resolve=>setTimeout(resolve,1500));
+    }
+  }catch(error){$('aiState'+index).textContent=error.message;}
+  finally{ai=null;$('aiCancel'+index).hidden=true;updateStatus();}
+}
+function applyPrompt(index){
+  const item=previews.get(index);if(!item)return;if(item.baseline!==JSON.stringify(readDefinition()))return say('작성 중 프로젝트 내용을 바꿨습니다. 현재 내용을 기준으로 다시 작성해 주세요.',true);
+  const current=readDraft(index),draft=item.draft;if(draft.review_only)return;for(const key of ['summary','sound','music'])if(typeof draft.f?.[key]==='string')current.f[key]=draft.f[key];if(draft.shots)current.shots=draft.shots;fillDraft(index,current);previews.delete(index);$('aiResult'+index).hidden=true;markDirty();updateStatus();say(`${index+1}번 프롬프트에만 적용했습니다. 생성 전에 프로젝트를 저장합니다.`);
+}
+function createCards(){
+  $('boundaries').innerHTML=Array.from({length:5},(_,i)=>`<label for="boundary${i}">${i===0?'1번 시작 상태':i===4?'4번 마지막 상태':`${i}번 끝 = ${i+1}번 시작 상태`}</label><textarea id="boundary${i}" maxlength="2000" placeholder="선택 사항"></textarea>`).join('');
+  $('clips').innerHTML=Array.from({length:COUNT},(_,i)=>`<article class="card" id="clip${i}"><h2>${i+1}번 영상 <span class="state">약 5초${i?' · 직전 끝 구간 + 원본 참조':' · 원본 사진에서 시작'}</span></h2><label for="scenario${i}">시나리오</label><textarea id="scenario${i}" maxlength="3000" placeholder="이 편에서 일어날 동작을 적어 주세요."></textarea><div class="actions"><button id="aiNew${i}">시나리오로 프롬프트 작성</button><button id="aiReview${i}">현재 편 동작·시간 검토</button><button id="aiCancel${i}" hidden>작성 취소</button></div><label for="edit${i}">프롬프트 AI에 추가 수정 요청</label><textarea id="edit${i}" maxlength="4000" placeholder="예: 마지막 동작만 더 천천히. 다른 내용은 유지해줘."></textarea><button id="aiEdit${i}">요청한 부분만 수정</button><div class="hint">준비·이동·접촉·반응·마무리를 자세히 작성하고 5초 안의 실행 가능성을 별도로 검토합니다.</div><div id="aiState${i}" class="hint" role="status"></div><div id="aiResult${i}" hidden><pre class="ai-preview" id="aiPreview${i}"></pre><button id="aiApply${i}">확인한 변경을 이 편에 적용</button></div><details><summary>적용된 프롬프트 직접 수정</summary><label for="summary${i}">요약</label><textarea id="summary${i}"></textarea><label>장면별 동작 · 초</label><div id="shots${i}"></div><button id="addShot${i}">장면 추가</button><label for="sound${i}">환경음·효과음</label><textarea id="sound${i}"></textarea><label for="music${i}">이 편의 배경음악</label><input id="music${i}" value="N/A"><div class="hint">전체에 한 곡을 사용하려면 각 편은 N/A로 두고 병합 단계에서 음악을 선택하세요.</div><label for="seed${i}">시드 · 비우면 매번 새로 선택</label><input id="seed${i}" inputmode="numeric" placeholder="랜덤"></details><div id="state${i}" class="status" aria-live="polite"></div><div class="progress"><span id="bar${i}"></span></div><div class="actions"><button id="generate${i}" class="primary">${i+1}번 영상 생성</button><button id="approve${i}" disabled>확인 완료 · 이 단계 확정</button></div><div id="media${i}" class="actions media-actions" hidden><button id="show${i}">이 편 결과 보기 / 닫기</button><a id="download${i}" class="download">다운로드</a></div><div id="preview${i}" class="preview" hidden></div></article>`).join('');
+  for(let i=0;i<COUNT;i++){
+    $('aiNew'+i).onclick=()=>writePrompt(i,false);$('aiEdit'+i).onclick=()=>writePrompt(i,true);$('aiReview'+i).onclick=()=>writePrompt(i,false,true);$('aiApply'+i).onclick=()=>applyPrompt(i);$('addShot'+i).onclick=()=>{addShot(i);markDirty();};
+    $('generate'+i).onclick=()=>action('/api/story/generate',i);$('approve'+i).onclick=()=>action('/api/story/approve',i);$('show'+i).onclick=()=>showVideo(i,'preview'+i);
+    $('aiCancel'+i).onclick=async()=>{if(ai?.id)try{await api('/api/prompt-helper/cancel',{id:ai.id});}catch(error){say(error.message,true);}};
+  }
+}
+function bind(){
+  document.querySelectorAll('input,textarea,select').forEach(input=>{if(!['photoFiles','bgm','savedProjects','openCode'].includes(input.id))input.addEventListener('input',()=>{markDirty();updateStatus();});});
+  document.querySelectorAll('[data-jump]').forEach(button=>button.onclick=()=>$(button.dataset.jump).scrollIntoView({behavior:'smooth',block:'start'}));
+  $('saveProject').onclick=()=>saveProject().then(()=>say('프로젝트를 저장했습니다.')).catch(error=>say(error.message,true));
+  $('newProject').onclick=()=>{if(dirty&&!confirm('저장하지 않은 변경사항을 두고 새 프로젝트를 만들까요?'))return;project=null;newImages=[];newBgm=undefined;dirty=false;previews.clear();document.querySelectorAll('.preview').forEach(box=>{box.querySelectorAll('video').forEach(video=>video.pause());box.replaceChildren();box.hidden=true;});fill(defaults());drawPhotos();updateStatus();say('새 프로젝트입니다. 공통 사진과 시나리오를 입력해 주세요.');};
+  $('photoFiles').onchange=async event=>{try{const files=[...event.target.files];if(files.length>9)throw new Error('원본 사진은 9장 이하로 선택해 주세요.');newImages=await Promise.all(files.map(file=>new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(file);})));markDirty();drawPhotos();updateStatus();}catch(error){say(error.message,true);}};
+  $('bgm').onchange=event=>{const file=event.target.files[0];if(!file)return;if(file.size>50*1024**2)return say('배경음악은 50MB 이하로 선택해 주세요.',true);const reader=new FileReader();reader.onload=()=>{newBgm=reader.result;markDirty();updateStatus();};reader.readAsDataURL(file);};
+  $('clearBgm').onclick=()=>{newBgm='';$('bgm').value='';markDirty();updateStatus();};
+  $('addLora').onclick=()=>{const value=catalog.loras.find(item=>item.auto?.h3!==false);if(value&&advancedLoras.length<10){advancedLoras.push({name:value.name,strength:1});drawLoras();markDirty();}};
+  $('importSettings').disabled=window.parent===window||typeof window.parent.storyModelSettings!=='function';
+  $('importSettings').onclick=()=>{const values=window.parent.storyModelSettings();for(const key of ['model','steps','sampler','scheduler','shift_video','shift_audio'])if(values[key]!=null)$(key).value=values[key];advancedLoras=values.loras;drawLoras();markDirty();updateStatus();};
+  $('savedProjects').onchange=()=>{if($('savedProjects').value)loadProject($('savedProjects').value).catch(error=>say(error.message,true));};
+  $('openProject').onclick=()=>loadProject($('openCode').value.trim()).catch(error=>say(error.message,true));
+  $('projectCode').onclick=async()=>{try{await saveProject();await navigator.clipboard.writeText(project.id);say('프로젝트 코드를 복사했습니다. 다른 기기의 이 탭에서 코드로 열 수 있습니다.');}catch(error){if(project){$('openCode').value=project.id;say('프로젝트 코드를 코드 입력란에 표시했습니다. 복사해 주세요.');}else say(error.message,true);}};
+  $('merge').onclick=()=>action('/api/story/merge');$('showMerged').onclick=()=>showVideo('merged','mergedPreview');
+  $('cancel').onclick=async()=>{try{await api('/api/story/cancel',{id:project.id});say('현재 프로젝트의 진행 단계만 중지 요청했습니다.');}catch(error){say(error.message,true);}};
+}
+async function poll(){try{if(project&&!saving){const id=project.id,fresh=await api('/api/story/project?id='+id);if(project?.id===id){project={...project,renders:fresh.renders,active:fresh.active,merged:fresh.merged,merge_error:fresh.merge_error};updateStatus();}}}catch(error){say('진행 상태를 확인하지 못했습니다. 연결이 복구되면 다시 확인합니다.',true);}finally{pollTimer=setTimeout(poll,2500);}}
+async function init(){
+  initLoraOverlay();
+  createCards();catalog=await api('/api/catalog');
+  $('model').innerHTML=catalog.models.filter(item=>item.auto?.h3!==false&&item.auto?.fmt!=='gguf'&&(!item.auto?.modes||item.auto.modes.includes('REF2VA'))).map(item=>`<option value="${esc(item.name)}">${esc(item.name.split(/[\\/]/).pop())}</option>`).join('');
+  for(const [id,items] of [['sampler',catalog.samplers],['scheduler',catalog.schedulers]])$(id).innerHTML=items.map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join('');
+  fill(defaults());bind();drawSaved();updateStatus();
+  const id=new URLSearchParams(location.search).get('project')||localStorage.getItem('h3.story.current');if(id)try{await loadProject(id);}catch(error){say('이 기기의 이전 프로젝트를 불러오지 못했습니다. 프로젝트 코드로 다시 열 수 있습니다.',true);}
+  poll();
+  if(window.parent!==window)new ResizeObserver(()=>window.parent.postMessage({type:'story-resize',height:document.body.scrollHeight+24},location.origin)).observe(document.body);
+}
+init().catch(error=>say(error.message,true));
+</script></body></html>

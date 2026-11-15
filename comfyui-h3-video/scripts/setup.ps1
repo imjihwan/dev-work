@@ -67,7 +67,14 @@ foreach ($n in $V.custom_nodes) {
 Step "간단 화면(simple_ui) 복사"
 $ui = "$ComfyDir\simple_ui"
 New-Item -ItemType Directory -Force $ui | Out-Null
-Copy-Item "$Root\simple_ui\*" $ui -Recurse -Force -Exclude "cards.json","presets.json"
+$publicUiFiles = @(
+    'server.py', 'index.html', 'start.bat', 'template_api.json',
+    'cards.seed.json', 'presets.seed.json', 'prompt_helper.py',
+    'story.py', 'story_workflow.py', 'story.html', 'gallery.py', 'gallery.html'
+)
+foreach ($publicUiFile in $publicUiFiles) {
+    Copy-Item -LiteralPath (Join-Path "$Root\simple_ui" $publicUiFile) -Destination $ui -Force
+}
 Copy-Item "$Root\scripts\start_comfyui.bat" $ComfyDir -Force
 
 Step "끝"

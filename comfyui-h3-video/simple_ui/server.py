@@ -10,8 +10,12 @@ template_api.json = 원본 DaSiWa 워크플로를 ComfyUI 에서 한 번 실행�
 import base64, datetime, hashlib, html, io, json, os, queue, random, re, struct, threading, time
 import urllib.error, urllib.parse, urllib.request, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from functools import lru_cache
 
-from PIL import Image
+from PIL import Image, ImageOps
+from prompt_helper import PromptHelper
+from story import StoryProjects
+from gallery import VideoGallery
 
 COMFY = "http://127.0.0.1:8188"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -19,9 +23,11 @@ ROOT = os.path.dirname(HERE)
 TEMPLATE = os.path.join(HERE, "template_api.json")
 INDEX = os.path.join(HERE, os.environ.get("SIMPLEUI_INDEX", "index.html"))
 PORT = int(os.environ.get("SIMPLEUI_PORT", "8190"))
+PROMPT_HELPER = PromptHelper()
 CARDS = os.path.join(HERE, "cards.json")
 PRESETS = os.path.join(HERE, "presets.json")
 OUTPUT = os.path.join(ROOT, "output")
+GALLERY = VideoGallery(OUTPUT, os.path.join(HERE, "gallery_data"), thumbnailer=lambda name: input_thumbnail(name, 480))
 MODELS = os.path.join(ROOT, "models")
 DIRECTOR, SEED, SAVE = "2730", "2739", "2568"
 LOADERS = ("1512:2586", "1512:2588")      # Director 의 fl2va_model / ref2va_model 입력(선택된 모드 쪽만 실제로 불러옴)
@@ -83,14 +89,14 @@ def _on_message(msg):
             _bump(pid, 100, "완료")
 
 
-def ws_loop():
+def ws_loop(client_id):
     import asyncio, aiohttp
 
     async def run():
         while True:
             try:
                 async with aiohttp.ClientSession() as s:
-                    async with s.ws_connect(f"ws://127.0.0.1:8188/ws?clientId={CLIENT_ID}", heartbeat=30) as ws:
+                    async with s.ws_connect(f"ws://127.0.0.1:8188/ws?clientId={urllib.parse.quote(client_id)}", heartbeat=30) as ws:
                         async for m in ws:
                             if m.type == aiohttp.WSMsgType.TEXT:
                                 try:
@@ -127,6 +133,16 @@ def comfy(path, data=None, headers=None, timeout=60):
     return urllib.request.urlopen(req, timeout=timeout)
 
 
+@lru_cache(maxsize=256)
+def input_thumbnail(name, size=192):
+    with comfy("/view?" + urllib.parse.urlencode({"filename": name, "type": "input"})) as response:
+        with Image.open(response) as source, ImageOps.exif_transpose(source) as image:
+            image.thumbnail((size, size))
+            with io.BytesIO() as output:
+                image.save(output, format="WEBP", quality=75, method=1)
+                return output.getvalue()
+
+
 def upload(raw, ext):
     name = f"simpleui_{uuid.uuid4().hex[:10]}.{ext}"
     bnd = uuid.uuid4().hex
@@ -157,6 +173,24 @@ def _save_json(path, obj):
     os.replace(tmp, path)
 
 
+SETTINGS = os.path.join(HERE, "saved-settings.json")
+SETTINGS_LOCK = threading.Lock()
+
+
+def save_settings(name, data):
+    name = str(name or "").strip()[:60]
+    if not name or not isinstance(data, dict) or not isinstance(data.get("f"), dict) or not isinstance(data.get("model"), dict):
+        raise ValueError("설정 이름과 저장할 입력값이 필요합니다.")
+    photos = data.get("images", [])
+    if not isinstance(photos, list) or any(not isinstance(photo, str) or not re.fullmatch(r"data:image/[\w.+-]+;base64,[A-Za-z0-9+/=\r\n]*", photo) for photo in photos):
+        raise ValueError("저장할 사진 형식이 올바르지 않습니다.")
+    with SETTINGS_LOCK:
+        settings = _load_json(SETTINGS, {})
+        settings[name] = {"data": data, "saved_at": time.time()}
+        _save_json(SETTINGS, settings)
+    return {"ok": True, "name": name}
+
+
 def _seed(path):
     """처음 설치한 PC: cards.json / presets.json 이 없으면 함께 배포한 *.seed.json 으로 시작."""
     seed = path.replace(".json", ".seed.json")
@@ -171,7 +205,23 @@ _seed(PRESETS)
 HIST = os.path.join(HERE, "history.json")
 HLOCK = threading.Lock()
 HIST_DB = _load_json(HIST, [])         # 오래된 것 → 최근 순
+try:
+    GALLERY.remember(HIST_DB)  # Persist links without decoding photos or result videos.
+except OSError:
+    pass
 HIST_MAX = 1000
+QUEUE_EDIT_LOCK = threading.Lock()
+GALLERY_REGENERATE_LOCK = threading.Lock()
+GALLERY_PROGRESS_LOCK = threading.Lock()
+GALLERY_PROGRESS_CACHE = {"at": 0, "value": None}
+RESTART_CLIENT_IDS = []
+restart_state_path = os.environ.get("SIMPLEUI_RESTART_STATE")
+if restart_state_path and os.path.isfile(restart_state_path):
+    restart_state = _load_json(restart_state_path, {})
+    CLIENT_ID = restart_state.get("client_id") or CLIENT_ID
+    PROGRESS.update(restart_state.get("progress") or {})
+    RESTART_CLIENT_IDS = restart_state.get("client_ids") or []
+    os.remove(restart_state_path)
 
 
 def hist_add(entries):
@@ -179,6 +229,31 @@ def hist_add(entries):
         HIST_DB.extend(entries)
         del HIST_DB[:-HIST_MAX]
         _save_json(HIST, HIST_DB)
+
+
+def delete_history(req):
+    requested = req.get("ids") or []
+    if not isinstance(requested, list) or not all(isinstance(pid, str) for pid in requested):
+        raise ValueError("삭제할 작업을 선택해 주세요.")
+    with QUEUE_EDIT_LOCK:
+        with HLOCK:
+            ids = list(dict.fromkeys(e["id"] for e in HIST_DB if req.get("all") or e["id"] in requested))
+        if ids:
+            state = json.load(comfy("/queue"))
+            active = {item[1] for item in state["queue_running"] + state["queue_pending"]}
+            cancel = [pid for pid in ids if pid in active]
+            if cancel:
+                headers = {"Content-Type": "application/json"}
+                comfy("/queue", json.dumps({"delete": cancel}).encode(), headers)
+                # 조회 뒤 대기→실행으로 넘어간 항목도 해당 ID로만 중지한다.
+                for pid in cancel:
+                    comfy("/interrupt", json.dumps({"prompt_id": pid}).encode(), headers)
+        with HLOCK:
+            removed = set(ids)
+            HIST_DB[:] = [entry for entry in HIST_DB if entry["id"] not in removed]
+            _save_json(HIST, HIST_DB)
+            total = len(HIST_DB)
+    return {"ok": True, "total": total, "ids": ids}
 
 
 def hist_result(pid, st):
@@ -190,6 +265,10 @@ def hist_result(pid, st):
             if e["id"] == pid and e.get("state") != st["state"]:
                 e.update(state=st["state"], video=st.get("video"), error=st.get("error"), t_end=time.time())
                 _save_json(HIST, HIST_DB)
+                try:
+                    GALLERY.remember([e])
+                except OSError:
+                    pass  # A later gallery refresh can retry saving the association.
                 return
 CARD_DB = _load_json(CARDS, {"model": {}, "lora": {}})
 CARD_DB.setdefault("model", {})
@@ -440,7 +519,8 @@ def card_for(kind, name):
 
 
 def template_defaults():
-    p = json.load(open(TEMPLATE, encoding="utf-8-sig"))
+    with open(TEMPLATE, encoding="utf-8-sig") as handle:
+        p = json.load(handle)
     rows = json.loads(p[LORA]["inputs"]["stack_data"])
     return {"model": p[LOADERS[1]]["inputs"]["unet_name"], "steps": p[SCHED]["inputs"]["steps"],
             "scheduler": p[SCHED]["inputs"]["scheduler"], "sampler": p[SAMPLER]["inputs"]["sampler_name"],
@@ -456,7 +536,8 @@ def catalog():
     out = {"models": [card_for("model", n) for n in models], "loras": [card_for("lora", n) for n in loras],
            "samplers": object_options("KSamplerSelect", "sampler_name"),
            "schedulers": object_options("BasicScheduler", "scheduler"),
-           "presets": _load_json(PRESETS, {}), "default": template_defaults()}
+           "presets": _load_json(PRESETS, {}), "default": template_defaults(),
+           "capabilities": {"queue_edit": True, "bulk_edit": True, "bulk_edit_all": True, "photo_sequence": True, "saved_settings": True, "restart_running": True}}
     # 작은 LoRA 는 처음 보면 Civitai 정보를 자동으로 가져온다(큰 본체 모델은 버튼으로)
     for c in out["loras"]:
         if "civitai" not in c and c["fetch"]["state"] == "idle" and (c["auto"].get("size_gb") or 99) < 4:
@@ -468,12 +549,168 @@ def catalog():
 # =====================================================================
 # 생성
 # =====================================================================
-def build_and_queue(req):
+def replace_queued_prompt(pid, prompt):
+    with QUEUE_EDIT_LOCK:
+        with HLOCK:
+            if not any(e["id"] == pid for e in HIST_DB):
+                raise ValueError("이 화면에서 만든 대기 항목만 수정할 수 있습니다.")
+        queue_state = json.load(comfy("/queue"))
+        if any(item[1] == pid for item in queue_state["queue_running"]):
+            raise ValueError("이미 생성이 시작된 항목입니다. 실행 중인 작업은 수정할 수 없습니다.")
+        old = next((item for item in queue_state["queue_pending"] if item[1] == pid), None)
+        if old is None:
+            raise ValueError("이미 생성이 시작됐거나 대기열에서 빠진 항목입니다. 새 작업으로 추가해 주세요.")
+        original = {"number": old[0], "prompt_id": pid, "prompt": old[2], "extra_data": old[3]}
+        backup = os.path.join(HERE, "queue-edit-recovery.json")
+        _save_json(backup, original)
+        headers = {"Content-Type": "application/json"}
+        comfy("/queue", json.dumps({"delete": [pid]}).encode(), headers)
+        try:
+            live = json.load(comfy("/queue"))
+            started = any(item[1] == pid for item in live["queue_running"] + live["queue_pending"]) or json.load(comfy("/history/" + urllib.parse.quote(pid)))
+        except (urllib.error.URLError, ValueError) as exc:
+            raise ValueError("대기열 상태 확인에 실패했습니다. queue-edit-recovery.json에 원래 작업을 보관했습니다.") from exc
+        if started:
+            os.remove(backup)
+            raise ValueError("수정하는 동안 생성이 시작됐습니다. 실행 중인 작업은 변경하지 않았습니다.")
+        try:
+            result = json.load(comfy("/prompt", json.dumps({"number": old[0], "prompt_id": pid,
+                                    "prompt": prompt, "client_id": CLIENT_ID}).encode(), headers))
+        except (urllib.error.URLError, ValueError) as exc:
+            try:
+                json.load(comfy("/prompt", json.dumps(original).encode(), headers))
+            except (urllib.error.URLError, ValueError) as restore_error:
+                raise ValueError("수정과 원본 복원에 실패했습니다. queue-edit-recovery.json에 원래 작업을 보관했습니다.") from restore_error
+            os.remove(backup)
+            raise ValueError("수정에 실패해 원래 대기 항목을 복원했습니다.") from exc
+        os.remove(backup)
+        return result
+
+
+def restart_running_prompt(pid):
+    with QUEUE_EDIT_LOCK:
+        with HLOCK:
+            entry = next((e for e in HIST_DB if e["id"] == pid), None)
+            if entry is None:
+                raise ValueError("이 화면에서 만든 작업만 재시작할 수 있습니다.")
+            if entry.get("restarted_as"):
+                return {"id": entry["restarted_as"], "replaces": pid, "seed": entry["seed"]}
+            saved = json.loads(json.dumps(entry))
+        state = json.load(comfy("/queue"))
+        running = next((item for item in state["queue_running"] if item[1] == pid), None)
+        if running is None:
+            raise ValueError("현재 실행 중인 작업이 아닙니다. 대기열은 변경하지 않았습니다.")
+        new_id = str(uuid.uuid4())
+        number = min(item[0] for item in state["queue_running"] + state["queue_pending"]) - 1
+        headers = {"Content-Type": "application/json"}
+        # 재시작할 작업을 먼저 맨 앞에 넣어야 중지 직후 다른 대기 항목이 시작되지 않는다.
+        result = json.load(comfy("/prompt", json.dumps({"number": number, "prompt_id": new_id,
+            "prompt": running[2], "extra_data": running[3], "client_id": CLIENT_ID}).encode(), headers))
+        if result.get("error") or not result.get("prompt_id"):
+            raise ValueError("재시작 준비에 실패했습니다. 현재 작업은 중지하지 않았습니다.")
+        saved.update(id=new_id, t=time.time(), state="queued", video=None, error=None, restarted_from=pid)
+        for key in ("t_end", "edited_at", "restarted_as"):
+            saved.pop(key, None)
+        with HLOCK:
+            entry["restarted_as"] = new_id
+            HIST_DB.append(saved)
+            del HIST_DB[:-HIST_MAX]
+            _save_json(HIST, HIST_DB)
+        with PLOCK:
+            PROGRESS[new_id] = {"classes": {k: v["class_type"] for k, v in running[2].items()}, "pct": 0.0, "label": "재시작 대기"}
+        warning = None
+        try:
+            comfy("/interrupt", json.dumps({"prompt_id": pid}).encode(), headers)
+        except urllib.error.URLError:
+            warning = "재시작 작업은 맨 앞에 준비됐지만 현재 작업 중지 요청을 확인하지 못했습니다."
+        return {"id": new_id, "replaces": pid, "seed": saved["seed"], "warning": warning}
+
+
+def gallery_regeneration_entry(pid):
+    with HLOCK:
+        entry = next((entry for entry in HIST_DB if entry["id"] == pid), None)
+        if entry is None:
+            raise ValueError("원래 작업 이력이 없어 재생성할 수 없습니다.")
+        if entry.get("state") != "done" or not entry.get("video") or entry.get("mode") not in ("REF2VA", "I2VA", "FL2VA"):
+            raise ValueError("완료된 개별 영상을 선택해 주세요.")
+        if not entry.get("images") or not (entry.get("ui") or {}).get("f") or not entry.get("prompt"):
+            raise ValueError("원래 사진 또는 작성 정보가 없어 재생성할 수 없습니다.")
+        return json.loads(json.dumps(entry))
+
+
+def regenerate_gallery(req):
+    target_id, source_id, request_id = (req.get(key) for key in ("target_id", "source_id", "request_id"))
+    if (not all(isinstance(value, str) and value for value in (target_id, source_id, request_id))
+            or not re.fullmatch(r"[A-Za-z0-9-]{12,80}", request_id)):
+        raise ValueError("재생성할 영상과 설정을 가져올 영상을 선택해 주세요.")
+    identity = {"target_id": target_id, "source_id": source_id, "request_id": request_id}
+    with GALLERY_REGENERATE_LOCK:
+        with HLOCK:
+            previous = next((entry for entry in HIST_DB if (entry.get("ui") or {}).get("regeneration", {}).get("request_id") == request_id), None)
+            if previous:
+                if previous["ui"]["regeneration"] != identity:
+                    raise ValueError("선택이 바뀌었습니다. 재생성을 다시 준비해 주세요.")
+                return {"id": previous["id"], "already_queued": True}
+        target = gallery_regeneration_entry(target_id)
+        source = gallery_regeneration_entry(source_id)
+        if source["mode"] != target["mode"]:
+            raise ValueError("사진 참조 방식이 같은 영상에서 설정을 가져와 주세요.")
+        referenced = [int(value) for value in re.findall(r"<Picture\s*(\d+)>", source["prompt"], re.I)]
+        if referenced and max(referenced) > len(target["images"]):
+            raise ValueError("복사할 프롬프트가 대상에 없는 참조 사진 번호를 사용합니다. 다른 영상을 골라 주세요.")
+        values = dict(target, count=1, edit_id=None, photo_sequence=False, prompt=source["prompt"])
+        for key in ("model", "steps", "sampler", "scheduler", "shift_video", "shift_audio", "loras"):
+            values[key] = source[key]
+        ui = json.loads(json.dumps(target["ui"]))
+        source_ui = source["ui"]
+        for key in ("subject", "summary", "style", "keep", "sound", "music"):
+            ui["f"][key] = source_ui["f"].get(key, "")
+        for key in ("shots", "trig", "oneTake"):
+            if key in source_ui:
+                ui[key] = source_ui[key]
+            else:
+                ui.pop(key, None)
+        for key in ("aspect", "resolution", "duration"):
+            ui["f"][key] = target[key]
+        ui.update(final=source["prompt"], regeneration=identity)
+        values["ui"] = ui
+        items = []
+        for index, name in enumerate(target["images"]):
+            if not isinstance(name, str) or not re.fullmatch(r"simpleui_[0-9a-f]{10}\.(jpg|png|webp)", name):
+                raise ValueError("원래 참조 사진 정보를 확인할 수 없습니다.")
+            with comfy("/view?" + urllib.parse.urlencode({"filename": name, "type": "input"})) as response:
+                with Image.open(response) as image:
+                    width, height = image.size
+            items.append({"id": "image-" + uuid.uuid4().hex, "enabled": True, "order": index, "slot": index,
+                          "start": index, "duration": 1, "type": "image", "value": name, "thumbnail": None,
+                          "source_width": width, "source_height": height})
+        reference = {"entry": target, "prompt": {DIRECTOR: {"inputs": {"timeline_data": json.dumps({"items": items})}}}}
+        return build_and_queue(values, reference=reference, queue_first=True)
+
+
+def queue_prompt_first(prompt):
+    """Add a new job before pending work without changing or interrupting any job."""
+    with QUEUE_EDIT_LOCK:
+        state = json.load(comfy("/queue"))
+        number = min([0] + [item[0] for item in state["queue_running"] + state["queue_pending"]]) - 1
+        return json.load(comfy("/prompt", json.dumps({"number": number, "prompt": prompt, "client_id": CLIENT_ID}).encode(),
+                               {"Content-Type": "application/json"}))
+
+
+def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
+    edit_id = req.get("edit_id")
+    sequence = req.get("photo_sequence") is True
+    if queue_first and (edit_id or sequence or int(req.get("count") or 1) != 1):
+        raise ValueError("우선 재생성은 새 영상 한 편씩 등록해 주세요.")
+    if sequence and (edit_id or req.get("mode", "REF2VA") != "REF2VA"):
+        raise ValueError("사진 순차 추가는 참조 사진 방식의 새 작업에서 사용할 수 있습니다.")
+    if edit_id and int(req.get("count") or 1) != 1:
+        raise ValueError("대기 항목 수정은 한 번에 1개만 가능합니다.")
     text = (req.get("prompt") or "").strip()
     if not text:
         raise ValueError("프롬프트가 비어 있습니다.")
     mode = req.get("mode") or "REF2VA"
-    imgs = req.get("images") or []
+    imgs = reference["entry"]["images"] if reference else req.get("images") or []
     need = {"REF2VA": (1, 9), "FL2VA": (2, 2), "I2VA": (1, 1)}.get(mode)
     if not need:
         raise ValueError(f"지원하지 않는 모드: {mode}")
@@ -484,7 +721,8 @@ def build_and_queue(req):
     if not 1 <= duration <= 15:
         raise ValueError("길이는 1~15초 사이로 정해 주세요(H3 최대 15초).")
 
-    p = json.load(open(TEMPLATE, encoding="utf-8-sig"))
+    with open(TEMPLATE, encoding="utf-8-sig") as handle:
+        p = json.load(handle)
 
     # --- 모델·샘플링·LoRA (값만 바꿈) ---
     models = set(object_options("UNETLoader", "unet_name"))
@@ -523,7 +761,16 @@ def build_and_queue(req):
 
     # --- 사진·프롬프트 ---
     items, sizes, names = [], [], []
-    for i, data_url in enumerate(imgs):
+    if reference:
+        previous = json.loads(reference["prompt"][DIRECTOR]["inputs"]["timeline_data"])["items"]
+        for i, name in enumerate(imgs):
+            item = next((item for item in previous if item.get("value") == name), None)
+            if item is None:
+                raise ValueError("원래 사진 정보를 찾지 못해 이 항목은 수정하지 않았습니다.")
+            items.append(dict(item, slot=i, order=i, start=i))
+            names.append(name)
+            sizes.append((item["source_width"], item["source_height"]))
+    for i, data_url in enumerate([] if reference else imgs):
         head, b64 = data_url.split(",", 1)
         raw = base64.b64decode(b64)
         im = Image.open(io.BytesIO(raw))
@@ -554,7 +801,7 @@ def build_and_queue(req):
              timeline_data=json.dumps(tl, ensure_ascii=False), builder_state=json.dumps(bs, ensure_ascii=False))
     # 반복: 같은 구성으로 시드만 바꿔 count 개를 대기열에 넣는다.
     # 시드를 적었으면 그 값부터 1씩 늘리고(재현 가능), 비웠으면 매번 랜덤.
-    count = int(req.get("count") or 1)
+    count = len(imgs) if sequence else int(req.get("count") or 1)
     if not 1 <= count <= 20:
         raise ValueError("반복 횟수는 1~20 사이로 정해 주세요.")
     seed = str(req.get("seed") or "").strip()
@@ -564,26 +811,120 @@ def build_and_queue(req):
         add_anchor(p, names[0])
     classes = {k: v["class_type"] for k, v in p.items()}
     jobs = []
-    for s in seeds:
+    for index, s in enumerate(seeds):
+        job_names = names[index:] + names[:index] if sequence else names
+        job_w, job_h = canvas(aspect, resolution, sizes[index] if sequence else sizes[0])
+        if sequence:
+            rotated = items[index:] + items[:index]
+            tl["items"] = [dict(item, slot=i, order=i, start=i) for i, item in enumerate(rotated)]
+            d.update(width=job_w, height=job_h, timeline_data=json.dumps(tl, ensure_ascii=False))
+            if anchor:
+                p[ANCHOR_IMG]["inputs"]["image"] = job_names[0]
         p[SEED]["inputs"]["seed_value"] = s
-        r = json.load(comfy("/prompt", json.dumps({"prompt": p, "client_id": CLIENT_ID}).encode(),
+        if prepare_only:
+            if count != 1 or edit_id:
+                raise ValueError("별도 워크플로 준비는 한 편씩 진행합니다.")
+            return {"prompt":p,"images":list(names),"width":w,"height":h,"seed":s}
+        r = replace_queued_prompt(edit_id, p) if edit_id else queue_prompt_first(p) if queue_first else json.load(comfy("/prompt", json.dumps({"prompt": p, "client_id": CLIENT_ID}).encode(),
                             {"Content-Type": "application/json"}))
-        if r.get("node_errors"):
+        if r.get("node_errors") and not edit_id:
             raise ValueError(json.dumps(r["node_errors"], ensure_ascii=False)[:500])
         with PLOCK:
             PROGRESS[r["prompt_id"]] = {"classes": classes, "pct": 0.0, "label": "대기"}
-        jobs.append({"id": r["prompt_id"], "seed": s})
+        jobs.append({"id": r["prompt_id"], "seed": s, "width": job_w, "height": job_h,
+                     "model": model, "steps": steps, "anchor": anchor,
+                     "images": list(job_names), "sequence_index": index + 1 if sequence else reference["entry"].get("sequence_index") if reference else None})
     now = time.time()
-    hist_add([{"id": j["id"], "t": now, "seed": j["seed"], "state": "queued", "video": None, "error": None,
+    entries = [{"id": j["id"], "t": now, "seed": j["seed"], "state": "queued", "video": None, "error": None,
                "mode": mode, "model": model, "steps": steps,
                "sampler": p[SAMPLER]["inputs"]["sampler_name"], "scheduler": p[SCHED]["inputs"]["scheduler"],
                "shift_video": p[SHIFT]["inputs"]["shift_video"], "shift_audio": p[SHIFT]["inputs"]["shift_audio"],
                "loras": [{"name": x["name"], "strength": float(x.get("strength", 1))} for x in loras],
-               "aspect": aspect, "resolution": resolution, "duration": duration, "width": w, "height": h,
-               "count": count, "anchor": anchor, "prompt": text, "images": names, "ui": req.get("ui")} for j in jobs])
+               "aspect": aspect, "resolution": resolution, "duration": duration, "width": j["width"], "height": j["height"],
+               "count": count, "anchor": anchor, "prompt": text, "images": j["images"],
+               "sequence_index": j["sequence_index"], "ui": req.get("ui")} for j in jobs]
+    if edit_id:
+        with HLOCK:
+            entry = next((e for e in HIST_DB if e["id"] == edit_id), None)
+            if entry is None:
+                entry = entries[0]
+                HIST_DB.append(entry)
+            else:
+                entries[0]["t"] = entry["t"]
+                entry.update(entries[0])
+            entry["edited_at"] = now
+            entry.pop("t_end", None)
+            _save_json(HIST, HIST_DB)
+    else:
+        hist_add(entries)
     return {"jobs": jobs, "id": jobs[0]["id"], "seed": jobs[0]["seed"], "width": w, "height": h,
             "model": os.path.basename(model.replace("\\", "/")), "steps": steps, "loras": len(loras), "mode": mode,
             "anchor": anchor}
+
+
+def bulk_queue_context():
+    pending = sorted(json.load(comfy("/queue"))["queue_pending"], key=lambda item: item[0])
+    with HLOCK:
+        entries = {entry["id"]: entry for entry in HIST_DB}
+        owned = [(position, item[1]) for position, item in enumerate(pending, 1) if item[1] in entries]
+        first = json.loads(json.dumps(entries[owned[0][1]])) if owned else None
+    if first is not None:
+        first.update(state="queued", position=owned[0][0])
+    return {"ids": [pid for _, pid in owned], "total": len(owned), "first": first}
+
+
+def bulk_edit_queue(req):
+    ids = req.get("edit_ids")
+    fields = req.get("bulk_fields")
+    all_pending = req.get("all_pending", False)
+    if not isinstance(all_pending, bool):
+        raise ValueError("전체 대기항목 선택 상태가 올바르지 않습니다.")
+    if not all_pending and (not isinstance(ids, list) or not ids or not all(isinstance(pid, str) for pid in ids)):
+        raise ValueError("수정할 대기 항목을 선택해 주세요.")
+    if not isinstance(fields, list) or not fields or set(fields) - {"content", "model", "video", "anchor"}:
+        raise ValueError("적용할 수정 항목을 선택해 주세요.")
+    if "anchor" in fields and not isinstance(req.get("anchor"), bool):
+        raise ValueError("첫 장면 고정 상태가 올바르지 않습니다.")
+    pending = {item[1]: item for item in sorted(json.load(comfy("/queue"))["queue_pending"], key=lambda item: item[0])}
+    with HLOCK:
+        entries = {e["id"]: json.loads(json.dumps(e)) for e in HIST_DB}
+    if all_pending:
+        ids = [pid for pid in pending if pid in entries]
+    updated, failed = [], []
+    for pid in dict.fromkeys(ids):
+        if pid not in pending or pid not in entries:
+            failed.append({"id": pid, "error": "이미 시작됐거나 대기열에서 빠진 항목입니다."})
+            continue
+        entry = entries[pid]
+        values = dict(entry, edit_id=pid, count=1, photo_sequence=False)
+        ui = json.loads(json.dumps(entry.get("ui") or {}))
+        form = dict(ui.get("f") or {})
+        incoming = req.get("ui") or {}
+        if "content" in fields:
+            values["prompt"] = req.get("prompt")
+            for key in ("subject", "summary", "style", "keep", "sound", "music"):
+                if key in incoming.get("f", {}): form[key] = incoming["f"][key]
+            for key in ("shots", "final", "oneTake"):
+                if key in incoming: ui[key] = incoming[key]
+        if "model" in fields:
+            for key in ("model", "steps", "sampler", "scheduler", "shift_video", "shift_audio", "loras"):
+                if key in req: values[key] = req[key]
+            if "trig" in incoming: ui["trig"] = incoming["trig"]
+        if "anchor" in fields:
+            values["anchor"] = req["anchor"]
+        if "video" in fields:
+            for key in ("aspect", "resolution", "duration"):
+                if key in req:
+                    values[key] = req[key]
+                    form[key] = req[key]
+        ui["f"] = form
+        values["ui"] = ui
+        try:
+            result = build_and_queue(values, reference={"entry": entry, "prompt": pending[pid][2]})
+            updated.extend(dict(job, loras=values.get("loras", [])) for job in result["jobs"])
+        except (ValueError, urllib.error.URLError) as exc:
+            failed.append({"id": pid, "error": str(exc)})
+    return {"jobs": updated, "failed": failed, "bulk_edit": True, "all_pending": all_pending, "target_count": len(set(ids))}
 
 
 def add_anchor(p, image_name):
@@ -649,8 +990,50 @@ def hist_list(offset, limit):
             if st["state"] == "unknown":
                 st = {"state": "lost", "error": "결과 없음(ComfyUI 재시작 등으로 중단)"}
             hist_result(e["id"], st)
-            page[i] = dict(e, **{k: v for k, v in st.items() if k in ("state", "video", "error", "pct")})
+            page[i] = dict(e, **{k: v for k, v in st.items() if k in ("state", "video", "error", "pct", "position")})
     return {"items": page, "total": len(items)}
+
+
+def gallery_progress():
+    """Return progress and regeneration states, without prompts, images or result paths."""
+    with GALLERY_PROGRESS_LOCK:
+        now = time.monotonic()
+        if GALLERY_PROGRESS_CACHE["value"] is not None and now - GALLERY_PROGRESS_CACHE["at"] < 2:
+            return GALLERY_PROGRESS_CACHE["value"]
+        state = json.load(comfy("/queue", timeout=8))
+        running, pending = state.get("queue_running", []), state.get("queue_pending", [])
+        active = {item[1] for item in running + pending}
+        with HLOCK:
+            unfinished = [(entry["id"], entry.get("t", 0)) for entry in HIST_DB
+                          if (entry.get("ui") or {}).get("regeneration")
+                          and entry.get("state") in ("queued", "running") and entry["id"] not in active]
+        # A gallery-only session must also record completion and its source-image link.
+        for pid, created_at in unfinished[:8]:
+            if time.time() - created_at < 2:
+                continue
+            result = status(pid)
+            if result["state"] == "unknown" and time.time() - created_at > 30:
+                hist_result(pid, {"state": "lost", "error": "대기열에서 작업을 찾지 못했습니다."})
+        with PLOCK:
+            value = (PROGRESS.get(running[0][1]) or {}).get("pct") if running else None
+        pct = max(0, min(100, round(value))) if isinstance(value, (int, float)) else None
+        with HLOCK:
+            jobs = [{"id": entry["id"], "state": "running" if any(item[1] == entry["id"] for item in running)
+                     else "queued" if entry["id"] in active else entry.get("state", "unknown"),
+                     "completed_at": entry.get("t_end", 0)} for entry in HIST_DB if (entry.get("ui") or {}).get("regeneration")]
+        result = {"running": bool(running), "pct": pct, "pending": len(pending), "jobs": jobs}
+        GALLERY_PROGRESS_CACHE.update(at=time.monotonic(), value=result)
+        return result
+
+
+def track_story_job(pid,graph):
+    with PLOCK:
+        PROGRESS[pid]={"classes":{key:node["class_type"] for key,node in graph.items()},"pct":0.0,"label":"대기"}
+
+
+STORIES=StoryProjects(os.path.join(HERE,"story_data"),OUTPUT,
+    lambda request,reference:build_and_queue(request,reference,prepare_only=True),
+    comfy,upload,_status,track_story_job,client_id=CLIENT_ID)
 
 
 class H(BaseHTTPRequestHandler):
@@ -668,8 +1051,9 @@ class H(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         q = dict(urllib.parse.parse_qsl(u.query))
         try:
-            if u.path == "/":
-                b = open(INDEX, "rb").read()
+            if u.path in ("/","/story","/gallery"):
+                source=INDEX if u.path=="/" else os.path.join(HERE,"story.html" if u.path=="/story" else "gallery.html")
+                with open(source,"rb") as page: b=page.read()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
@@ -680,19 +1064,72 @@ class H(BaseHTTPRequestHandler):
                 self._json(status(q["id"]))
             elif u.path == "/api/history":
                 self._json(hist_list(int(q.get("offset") or 0), min(100, int(q.get("limit") or 20))))
+            elif u.path == "/api/queue/bulk-context":
+                self._json(bulk_queue_context())
+            elif u.path == "/api/gallery":
+                with HLOCK:
+                    metadata = [{**{key: entry[key] for key in ("id", "mode", "video", "images", "width", "height", "duration", "model", "steps", "seed", "loras") if key in entry},
+                                 "regenerated": bool((entry.get("ui") or {}).get("regeneration"))}
+                                for entry in HIST_DB if entry.get("video")]
+                self._json(GALLERY.list(q.get("offset", 0), q.get("limit", 48), q.get("mode", "all"),
+                                        q.get("order", "newest"), q.get("q", ""), q.get("known", ""), metadata, q.get("focus")))
+            elif u.path == "/api/gallery/progress":
+                self._json(gallery_progress())
+            elif u.path == "/api/gallery/thumbnail":
+                try:
+                    b = GALLERY.thumbnail(q.get("id"), q.get("v"))
+                except (FileNotFoundError, urllib.error.HTTPError):
+                    return self._json({"error": "원본 이미지 정보가 없거나 사진을 불러올 수 없습니다."}, 404)
+                self.send_response(200)
+                self.send_header("Content-Type", "image/webp")
+                self.send_header("Content-Length", str(len(b)))
+                self.send_header("Cache-Control", "private, max-age=31536000, immutable")
+                self.end_headers()
+                self.wfile.write(b)
+            elif u.path == "/api/prompt-helper/status":
+                self._json(PROMPT_HELPER.status(q.get("id")))
+            elif u.path == "/api/story/project":
+                self._json(STORIES.get(q.get("id")))
+            elif u.path == "/api/story/video":
+                video=STORIES.video(q.get("id"),q.get("clip"))
+                query=urllib.parse.urlencode(video)
+                headers={"Range":self.headers["Range"]} if self.headers.get("Range") else {}
+                try: response=comfy("/view?"+query,None,headers)
+                except urllib.error.HTTPError as error: response=error
+                with response:
+                    self.send_response(response.status)
+                    for key in ("Content-Type","Content-Length","Content-Range","Accept-Ranges"):
+                        if response.headers.get(key): self.send_header(key,response.headers[key])
+                    if q.get("download"): self.send_header("Content-Disposition","attachment; filename=story-video.mp4")
+                    self.end_headers()
+                    while chunk:=response.read(65536): self.wfile.write(chunk)
+            elif u.path == "/api/settings":
+                with SETTINGS_LOCK:
+                    settings = _load_json(SETTINGS, {})
+                if "name" in q:
+                    if q["name"] not in settings:
+                        return self._json({"error": "저장된 설정을 찾지 못했습니다."}, 404)
+                    self._json(settings[q["name"]])
+                else:
+                    self._json({"items": [{"name": name, "saved_at": value["saved_at"]} for name, value in sorted(settings.items(), key=lambda item: item[1]["saved_at"], reverse=True)]})
             elif u.path == "/api/input":
                 # 이력 불러오기용: 이 화면이 올린 사진만(ComfyUI input 폴더의 simpleui_*)
                 name = q.get("name", "")
                 if not re.fullmatch(r"simpleui_[0-9a-f]{10}\.(jpg|png|webp)", name):
                     raise ValueError("이 화면이 올린 사진이 아닙니다.")
                 try:
-                    r = comfy("/view?" + urllib.parse.urlencode({"filename": name, "type": "input"}))
+                    if q.get("thumbnail") == "1":
+                        b, content_type = input_thumbnail(name), "image/webp"
+                    else:
+                        with comfy("/view?" + urllib.parse.urlencode({"filename": name, "type": "input"})) as response:
+                            b, content_type = response.read(), response.headers.get("Content-Type", "image/jpeg")
                 except urllib.error.HTTPError:
                     return self._json({"error": "사진 파일이 없습니다(input 폴더에서 지워짐)."}, 404)
-                b = r.read()
                 self.send_response(200)
-                self.send_header("Content-Type", r.headers.get("Content-Type", "image/jpeg"))
+                self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(b)))
+                if q.get("thumbnail") == "1":
+                    self.send_header("Cache-Control", "private, max-age=86400")
                 self.end_headers()
                 self.wfile.write(b)
             elif u.path == "/api/catalog":
@@ -730,6 +1167,26 @@ class H(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(n) or b"{}")
             if self.path == "/api/generate":
                 self._json(build_and_queue(body))
+            elif self.path == "/api/prompt-helper/start":
+                self._json(PROMPT_HELPER.start(body))
+            elif self.path == "/api/prompt-helper/cancel":
+                self._json(PROMPT_HELPER.cancel(body.get("id")))
+            elif self.path == "/api/story/save":
+                self._json(STORIES.save(body))
+            elif self.path == "/api/story/generate":
+                self._json(STORIES.start(body.get("id"),body.get("index")))
+            elif self.path == "/api/story/approve":
+                self._json(STORIES.approve(body.get("id"),body.get("index")))
+            elif self.path == "/api/story/merge":
+                self._json(STORIES.start_merge(body.get("id")))
+            elif self.path == "/api/story/cancel":
+                self._json(STORIES.cancel(body.get("id")))
+            elif self.path == "/api/queue/bulk-edit":
+                self._json(bulk_edit_queue(body))
+            elif self.path == "/api/queue/restart":
+                self._json(restart_running_prompt(body.get("id")))
+            elif self.path == "/api/settings/save":
+                self._json(save_settings(body.get("name"), body.get("data")))
             elif self.path == "/api/card/fetch":
                 kind, name = body.get("kind"), body.get("name")
                 if kind not in DIRS or not resolve(kind, name or ""):
@@ -765,16 +1222,11 @@ class H(BaseHTTPRequestHandler):
                 _save_json(PRESETS, ps)
                 self._json(ps)
             elif self.path == "/api/history/delete":
-                # 기록만 지운다. 결과 영상·사진 파일은 그대로 둔다.
-                ids = set(body.get("ids") or [])
-                with HLOCK:
-                    if body.get("all"):
-                        HIST_DB.clear()
-                    else:
-                        HIST_DB[:] = [e for e in HIST_DB if e["id"] not in ids]
-                    _save_json(HIST, HIST_DB)
-                    total = len(HIST_DB)
-                self._json({"ok": True, "total": total})
+                self._json(delete_history(body))
+            elif self.path == "/api/gallery/update":
+                self._json(GALLERY.update(body))
+            elif self.path == "/api/gallery/regenerate":
+                self._json(regenerate_gallery(body))
             elif self.path == "/api/open-folder":
                 folder = os.path.join(OUTPUT, "video", datetime.date.today().isoformat())
                 os.startfile(folder if os.path.isdir(folder) else os.path.join(OUTPUT, "video"))
@@ -788,9 +1240,10 @@ class H(BaseHTTPRequestHandler):
                 ids = [x for x in (body.get("ids") or [body.get("id")]) if x]
                 if ids:
                     hdr = {"Content-Type": "application/json"}
-                    comfy("/queue", json.dumps({"delete": ids}).encode(), hdr)      # 아직 안 돈 것부터 빼고
-                    for pid in ids:                                                  # 돌고 있는 것만 멈춤
-                        comfy("/interrupt", json.dumps({"prompt_id": pid}).encode(), hdr)
+                    with QUEUE_EDIT_LOCK:
+                        comfy("/queue", json.dumps({"delete": ids}).encode(), hdr)      # 아직 안 돈 것부터 빼고
+                        for pid in ids:                                                  # 돌고 있는 것만 멈춤
+                            comfy("/interrupt", json.dumps({"prompt_id": pid}).encode(), hdr)
                 self._json({"ok": True})
             else:
                 self._json({"error": "not found"}, 404)
@@ -802,12 +1255,13 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, fmt, *a):
         line = a[0] if a else ""
         # 자주 부르는 조회만 숨긴다(이력 삭제 같은 POST 는 남김)
-        if not (line.startswith("GET ") and any(s in line for s in ("/api/status", "/api/fetch-state", "/api/history", "/api/input", "/api/video"))):
+        if not (line.startswith("GET ") and any(s in line for s in ("/api/status", "/api/fetch-state", "/api/history", "/api/input", "/api/video", "/api/gallery", "/api/queue/bulk-context"))):
             print("%s %s" % (self.command, self.path), flush=True)
 
 
 if __name__ == "__main__":
-    threading.Thread(target=ws_loop, daemon=True).start()
+    for client_id in set([CLIENT_ID, *RESTART_CLIENT_IDS]):
+        threading.Thread(target=ws_loop, args=(client_id,), daemon=True).start()
     threading.Thread(target=fetch_worker, daemon=True).start()
     print(f"H3 간단 화면: http://127.0.0.1:{PORT}", flush=True)
-    ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()
+    ThreadingHTTPServer(("0.0.0.0", PORT), H).serve_forever()

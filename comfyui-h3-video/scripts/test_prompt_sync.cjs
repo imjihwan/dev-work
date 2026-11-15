@@ -1,0 +1,79 @@
+// Exercise the real general-mode scene handlers, prompt builder and submit payload.
+// Synthetic text and mocked fetch only: no live jobs or personal media.
+const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict');
+const html=fs.readFileSync(process.argv[2]||path.join(__dirname,'../simple_ui/index.html'),'utf8');
+const source=html.match(/<script>([\s\S]*)<\/script>/)[1],nodes=new Map();
+class Element{
+  constructor(){this.value='';this.children=[];this.parts=new Map();this.events={};this.style={};this.hidden=false;this.classList={toggle(){}};}
+  querySelector(selector){if(!this.parts.has(selector))this.parts.set(selector,new Element());return this.parts.get(selector);}
+  querySelectorAll(){return [];}
+  appendChild(child){child.parentElement=this;this.children.push(child);}
+  remove(){this.parentElement.children=this.parentElement.children.filter(child=>child!==this);}
+  addEventListener(type,fn){(this.events[type]||=[]).push(fn);}
+}
+const get=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
+const fields=['subject','summary','style','keep','sound','music','aspect','resolution','duration','count'];
+const requests=[];
+let context;
+context=vm.createContext({console,$:get,FIELDS:fields,images:['synthetic-reference'],manualFinal:false,CAT:null,
+  S:{model:'synthetic-model',steps:4,sampler:'euler',scheduler:'simple',shift_video:5,shift_audio:5,oneTake:true,trig:false,loras:{}},
+  isRef:()=>true,sendMode:()=> 'REF2VA',document:{createElement:()=>new Element()},
+  drawGoInfo(){},drawSpeed(){},save(){},updateSequenceButton(){},updateGoLabel(){},setQueueEdit(){},loadHist(){},setStatus(){},
+  queueSubmitting:false,editingJobId:null,bulkEditingIds:[],bulkAllEditing:false,currentJobs:[],pollT0:0,imgsReady:true,manualFinalBackup:null,
+  runCount:()=>1,curModel:()=>null,histModelName:value=>value,esc:value=>String(value),finished:job=>job.state==='done',
+  poll:jobs=>context.currentJobs=jobs,
+  fetch:async(url,options)=>{requests.push({url,body:JSON.parse(options.body)});return{ok:true,json:async()=>({jobs:[{id:'synthetic-new',seed:42,width:640,height:384,model:'synthetic-model',steps:4}],width:640,height:384,model:'synthetic-model',steps:4})};}});
+for(const [id,value] of Object.entries({summary:'A synthetic motion.',style:'Fixed camera.',keep:'Keep original appearance.',sound:'Quiet room tone.',music:'N/A',aspect:'auto',resolution:'draft',duration:'5',count:'1',seed:'42'}))get(id).value=value;
+vm.runInContext(source.slice(source.indexOf('function addShot('),source.indexOf('// 3. 모델')),context);
+vm.runInContext(source.slice(source.indexOf('function captureSettings('),source.indexOf('$("settingsSave").onclick')),context);
+vm.runInContext(source.slice(source.indexOf('async function submitJobs('),source.indexOf('$("go").onclick')),context);
+const directFinal=text=>{get('final').value=text;get('final').oninput();assert.equal(context.manualFinal,true);};
+(async()=>{
+  context.addShot(0,'Previous synthetic movement.');context.render();assert(get('final').value.includes('Previous synthetic movement.'));
+  assert(get('final').value.includes('viewpoint, position and framing established at the start of this video'));
+  assert(!get('final').value.includes('camera position and framing stay exactly the same as in <Picture 1>'));
+  assert.equal(get('keep').value,'Keep original appearance.','The generated continuity rule must not overwrite saved retention text');
+  context.images.push('another-synthetic-reference');assert(context.build().includes('<Picture 2>'));assert(!context.build(1).includes('<Picture 2>'));context.images.pop();
+  directFinal('A preserved custom final prompt.');context.render();assert.equal(get('final').value,'A preserved custom final prompt.');
+  const first=get('shots').children[0];first.querySelector('textarea').value='Updated synthetic movement.';first.oninput();
+  assert.equal(context.manualFinal,false);assert(get('final').value.includes('Updated synthetic movement.'));assert(!get('final').value.includes('Previous synthetic movement.'));assert(!get('final').value.includes('preserved custom'));
+  assert.equal(get('resetFinal').hidden,true);
+  context.addShot(2,'Second synthetic movement.');
+  directFinal('Another custom prompt.');const second=get('shots').children[1];second.querySelector('input').value='3';second.oninput();
+  assert(get('final').value.includes('00:03.000'));assert(get('final').value.toLowerCase().includes('second synthetic movement.'));
+  directFinal('Custom before deletion.');second.querySelector('button').onclick();assert.equal(context.manualFinal,false);assert(!get('final').value.toLowerCase().includes('second synthetic movement.'));
+  directFinal('Custom before adding a scene.');get('addShot').onclick();assert.equal(context.manualFinal,false);
+  directFinal('Custom before editing the summary.');get('summary').value='Updated synthetic summary.';get('summary').events.input[0]();assert.equal(context.manualFinal,false);assert(get('final').value.includes('Updated synthetic summary.'));
+  directFinal('Keep this manual prompt for a count-only change.');get('count').value='4';get('count').events.input[0]();assert.equal(get('final').value,'Keep this manual prompt for a count-only change.');
+  first.querySelector('textarea').value='Movement submitted to the backend.';context.manualFinal=false;get('final').value='Stale generated preview.';
+  await context.submitJobs();
+  assert.equal(requests.length,1);assert.equal(requests[0].url,'/api/generate');assert(requests[0].body.prompt.includes('Movement submitted to the backend.'));assert(!requests[0].body.prompt.includes('Stale generated preview.'));
+  assert.equal(requests[0].body.prompt,get('final').value);assert.equal(context.currentJobs[0].id,'synthetic-new');
+  const commonStyle=JSON.parse(source.match(/^const REFERENCE_STYLE_CURRENT = (.*);$/m)[1]);
+  context.REFERENCE_STYLE_CURRENT=commonStyle;
+  assert(!context.build().includes('Replace the reference pelvis'),'Removed experimental pose rules must stay removed');
+  get('style').value=commonStyle;context.S.anchor=true;get('subject').value='';
+  for(const n of [1,3]){
+    const prompt=context.build(n);
+    assert(prompt.startsWith('subject_definitions: <Picture 1>'));
+    assert(prompt.includes('background from <Picture 1>'));
+    assert(!prompt.includes('Replace the reference pelvis and leg facing direction'));
+    assert(prompt.includes('Movement submitted to the backend.'));
+    assert.equal(prompt.includes('<Picture 2>'),n>1);
+  }
+  get('subject').value='A custom subject from <Picture 1>.';
+  assert(context.build().startsWith('subject_definitions: A custom subject from <Picture 1>.'));
+  const nine=context.build(9);
+  for(let i=2;i<=9;i++)assert(nine.includes(`<Picture ${i}>`),'A custom Picture 1 description must not suppress extra face references');
+  assert(nine.includes('one consistent facial identity'));
+  assert(nine.includes(commonStyle),'Existing camera/lower-body instructions must remain intact');
+  context.images.push(...Array.from({length:8},(_,i)=>`synthetic-face-${i}`));
+  const manual='subject_definitions: Custom subject from <Picture 1>.\n\nsummary: Preserve exact summary.\n\nretention_analysis: Custom accessories.\n\ndetailed_description: At 1.5 seconds, retain this exact motion.\n\noverall_soundscape: Keep custom sound.';
+  directFinal(manual);context.render();assert.equal(get('final').value,manual);assert(!get('refreshFaceRefs').hidden);
+  get('refreshFaceRefs').onclick();const refreshed=get('final').value;
+  assert(refreshed.includes('<Picture 9>'));assert.equal(context.stripFaceReferenceRules(refreshed),manual);assert.equal(context.manualFinal,true);
+  get('refreshFaceRefs').onclick();assert.equal(get('final').value,refreshed);
+  context.images.splice(1);context.render();assert(!get('refreshFaceRefs').hidden);get('refreshFaceRefs').onclick();assert.equal(get('final').value,manual);
+  assert.equal(get('keep').value,'Keep original appearance.');
+  console.log('General-mode prompt sync passed: scene text/time/add/delete, automatic final refresh after history/manual edits, preserved direct final until content changes, and fresh submitted prompt.');
+})().catch(error=>{console.error(error);process.exitCode=1;});
