@@ -64,13 +64,18 @@ foreach ($n in $V.custom_nodes) {
     }
 }
 
+Step "CPU 얼굴 검출 준비"
+Pip "opencv-python>=5,<6"
+& $Py "$Root\scripts\install_face_detector.py" --comfy $ComfyDir
+if ($LASTEXITCODE -ne 0) { throw "CPU 얼굴 검출 모델 설치 실패" }
+
 Step "간단 화면(simple_ui) 복사"
 $ui = "$ComfyDir\simple_ui"
 New-Item -ItemType Directory -Force $ui | Out-Null
 $publicUiFiles = @(
     'server.py', 'index.html', 'start.bat', 'template_api.json',
     'cards.seed.json', 'presets.seed.json', 'prompt_helper.py',
-    'story.py', 'story_workflow.py', 'story.html', 'gallery.py', 'gallery.html'
+    'story.py', 'story_workflow.py', 'story.html', 'gallery.py', 'gallery.html', 'face_references.py'
 )
 foreach ($publicUiFile in $publicUiFiles) {
     Copy-Item -LiteralPath (Join-Path "$Root\simple_ui" $publicUiFile) -Destination $ui -Force

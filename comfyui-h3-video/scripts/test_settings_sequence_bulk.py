@@ -13,8 +13,11 @@ import unittest
 import urllib.error
 import urllib.parse
 import uuid
+import sys
+from types import SimpleNamespace
+from unittest.mock import patch
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageOps
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = Path(os.environ.get("REFERENCE_TEST_SOURCE", ROOT / "simple_ui"))
@@ -28,7 +31,7 @@ class FeatureTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.sent, self.uploaded, self.edited = [], [], []
         self.env = {"json":json, "os":os, "random":random, "re":re, "time":time, "uuid":uuid, "base64":base64, "io":io,
-                    "urllib":urllib, "Image":Image, "HERE":self.tmp.name, "CLIENT_ID":"test-client",
+                    "urllib":urllib, "Image":Image, "ImageOps":ImageOps, "ROOT":self.tmp.name, "HERE":self.tmp.name, "CLIENT_ID":"test-client",
                     "HLOCK":threading.Lock(), "PLOCK":threading.Lock(), "SETTINGS_LOCK":threading.Lock(),
                     "HIST_DB":[], "HIST_MAX":1000, "PROGRESS":{},
                     "HIST":os.path.join(self.tmp.name,"history.json"), "SETTINGS":os.path.join(self.tmp.name,"settings.json"),
@@ -36,6 +39,13 @@ class FeatureTests(unittest.TestCase):
                     "card_for":lambda *args:{"auto":{"h3":True,"fmt":"int8"}},
                     "object_options":lambda cls, field:["test-model.safetensors","other-model.safetensors"] if cls=="UNETLoader" else [],
                     "comfy":self.comfy, "upload":self.upload, "replace_queued_prompt":self.replace}
+        self.crop_calls=[]
+        def crop(raw, model):
+            self.crop_calls.append(raw)
+            return None
+        self.crop_module=SimpleNamespace(ensure_available=lambda path:None,crop_reference=crop,MODEL_NAME='test.onnx')
+        self.crop_patch=patch.dict(sys.modules,face_references=self.crop_module)
+        self.crop_patch.start();self.addCleanup(self.crop_patch.stop)
         for node in TREE.body:
             if isinstance(node,ast.Assign):
                 try: ast.literal_eval(node.value)
@@ -130,6 +140,44 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(len(result["jobs"]),2)
         self.assertEqual(result["jobs"][0]["images"],result["jobs"][1]["images"])
         self.assertNotIn(self.env["ANCHOR_IMG"],self.sent[0][1]["prompt"])
+        self.assertEqual(self.crop_calls,[])
+
+    def test_sequence_crops_are_cached_and_only_secondary_references_use_them(self):
+        def crop(raw, model):
+            self.crop_calls.append(raw)
+            output=io.BytesIO();Image.new('RGB',(10,12),'blue').save(output,format='PNG')
+            return output.getvalue(),(10,12)
+        self.crop_module.crop_reference=crop
+        photos=(self.photos*2)[:9]
+        outcome=self.env['build_and_queue'](self.request(images=photos,photo_sequence=True,anchor=True))
+        self.assertEqual(len(self.crop_calls),9)
+        self.assertEqual(len(self.uploaded),18)
+        originals=[f'reference-{i*2+1}.png' for i in range(9)]
+        crops=[f'reference-{i*2+2}.png' for i in range(9)]
+        for primary,((pid,payload),entry) in enumerate(zip(self.sent,self.env['HIST_DB'])):
+            graph=payload['prompt']
+            order=list(range(primary,9))+list(range(primary))
+            expected=[originals[primary]]+[crops[i] for i in order[1:]]
+            timeline=json.loads(graph[self.env['DIRECTOR']]['inputs']['timeline_data'])
+            self.assertEqual([item['value'] for item in timeline['items']],expected)
+            self.assertEqual(entry['images'],expected)
+            self.assertEqual(graph[self.env['ANCHOR_IMG']]['inputs']['image'],originals[primary])
+            self.assertEqual(timeline['items'][0]['source_width'],16+primary%5)
+            self.assertEqual([item['source_width'] for item in timeline['items'][1:]],[10]*8)
+            self.assertEqual(graph[self.env['SEED']]['inputs']['seed_value'],100+primary)
+        self.assertEqual(outcome['face_crops'],{'cropped':9,'original':0})
+
+    def test_sequence_detector_failure_uses_originals_and_single_photo_needs_no_detector(self):
+        self.sequence()
+        self.assertEqual(len(self.crop_calls),5)
+        self.crop_module.ensure_available=lambda path:(_ for _ in ()).throw(AssertionError('Not needed'))
+        self.env['build_and_queue'](self.request(images=self.photos[:1],photo_sequence=True))
+
+    def test_missing_detector_queues_nothing(self):
+        self.crop_module.ensure_available=lambda path:(_ for _ in ()).throw(ValueError('Unavailable'))
+        with self.assertRaises(ValueError):self.sequence()
+        self.assertEqual(self.sent,[])
+        self.assertEqual(self.uploaded,[])
 
     def test_bulk_preserves_photos_order_seed_mode_and_anchor(self):
         result=self.sequence();before=json.loads(json.dumps(self.env["HIST_DB"]));uploads=len(self.uploaded)

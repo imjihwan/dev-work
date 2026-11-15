@@ -761,6 +761,12 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
 
     # --- 사진·프롬프트 ---
     items, sizes, names = [], [], []
+    face_items, face_cropped = [], 0
+    face_mode = sequence and len(imgs) > 1
+    if face_mode:
+        from face_references import ensure_available, crop_reference, MODEL_NAME
+        face_model_path = os.path.join(ROOT, 'models', 'face_detection', MODEL_NAME)
+        ensure_available(face_model_path)
     if reference:
         previous = json.loads(reference["prompt"][DIRECTOR]["inputs"]["timeline_data"])["items"]
         for i, name in enumerate(imgs):
@@ -774,13 +780,23 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
         head, b64 = data_url.split(",", 1)
         raw = base64.b64decode(b64)
         im = Image.open(io.BytesIO(raw))
-        sizes.append(im.size)
+        display_size = ImageOps.exif_transpose(im).size if sequence else im.size
+        sizes.append(display_size)
         ext = {"PNG": "png", "WEBP": "webp"}.get(im.format, "jpg")
         names.append(upload(raw, ext))
         # REF2VA: slot = 사진 번호 / FL2VA: slot 0 = 첫 프레임, 1 = 끝 프레임 / I2VA: slot 0
         items.append({"id": f"image-{uuid.uuid4().int % 10**13}-{i}", "enabled": True, "order": i, "slot": i,
                       "start": i, "duration": 1, "type": "image", "value": names[-1], "thumbnail": None,
-                      "source_width": im.size[0], "source_height": im.size[1]})
+                      "source_width": display_size[0], "source_height": display_size[1]})
+        if face_mode:
+            cropped = crop_reference(raw, face_model_path)
+            if cropped is None:
+                face_items.append(items[-1])
+            else:
+                crop_raw, crop_size = cropped
+                face_items.append(dict(items[-1], value=upload(crop_raw, 'png'),
+                                       source_width=crop_size[0], source_height=crop_size[1]))
+                face_cropped += 1
 
     aspect = req.get("aspect") or "auto"
     resolution = req.get("resolution") or "auto"
@@ -815,7 +831,9 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
         job_names = names[index:] + names[:index] if sequence else names
         job_w, job_h = canvas(aspect, resolution, sizes[index] if sequence else sizes[0])
         if sequence:
-            rotated = items[index:] + items[:index]
+            order = list(range(index, len(items))) + list(range(index))
+            rotated = [items[index]] + [(face_items[i] if face_mode else items[i]) for i in order[1:]]
+            job_names = [item['value'] for item in rotated]
             tl["items"] = [dict(item, slot=i, order=i, start=i) for i, item in enumerate(rotated)]
             d.update(width=job_w, height=job_h, timeline_data=json.dumps(tl, ensure_ascii=False))
             if anchor:
@@ -859,7 +877,7 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
         hist_add(entries)
     return {"jobs": jobs, "id": jobs[0]["id"], "seed": jobs[0]["seed"], "width": w, "height": h,
             "model": os.path.basename(model.replace("\\", "/")), "steps": steps, "loras": len(loras), "mode": mode,
-            "anchor": anchor}
+            "anchor": anchor, "face_crops": {"cropped": face_cropped, "original": len(imgs) - face_cropped} if face_mode else None}
 
 
 def bulk_queue_context():
@@ -1060,6 +1078,8 @@ class H(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(b)))
                 self.end_headers()
                 self.wfile.write(b)
+            elif u.path == "/api/health":
+                self._json({"ok": True, "sequence_face_crop": True})
             elif u.path == "/api/status":
                 self._json(status(q["id"]))
             elif u.path == "/api/history":

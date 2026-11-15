@@ -1196,7 +1196,7 @@ $("seed").addEventListener("input", () => { drawGoInfo(); save(); });
 function updateSequenceButton(){
   $("sequenceGo").disabled = queueSubmitting || !!editingJobId || !!bulkEditingIds.length || !isRef() || !images.length || !CAT?.capabilities?.photo_sequence;
   $("photoBatchGo").disabled = queueSubmitting || !!editingJobId || !!bulkEditingIds.length || !isRef() || !CAT;
-  $("sequenceHint").textContent = isRef() ? `사진 ${images.length}장을 번갈아 사진 1로 배치해 ${images.length}건을 추가합니다. 첫 장면 고정은 위 체크박스를 따릅니다.` : "사진 순차 추가는 참조 사진 방식에서 사용할 수 있습니다.";
+  $("sequenceHint").textContent = isRef() ? `사진 ${images.length}장을 번갈아 사진 1로 배치해 ${images.length}건을 추가합니다. 사진 1은 원본, 나머지는 가장 큰 얼굴 주변을 여유 있게 자른 보조 사진입니다. 검출 실패 시 원본을 사용합니다. 첫 장면 고정은 위 체크박스를 따릅니다.` : "사진 순차 추가는 참조 사진 방식에서 사용할 수 있습니다.";
 }
 function updateGoLabel(){ $("go").textContent = bulkAllEditing ? "전체 대기항목 수정 저장" : bulkEditingIds.length ? "일괄수정 저장" : editingJobId ? "수정 저장" : currentJobs.some(j => !finished(j)) ? "대기열에 추가" : "영상 만들기"; }
 function setQueueEdit(e, ids=[], all=false){
@@ -1254,8 +1254,13 @@ async function submitJobs(sequence=false){
   if (bulkIds.length && !bulkFields.length) return setStatus("적용할 수정 항목을 선택해 주세요.","err");
   queueSubmitting = true; updateSequenceButton(); $("queueFeedback").hidden = true;
   $("cancelEdit").disabled = true;
-  $("go").disabled = true; setStatus("올리는 중…");
+  $("go").disabled = true; setStatus(sequence && images.length>1 ? "CPU에서 얼굴 보조 사진을 준비하고 순차 등록하는 중…" : "올리는 중…");
   try {
+    if(sequence && images.length>1){
+      const healthResponse=await fetch('/api/health');
+      const health=healthResponse.ok?await healthResponse.json():null;
+      if(!health?.sequence_face_crop)throw new Error('얼굴 크롭 업데이트를 적용하려면 화면 서버를 재시작해 주세요. Restart-H3-UI.ps1을 실행한 뒤 다시 등록하세요.');
+    }
     if(!manualFinal)render();
     const snapshot = captureSettings();
     const r = await fetch(bulkIds.length ? "/api/queue/bulk-edit" : "/api/generate", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({
@@ -1283,6 +1288,7 @@ async function submitJobs(sequence=false){
     else poll(add, Date.now(), jobs.length > 1 ? info : `${info}, 시드 ${jobs[0].seed}`);
     if (j.failed?.length) { $("queueFeedback").textContent = `${add.length}개 수정 완료, ${j.failed.length}개 미적용: ${j.failed[0].error}`; $("queueFeedback").hidden = false; }
     else if(allPending){$("queueFeedback").textContent=add.length?`전체 대기항목 ${add.length}개 수정 완료 · 실행 중인 작업은 제외했습니다.`:"저장 시점에 수정할 대기항목이 없어 적용하지 않았습니다.";$("queueFeedback").hidden=false;}
+    else if(j.face_crops){$("queueFeedback").textContent=`순차 ${add.length}건 등록 · 얼굴 보조 크롭 ${j.face_crops.cropped}장, 원본 유지 ${j.face_crops.original}장. 각 작업의 사진 1은 원본입니다.`;$("queueFeedback").hidden=false;}
     $("go").disabled = false;
     loadHist(false, true);
   } catch (e) { setStatus("실패: " + e.message, "err"); $("go").disabled = false; }

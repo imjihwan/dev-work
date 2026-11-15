@@ -9,12 +9,12 @@ ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = (
     ".gitignore", "AGENTS.md", "README.md", "CHANGELOG.md", "TODO.md",
     "models.json", "versions.json", "requirements-test.txt",
-    "Start-H3-Video.ps1", "Stop-H3-Video.ps1", "Complete-Models.ps1",
+    "Start-H3-Video.ps1", "Stop-H3-Video.ps1", "Restart-H3-UI.ps1", "Complete-Models.ps1",
 )
 UI_FILES = (
     "server.py", "index.html", "start.bat", "template_api.json",
     "cards.seed.json", "presets.seed.json", "prompt_helper.py",
-    "story.py", "story_workflow.py", "story.html", "gallery.py", "gallery.html",
+    "story.py", "story_workflow.py", "story.html", "gallery.py", "gallery.html", "face_references.py",
 )
 DOC_FILES = (
     "MODELS.md", "PROMPT_HELPER.md", "STORY.md", "UI.md",
@@ -22,7 +22,7 @@ DOC_FILES = (
 )
 SCRIPT_FILES = (
     "setup.ps1", "start_comfyui.bat", "get_models.py", "download-ranges.py",
-    "install_prompt_helper.py", "prepare_ui_restart.py", "prepare_source_release.py",
+    "install_prompt_helper.py", "install_face_detector.py", "test_face_references.py", "prepare_ui_restart.py", "prepare_source_release.py",
     "apply_queued_style.py", "add_queued_opening_pose.py", "restore_anchored_reference.py",
     "test_gallery.py", "test_apply_queued_style.py", "test_add_queued_opening_pose.py",
     "test_prompt_helper.py", "test_photo_batch_ui.cjs", "test_opening_pose.cjs",

@@ -21,7 +21,7 @@ const context = vm.createContext({$, console, setTimeout, clearTimeout, Date, JS
   HIST:{items:[{id:'a',state:'queued'},{id:'b',state:'queued'},{id:'done',state:'done'}],selected:new Set()},
   HSTATE:{queued:'대기',running:'만드는 중',error:'실패',lost:'결과 없음'},vurl:()=>'/api/video?filename=synthetic.mp4',
   prompt:()=>pickedName,confirm:()=>true,
-  fetch:async (url,options) => {requests.push({url,body:options?.body ? JSON.parse(options.body) : null});return {ok:true,json:async()=>replyHandler ? replyHandler(url) : reply};},
+  fetch:async (url,options) => {if(url==='/api/health')return {ok:true,json:async()=>({sequence_face_crop:true})};requests.push({url,body:options?.body ? JSON.parse(options.body) : null});return {ok:true,json:async()=>replyHandler ? replyHandler(url) : reply};},
   isRef:()=>true,runCount:()=>20,sendMode:()=> 'REF2VA', drawGoInfo:()=>context.updateSequenceButton(),
   setStatus:()=>{},curModel:()=>null,histModelName:x=>x,finished:x=>x.state==='done',
   poll:jobs=>{context.currentJobs=jobs;},loadHist:()=>{},closeResult:()=>{},

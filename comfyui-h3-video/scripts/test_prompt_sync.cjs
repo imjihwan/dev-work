@@ -75,5 +75,16 @@ const directFinal=text=>{get('final').value=text;get('final').oninput();assert.e
   get('refreshFaceRefs').onclick();assert.equal(get('final').value,refreshed);
   context.images.splice(1);context.render();assert(!get('refreshFaceRefs').hidden);get('refreshFaceRefs').onclick();assert.equal(get('final').value,manual);
   assert.equal(get('keep').value,'Keep original appearance.');
+  context.images.push('synthetic-second');
+  const originalFetch=context.fetch,beforeRequests=requests.length,statusMessages=[];
+  context.setStatus=message=>statusMessages.push(message);
+  context.fetch=async(url,options)=>url==='/api/health'?{ok:false}:originalFetch(url,options);
+  await context.submitJobs(true);
+  assert.equal(requests.length,beforeRequests,'An old server must not silently queue uncropped references');
+  assert(statusMessages.some(message=>message.includes('Restart-H3-UI.ps1')));
+  context.fetch=async(url,options)=>url==='/api/health'?{ok:true,json:async()=>({sequence_face_crop:true})}:originalFetch(url,options);
+  await context.submitJobs(true);
+  assert.equal(requests.length,beforeRequests+1);
+  assert.equal(requests.at(-1).body.photo_sequence,true);
   console.log('General-mode prompt sync passed: scene text/time/add/delete, automatic final refresh after history/manual edits, preserved direct final until content changes, and fresh submitted prompt.');
 })().catch(error=>{console.error(error);process.exitCode=1;});
