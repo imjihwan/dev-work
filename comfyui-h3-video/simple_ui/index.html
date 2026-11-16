@@ -60,7 +60,7 @@ h1{font-size:20px;margin:0 0 4px;grid-column:1/-1}
 .bulk-fields{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}
 .bulk-fields label{display:flex;gap:5px;margin:0;font-weight:400}
 .bulk-fields[hidden]{display:none}
-.bulk-all{width:100%;min-height:44px;margin:0 0 8px;background:var(--acc);border:1px solid var(--acc);border-radius:8px;color:var(--acc-ink);font:inherit;font-size:13px;font-weight:600;cursor:pointer}.bulk-all:disabled{opacity:.45;cursor:default}
+.bulk-all{width:100%;min-height:40px;margin:0 0 4px;background:transparent;border:1px solid var(--acc);border-radius:8px;color:var(--acc);font:inherit;font-size:13px;font-weight:600;cursor:pointer}.bulk-all:disabled{opacity:.45;cursor:default}
 .prompt-helper{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:12px 0}
 .prompt-helper>summary{cursor:pointer;font-weight:600}
 .helper-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
@@ -84,6 +84,18 @@ textarea{resize:vertical;min-height:58px}
 .thumb .mv button{position:static;pointer-events:auto;width:20px;height:20px;font-size:11px;line-height:20px;padding:0}
 .thumb .mv button[hidden]{visibility:hidden;display:block}
 .shot{display:grid;grid-template-columns:92px 1fr 30px;gap:8px;align-items:start;margin-top:8px}
+@media (max-width:600px){.shot{grid-template-columns:56px 1fr 30px;gap:6px}.shot input{padding-left:2px;padding-right:2px}}
+.row-menu{display:inline-block;position:relative}
+.row-menu>summary{list-style:none;font-size:15px;line-height:1;padding:0 6px}
+.row-menu>summary::-webkit-details-marker{display:none}
+.row-menu-list{position:absolute;right:0;top:calc(100% + 4px);z-index:25;display:flex;flex-direction:column;min-width:132px;padding:4px;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 20px rgba(0,0,0,.15)}
+.row-menu-list .textbtn{text-align:left;padding:8px 10px;font-size:13px}
+.row-menu-list .del{border-top:1px solid var(--line);margin-top:4px}
+@media (pointer:coarse){
+  .hact{gap:4px 6px;align-items:center}
+  .hact .textbtn,.hact a.textbtn,.row-menu>summary{display:inline-flex;align-items:center;min-height:40px;padding:0 8px;font-size:13px}
+  .row-menu-list .textbtn{min-height:44px}
+}
 .shot input{text-align:center}
 .shot input.late{border-color:var(--warn);color:var(--warn)}
 .shot button,.ghost{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:8px;cursor:pointer;padding:6px 10px;font:inherit;font-size:13px}
@@ -236,27 +248,25 @@ a{color:var(--acc)}
       <label id="anchorBox" style="display:flex;gap:8px;align-items:flex-start;font-weight:400;margin-top:10px">
         <input type="checkbox" id="anchor" style="margin-top:3px">
         <span><b>사진 1 을 첫 장면으로 고정</b> <small style="color:var(--mute)">(실험)</small><br>
-        <small style="color:var(--mute)">영상이 사진 1 모습 그대로 시작합니다. 다른 사진은 얼굴 참고로만 쓰입니다. 끄면 모든 사진을 참고만 해서 첫 장면이 다른 사진 쪽으로 갈 수 있습니다.</small></span>
+        <small style="color:var(--mute)">영상이 사진 1 모습 그대로 시작합니다(다른 사진은 얼굴 참고만).</small></span>
       </label>
       <label id="faceBoostBox" style="display:flex;gap:8px;align-items:flex-start;font-weight:400;margin-top:10px">
         <input type="checkbox" id="faceBoost" style="margin-top:3px">
         <span><b>얼굴인식강화</b> <small style="color:var(--mute)">(실험)</small><br>
-        <small style="color:var(--mute)">사진이 2장 이상일 때 사진 2부터 얼굴 주변만 잘라 얼굴 참고로 씁니다(사진 1은 원본). 사진 속 옷·배경이 섞이는 것을 줄이려는 기능이며, CPU로 사진마다 몇 초 더 걸립니다.</small></span>
+        <small style="color:var(--mute)">사진 2장 이상일 때 사진 2부터 얼굴만 잘라 참고합니다(옷·배경 섞임 줄임, 사진마다 몇 초 더).</small></span>
       </label>
       </fieldset>
     </div>
 
     <div class="card">
-      <h2 class="section-title"><span>2. 내용</span><span class="settings-actions"><button class="ghost" id="settingsSave">현재 설정 저장하기</button><button class="ghost" id="settingsLoad">설정 불러오기</button></span></h2>
+      <h2 class="section-title"><span>2. 내용</span><span class="settings-actions"><button class="ghost" id="settingsSave" title="사진·내용·모델·설정을 이름 붙여 저장">설정 묶음 저장</button><button class="ghost" id="settingsLoad">설정 묶음 불러오기</button></span></h2>
       <div class="list" id="settingsList" hidden></div>
       <details class="prompt-helper" open>
         <summary>프롬프트 작성 도우미 · 로컬 CPU</summary>
         <label for="helperIdea">어떤 영상을 만들까요?</label>
         <textarea id="helperIdea" maxlength="4000" placeholder="예: 카페에서 커피잔을 내려놓고 창밖을 보는 5초 영상. 카메라는 천천히 접근. 음악 없이 주변 소리만."></textarea>
         <label style="font-weight:400"><input type="checkbox" id="helperContext"> 현재 내용 칸도 함께 참고해 다듬기</label>
-        <div class="hint">체크하면 현재 프롬프트에서 요청한 부분만 수정합니다. 나머지 문장과 장면 시각은 그대로 유지합니다.</div>
-        <div class="hint">대상·사진 유지 조건·장소·분위기·카메라는 그대로 두고 요약·동작·소리·음악만 작성합니다. 외관은 &lt;Picture 1&gt;을 유지하며 사진은 읽지 않습니다.</div>
-        <div class="hint">동작의 준비·이동·접촉·반응·마무리를 자세히 작성하고, 별도 CPU 검토로 시간 부족과 동작 충돌을 점검합니다.</div>
+        <div class="hint">요약·동작·소리·음악만 씁니다(대상·유지·장소·카메라 칸은 그대로). 체크하면 요청한 부분만 고칩니다.</div>
         <div class="helper-actions"><button class="ghost" id="helperStart">프롬프트 작성</button><button class="ghost" id="helperReview">현재 내용 동작·시간 검토</button><button class="ghost" id="helperCancel" hidden>작성 취소</button></div>
         <div class="hint" id="helperStatus" role="status" aria-live="polite"></div>
         <div id="helperDraft" hidden>
@@ -270,20 +280,20 @@ a{color:var(--acc)}
       <div id="subjectBox">
         <label>누가/무엇이 나오나 <small>— 비워 두면 기본 문장(사진 1의 얼굴·머리·옷·배경 그대로)</small></label>
         <textarea id="subject" placeholder="사진과 부딪치지 않는 규칙만: 예) 주인공 지정(the largest person in &lt;Picture 1&gt;), 사진에 안 보이는 몸·옷을 보이는 옷에 맞춰 채우기"></textarea>
-        <div class="hint">&lt;Picture 1&gt;을 넣어 쓰면 기본 문장 대신 이 글이 쓰이므로 "얼굴·머리·옷·배경은 사진 그대로"도 함께 적으세요. 넣지 않으면 기본 문장 뒤에 덧붙습니다. 사진에 보이는 옷·머리를 바꾸는 용도는 아닙니다(첫 장면 고정·유지 칸과 부딪쳐 무시되거나 도중에 바뀜). 사진에 없는 게 생기면 "유지할 것" 칸에 "no headband"처럼 적으세요.</div>
+        <div class="hint">&lt;Picture 1&gt;을 넣으면 기본 문장을 대체합니다(그때는 "얼굴·머리·옷·배경은 사진 그대로"도 적기). 보이는 옷·머리를 바꾸는 용도는 아닙니다.</div>
       </div>
 
       <label>한 줄 요약</label>
       <input type="text" id="summary" placeholder="예: The mug slowly rotates.">
 
       <div class="shots-head"><label>장면별 동작 <small>— 시작 시각(초)과 동작</small></label><label class="dur-inline">영상 길이 <input type="number" id="duration" value="5" min="1" max="15" step="1"> 초</label></div>
-      <div id="shots"></div><div class="hint">장면별 동작·시각을 바꾸면 최종 프롬프트를 즉시 다시 만듭니다.</div>
+      <div id="shots"></div>
       <div class="hint" id="shotHint" style="color:var(--warn)"></div>
       <button class="ghost" id="addShot" style="margin-top:8px">+ 장면 추가</button>
       <label id="oneTakeBox" style="display:flex;gap:8px;align-items:flex-start;font-weight:400;margin-top:10px">
         <input type="checkbox" id="oneTake" style="margin-top:3px">
         <span><b>컷 없이 한 번에 찍기</b><br>
-        <small style="color:var(--mute)">장면들을 컷([Shot 2], [Shot 3]…)으로 나누지 않고 한 장면 안의 시간 흐름(At 3초, …)으로 씁니다. 같은 장소에서 새로 정한 카메라 구도를 유지하며, 배경 원근은 그 시점에 맞추도록 합니다. 끄면 장면마다 새 컷이 될 수 있습니다.</small></span>
+        <small style="color:var(--mute)">장면을 컷으로 나누지 않고 한 장면 안의 시간 흐름으로 씁니다.</small></span>
       </label>
 
       <label>장소·분위기·카메라</label>
@@ -302,7 +312,7 @@ a{color:var(--acc)}
       <h2>3. 모델</h2>
 
       <div class="sec">
-        <div class="sec-h">저장한 조합</div>
+        <div class="sec-h">모델 조합 <span style="font-weight:400">— 모델·속도·LoRA만</span></div>
         <div class="presets" id="presets"></div>
       </div>
 
@@ -386,13 +396,12 @@ a{color:var(--acc)}
     <button class="ghost" id="openFolder" style="width:100%;padding:10px">📂 결과 폴더 열기</button>
     <div class="card" style="margin-top:16px">
       <div class="sec-h"><h2 style="margin:0">작업 이력 <small id="histCount" style="font-weight:400;color:var(--mute)"></small></h2><button class="textbtn" id="histClear">전체 지우기</button></div>
-      <div class="hint" style="margin-bottom:6px">만들 때의 사진·설정·프롬프트와 결과 영상을 함께 남깁니다. <b>불러오기</b>로 그때 구성을 화면에 다시 채웁니다. 기록을 지워도 영상 파일은 결과 폴더에 남습니다.</div>
-      <div class="hint" style="margin-bottom:6px">항목에 마우스를 올리거나 <b>설정</b>을 누르면 사용한 LoRA·강도와 생성 설정을 확인할 수 있습니다.</div>
-      <button type="button" class="bulk-all" id="bulkEditAll" disabled>전체 대기항목 일괄수정</button>
-      <div class="hint" style="margin-bottom:8px">목록을 끝까지 불러오지 않아도 이 화면에서 등록한 전체 대기항목을 수정합니다. 실행 중인 작업은 제외합니다.</div>
+      <div class="hint" style="margin-bottom:6px"><b>불러오기</b>로 그때 구성을 다시 채웁니다. 설정·프롬프트·삭제는 ⋯ 에 있습니다. 기록을 지워도 영상 파일은 남습니다.</div>
+      <div id="bulkAllBox"><button type="button" class="bulk-all" id="bulkEditAll" disabled>전체 대기항목 일괄수정</button>
+      <div class="hint" style="margin-bottom:8px">실행 중인 작업은 빼고 대기 작업 전부(목록에 안 보이는 것 포함)를 고칩니다.</div></div>
       <div class="hact" style="margin-bottom:10px"><label style="margin:0;font-weight:400"><input type="checkbox" id="selectQueued">불러온 항목만 선택</label><button class="ghost" id="bulkEdit" disabled>선택 항목 일괄수정 (0)</button></div>
       <div class="hact" style="margin-bottom:6px"><button class="ghost" id="compareVideos" disabled>선택 영상 재생 (0/3)</button><button class="textbtn" id="clearCompare" hidden>재생 선택 해제</button></div>
-      <div class="hint" style="margin-bottom:8px">완료 영상을 최대 3개까지 체크한 뒤 ‘선택 영상 재생’을 누르세요. 썸네일을 눌러서도 선택할 수 있습니다.</div>
+      <div class="hint" style="margin-bottom:8px">완료 영상을 3개까지 체크해 함께 재생합니다.</div>
       <div id="histList"></div>
       <div class="hint" id="histEnd" role="status" aria-live="polite" style="min-height:1px;margin-top:8px" hidden></div>
     </div>
@@ -718,7 +727,7 @@ function drawPresets(){
     JSON.stringify((p.loras||[]).map(x => [x.name, +x.strength]).sort()) === JSON.stringify(Object.entries(S.loras).map(([n,s]) => [n, +s]).sort());
   $("presets").innerHTML = Object.entries(ps).map(([n,p]) =>
     `<button class="pchip ${same(p) ? "on" : ""}" data-p="${esc(n)}">${esc(n)}<span class="x" data-del="${esc(n)}" title="지우기">✕</span></button>`).join("")
-    + `<button class="pchip add" id="presetSave">+ 지금 구성 저장</button>`;
+    + `<button class="pchip add" id="presetSave">+ 이 모델 조합 저장</button>`;
   $("presets").querySelectorAll("[data-p]").forEach(b => b.onclick = e => {
     if (e.target.dataset.del) return delPreset(e.target.dataset.del);
     applyPreset(b.dataset.p);
@@ -1682,6 +1691,11 @@ $("histList").addEventListener("pointerout",ev => {
 $("histList").addEventListener("focusin",ev => {
   if(ev.target.matches("[data-history-settings]"))showHistoryDetails(ev.target.closest("[data-history-id]"));
 });
+// ⋯ 메뉴는 한 번에 하나만, 바깥을 누르면 닫는다
+$("histList").addEventListener("toggle", ev => {
+  if (ev.target.matches?.("details.row-menu") && ev.target.open) $("histList").querySelectorAll("details.row-menu[open]").forEach(d => { if (d !== ev.target) d.removeAttribute("open"); });
+}, true);
+document.addEventListener("pointerdown", ev => { if (!ev.target.closest?.("details.row-menu")) document.querySelectorAll("details.row-menu[open]").forEach(d => d.removeAttribute("open")); });
 $("historyDetails").addEventListener("pointerenter",() => {clearTimeout(HISTORY_DETAILS.timer);HISTORY_DETAILS.timer=null;});
 $("historyDetails").addEventListener("pointerleave",leaveHistoryDetails);
 $("historyDetailsClose").onclick=hideHistoryDetails;
@@ -1854,8 +1868,10 @@ function drawHist(){
       <div class="hact">${e.video ? `<a class="textbtn" href="${vurl(e.video,1)}">다운로드</a>` : ""}
         ${e.state === "queued" && CAT?.capabilities?.queue_edit ? `<button class="textbtn" data-edit="${i}">수정</button>` : ""}
         ${e.state === "running" && CAT?.capabilities?.restart_running ? `<button class="textbtn" data-restart="${i}">현재 작업 재시작</button>` : ""}
-        <button class="textbtn" data-history-settings="${i}" aria-haspopup="dialog" aria-controls="historyDetails" aria-expanded="false">설정</button><button class="textbtn" data-load="${i}">불러오기</button><button class="textbtn" data-prompt="${i}">프롬프트</button>
-        <button class="textbtn del" data-del="${i}">삭제</button></div>
+        <button class="textbtn" data-load="${i}">불러오기</button>
+        <details class="row-menu"><summary class="textbtn" aria-label="더 보기">⋯</summary><div class="row-menu-list">
+          <button class="textbtn" data-history-settings="${i}" aria-haspopup="dialog" aria-controls="historyDetails" aria-expanded="false">설정</button><button class="textbtn" data-prompt="${i}">프롬프트</button>
+          <button class="textbtn del" data-del="${i}">삭제</button></div></details></div>
       <pre class="hprompt" id="hp${i}" hidden></pre></div></div>`;
   }).join("");
   watchHistoryPreviews();
@@ -1870,6 +1886,7 @@ function refreshQueueSelection(){
   for (const id of HIST.selected) if (!queued.has(id)) HIST.selected.delete(id);
   $("histList").querySelectorAll("[data-select]").forEach(input => { input.checked = HIST.selected.has(input.dataset.select); input.disabled = !queued.has(input.dataset.select); });
   $("bulkEditAll").disabled = !!HIST.bulkLoading || queueSubmitting || !CAT?.capabilities?.bulk_edit_all;
+  $("bulkAllBox").hidden = !bulkAllEditing && !HIST.items.some(e => e.state === "queued");
   $("bulkEdit").disabled = !!HIST.bulkLoading || queueSubmitting || !HIST.selected.size || !CAT?.capabilities?.bulk_edit;
   $("bulkEdit").textContent = `선택 항목 일괄수정 (${HIST.selected.size})`;
   $("selectQueued").checked = queued.size > 0 && [...queued].every(id => HIST.selected.has(id));
@@ -1923,6 +1940,8 @@ async function deleteHistoryEntries(body){
   loadHist(false,true);
 }
 $("histList").onclick = async ev => {
+  const rowMenu = ev.target.closest("details.row-menu");   // 메뉴에서 고르면 메뉴는 닫는다
+  if (rowMenu && ev.target.closest(".row-menu-list")) rowMenu.removeAttribute?.("open");
   const t = ev.target.closest("[data-play-selected],[data-select-video],[data-load],[data-prompt],[data-del],[data-edit],[data-restart],[data-history-settings]"); if (!t) return;
   if(t.dataset.playSelected!=null){hideHistoryDetails();refreshVideoCompareSelection();if(!VIDEO_COMPARE.selected.has(t.dataset.playSelected)){VIDEO_COMPARE.selected.clear();setVideoPlaybackSelection(t.dataset.playSelected,true);}openVideoComparison();return;}
   if(t.dataset.selectVideo!=null){hideHistoryDetails();setVideoPlaybackSelection(t.dataset.selectVideo,!VIDEO_COMPARE.selected.has(t.dataset.selectVideo));return;}

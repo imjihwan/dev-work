@@ -167,6 +167,6 @@ vm.runInContext(section('function storyModelSettings()', 'function selectAppTab(
   assert(html.includes('4편 이어 만들기'));assert(html.includes('id="singleApp"'));assert(html.includes('id="storyFrame"'));
   const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(x=>x[1]);
   assert.equal(new Set(ids).size,ids.length,'HTML IDs must remain unique');
-  assert(!html.includes('id="example"'));assert(html.includes('현재 설정 저장하기'));
+  assert(!html.includes('id="example"'));assert(html.includes('설정 묶음 저장'));
   console.log('UI feature checks passed: settings, sequence, bulk edits, selection, restart, CPU prompt helper, unique IDs.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

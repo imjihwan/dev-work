@@ -32,7 +32,7 @@ const context=vm.createContext({console,$:get,esc:escape,base:value=>String(valu
   window:{innerWidth:1000,innerHeight:800,addEventListener(){}},setTimeout:()=>0,clearTimeout(){},requestAnimationFrame(){},
   CAT:{models:[],capabilities:{queue_edit:true,bulk_edit:true}},friendlyModel:m=>m.name,
   currentJobs:[],finished:job=>job.state==='done',vurl:()=>'/synthetic-video-not-requested.mp4',
-  editingJobId:null,bulkEditingIds:[],setQueueEdit(){},loadFromHist(){},setStatus(){},updateGoLabel(){},
+  editingJobId:null,bulkEditingIds:[],bulkAllEditing:false,setQueueEdit(){},loadFromHist(){},setStatus(){},updateGoLabel(){},
   pollGen:0,pollT0:0,timer:null,queueSubmitting:false,localStorage:{removeItem(){}},restartCurrentJob(){}});
 vm.runInContext(script.slice(script.indexOf('function loraOverlayHtml('),script.indexOf('async function submitJobs(')),context);
 vm.runInContext(script.slice(script.indexOf('const HIST ='),script.indexOf('// 그때 구성을 화면에 다시 채운다')),context);
