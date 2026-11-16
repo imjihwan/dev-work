@@ -59,7 +59,8 @@ def ensure_available(model_path):
         raise ValueError('CPU 얼굴 검출에 OpenCV가 필요합니다. 설치 안내를 확인해 주세요.') from None
 
 
-def crop_reference(raw, model_path):
+def _largest_face(raw, model_path):
+    """가장 큰 얼굴의 YuNet 결과(원본 좌표)와 원본 사진. 얼굴이 없으면 (None, image)."""
     import cv2
     import numpy as np
     with Image.open(io.BytesIO(raw)) as original:
@@ -74,12 +75,44 @@ def crop_reference(raw, model_path):
         try:
             _, faces = detector.detect(array)
         except cv2.error:
-            return None
+            return None, image
     face = select_face(faces)
     if face is None:
-        return None
+        return None, image
     face = face.copy()
     face[:14] /= scale
+    return face, image
+
+
+# 얼굴 방향: 코끝이 두 눈 가운데에서 눈 사이 거리의 몇 배만큼 옆으로 치우쳤는지(화면 기준, 음수 = 화면 왼쪽).
+# 이 값보다 작게 치우치면 정면으로 본다. 실제로 쓴 사진들로 맞춘 값.
+FRONT_OFFSET = 0.06
+
+
+def facing_offset(face):
+    """YuNet 랜드마크(눈 둘·코끝)로 얼굴이 화면 어느 쪽을 보는지 수치로. 눈 사이가 너무 좁으면 None."""
+    eye_a, eye_b, nose = float(face[4]), float(face[6]), float(face[8])
+    distance = abs(eye_b - eye_a)
+    if distance < 4:
+        return None
+    return (nose - (eye_a + eye_b) / 2) / distance
+
+
+def face_direction(raw, model_path):
+    """사진 1의 가장 큰 얼굴이 화면 왼쪽·오른쪽·정면 중 어디를 보는지. 얼굴을 못 찾으면 None."""
+    face, _ = _largest_face(raw, model_path)
+    offset = None if face is None else facing_offset(face)
+    if offset is None:
+        return None
+    side = 'left' if offset <= -FRONT_OFFSET else 'right' if offset >= FRONT_OFFSET else 'front'
+    return {'side': side, 'offset': round(offset, 3)}
+
+
+def crop_reference(raw, model_path):
+    face, image = _largest_face(raw, model_path)
+    if face is None:
+        return None
+    width, height = image.size
     box = crop_box(image.size, face)
     if box is None or box == (0, 0, width, height):
         return None

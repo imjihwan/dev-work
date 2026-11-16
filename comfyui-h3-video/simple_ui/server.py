@@ -751,6 +751,26 @@ def queue_prompt_first(prompt):
                                {"Content-Type": "application/json"}))
 
 
+def judge_face_side(raw):
+    """사진 1(바이트)의 얼굴이 화면 어느 쪽을 보는지 잰다. 프롬프트에 넣을 방향(used)은 left/right 뿐이고,
+    정면·얼굴 못 찾음·검출기 없음은 화면 오른쪽으로 둔다(지금까지의 기본값)."""
+    from face_references import ensure_available, face_direction, MODEL_NAME
+    path = os.path.join(ROOT, 'models', 'face_detection', MODEL_NAME)
+    try:
+        ensure_available(path)
+        found = face_direction(raw, path)
+    except (ValueError, OSError):
+        return {"side": "unavailable", "offset": None, "used": "right"}
+    if found is None:
+        return {"side": "none", "offset": None, "used": "right"}
+    return {"side": found["side"], "offset": found["offset"], "used": found["side"] if found["side"] in ("left", "right") else "right"}
+
+
+def input_bytes(name):
+    with comfy("/view?" + urllib.parse.urlencode({"filename": name, "type": "input"})) as response:
+        return response.read()
+
+
 def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
     edit_id = req.get("edit_id")
     sequence = req.get("photo_sequence") is True
@@ -814,7 +834,7 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
     p[LORA]["inputs"]["stack_data"] = json.dumps(rows)
 
     # --- 사진·프롬프트 ---
-    items, sizes, names = [], [], []
+    items, sizes, names, raws = [], [], [], []
     face_items, face_cropped, face_unavailable = [], 0, None
     # 얼굴인식강화(선택): 참조 방식에서 사진 2장 이상일 때만, 사진 2부터 얼굴 주변을 잘라 보조 참조로 쓴다.
     # 첫·끝 장면 방식의 사진은 실제 프레임이라 자르지 않는다. 대기항목 수정은 원래 사진을 그대로 쓴다.
@@ -839,6 +859,7 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
     for i, data_url in enumerate([] if reference else imgs):
         head, b64 = data_url.split(",", 1)
         raw = base64.b64decode(b64)
+        raws.append(raw)
         im = Image.open(io.BytesIO(raw))
         display_size = ImageOps.exif_transpose(im).size if sequence else im.size
         sizes.append(display_size)
@@ -870,16 +891,39 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
         names = [item["value"] for item in items]
     tl = json.loads(d["timeline_data"])
     tl["items"] = items
-    tl["builder_state"]["simple_prompt"] = text
     tl["builder_state"]["duration"] = duration
     tl["builder_state"]["mode"] = mode
-    tl["resolved_prompt"] = text
-    tl["continuity"]["continuation_prompt"] = text
     tl["resolution"].update(aspect=aspect, resolution=resolution if resolution in RES_MP else "auto")
     bs = json.loads(d["builder_state"])
-    bs.update(simple_prompt=text, duration=duration, mode=mode)
-    d.update(mode=mode, prompt=text, width=w, height=h, duration=duration,
-             timeline_data=json.dumps(tl, ensure_ascii=False), builder_state=json.dumps(bs, ensure_ascii=False))
+    bs.update(duration=duration, mode=mode)
+
+    def set_prompt(job_text):
+        tl["builder_state"]["simple_prompt"] = job_text
+        tl["resolved_prompt"] = job_text
+        tl["continuity"]["continuation_prompt"] = job_text
+        bs.update(simple_prompt=job_text)
+        d.update(prompt=job_text, timeline_data=json.dumps(tl, ensure_ascii=False), builder_state=json.dumps(bs, ensure_ascii=False))
+
+    FACE_SIDE_TOKEN = "{{face_side}}"
+    # 얼굴 방향: 프롬프트에 {{face_side}} 가 있으면 사진 1을 재서 left/right 로 바꾼다(모델에게 판단시키지 않음)
+    side_cache = {}
+    def face_side_for(index):
+        if FACE_SIDE_TOKEN not in text:
+            return None
+        key = (names[index] if sequence else names[0])
+        if key not in side_cache:
+            if reference:
+                try:
+                    picture = input_bytes(imgs[0])
+                except (urllib.error.URLError, OSError):
+                    picture = None
+            else:
+                picture = raws[index] if sequence else raws[0]
+            side_cache[key] = judge_face_side(picture) if picture else {"side": "unavailable", "offset": None, "used": "right"}
+        return side_cache[key]
+
+    d.update(mode=mode, width=w, height=h, duration=duration)
+    set_prompt(text.replace(FACE_SIDE_TOKEN, (face_side_for(0) or {}).get("used", "right")))
     # 반복: 같은 구성으로 시드만 바꿔 count 개를 대기열에 넣는다.
     # 시드를 적었으면 그 값부터 1씩 늘리고(재현 가능), 비웠으면 매번 랜덤.
     count = len(imgs) if sequence else int(req.get("count") or 1)
@@ -900,7 +944,7 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
                "shift_video": p[SHIFT]["inputs"]["shift_video"], "shift_audio": p[SHIFT]["inputs"]["shift_audio"],
                "loras": [{"name": x["name"], "strength": float(x.get("strength", 1))} for x in loras],
                "aspect": aspect, "resolution": resolution, "duration": duration, "width": j["width"], "height": j["height"],
-               "count": count, "anchor": anchor, "prompt": text, "images": j["images"],
+               "count": count, "anchor": anchor, "prompt": text, "images": j["images"], "face_side": j.get("face_side"),
                "sequence_index": j["sequence_index"], "ui": req.get("ui")} for j in done]
     try:
         for index, s in enumerate(seeds):
@@ -911,7 +955,8 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
                 rotated = [items[index]] + [(face_items[i] if face_mode else items[i]) for i in order[1:]]
                 job_names = [item['value'] for item in rotated]
                 tl["items"] = [dict(item, slot=i, order=i, start=i) for i, item in enumerate(rotated)]
-                d.update(width=job_w, height=job_h, timeline_data=json.dumps(tl, ensure_ascii=False))
+                d.update(width=job_w, height=job_h)
+                set_prompt(text.replace(FACE_SIDE_TOKEN, (face_side_for(index) or {}).get("used", "right")))
                 if anchor:
                     p[ANCHOR_IMG]["inputs"]["image"] = job_names[0]
             p[SEED]["inputs"]["seed_value"] = s
@@ -926,7 +971,7 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
             with PLOCK:
                 PROGRESS[r["prompt_id"]] = {"classes": classes, "pct": 0.0, "label": "대기"}
             jobs.append({"id": r["prompt_id"], "seed": s, "width": job_w, "height": job_h,
-                         "model": model, "steps": steps, "anchor": anchor,
+                         "model": model, "steps": steps, "anchor": anchor, "face_side": face_side_for(index if sequence else 0),
                          "images": list(job_names), "sequence_index": index + 1 if sequence else reference["entry"].get("sequence_index") if reference else None})
     except Exception as exc:
         # 여러 편 등록 중 실패: 이미 ComfyUI 에 들어간 작업은 이력에 남겨 추적·중지·결과 연결이 되게 한다

@@ -22,7 +22,7 @@ from PIL import Image, ImageOps
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = Path(os.environ.get("REFERENCE_TEST_SOURCE", ROOT / "simple_ui"))
 TREE = ast.parse((SOURCE / "server.py").read_text(encoding="utf-8"))
-NAMES = {"_load_json", "_save_json", "save_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "bulk_edit_queue", "bulk_queue_context"}
+NAMES = {"_load_json", "_save_json", "save_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "bulk_edit_queue", "bulk_queue_context", "judge_face_side"}
 
 
 class FeatureTests(unittest.TestCase):
@@ -43,7 +43,12 @@ class FeatureTests(unittest.TestCase):
         def crop(raw, model):
             self.crop_calls.append(raw)
             return None
-        self.crop_module=SimpleNamespace(ensure_available=lambda path:None,crop_reference=crop,MODEL_NAME='test.onnx')
+        # 얼굴 방향: 사진 바이트 → 판정 결과(시험마다 정함)
+        self.directions={}; self.direction_calls=[]
+        def direction(raw, model):
+            self.direction_calls.append(raw)
+            return self.directions.get(raw)
+        self.crop_module=SimpleNamespace(ensure_available=lambda path:None,crop_reference=crop,face_direction=direction,MODEL_NAME='test.onnx')
         self.crop_patch=patch.dict(sys.modules,face_references=self.crop_module)
         self.crop_patch.start();self.addCleanup(self.crop_patch.stop)
         for node in TREE.body:
@@ -293,6 +298,38 @@ class FeatureTests(unittest.TestCase):
         stored=self.env["_load_json"](self.env["SETTINGS"],{})
         self.assertEqual(stored["saved"]["data"],data)
         with self.assertRaises(ValueError): self.env["save_settings"]("bad",dict(data,images=['data:image/png;base64,\" onerror=bad']))
+
+
+    def raw_of(self, index): return base64.b64decode(self.photos[index].split(",",1)[1])
+
+    def sent_prompt(self, i): return self.sent[i][1]["prompt"][self.env["DIRECTOR"]]["inputs"]["prompt"]
+
+    def test_face_side_token_is_filled_from_picture_one_and_recorded(self):
+        self.directions[self.raw_of(0)]={"side":"left","offset":-0.21}
+        self.env["build_and_queue"](self.request(count=1,prompt="Turn toward the {{face_side}} side of the frame."))
+        self.assertEqual(self.sent_prompt(0),"Turn toward the left side of the frame.")
+        entry=self.env["HIST_DB"][0]
+        self.assertEqual(entry["prompt"],"Turn toward the {{face_side}} side of the frame.")  # 이력엔 자리표시 그대로(다시 쓰면 다시 잰다)
+        self.assertEqual(entry["face_side"],{"side":"left","offset":-0.21,"used":"left"})
+
+    def test_front_or_undetected_face_uses_the_right_side(self):
+        self.directions[self.raw_of(0)]={"side":"front","offset":0.01}
+        self.env["build_and_queue"](self.request(count=1,prompt="toward the {{face_side}}"))
+        self.assertEqual(self.sent_prompt(0),"toward the right");self.assertEqual(self.env["HIST_DB"][0]["face_side"]["side"],"front")
+        self.sent.clear();self.env["HIST_DB"].clear()
+        self.env["build_and_queue"](self.request(count=1,images=self.photos[1:2],prompt="toward the {{face_side}}"))
+        self.assertEqual(self.sent_prompt(0),"toward the right");self.assertEqual(self.env["HIST_DB"][0]["face_side"]["side"],"none")
+
+    def test_sequence_judges_each_job_by_its_own_picture_one(self):
+        self.directions[self.raw_of(0)]={"side":"left","offset":-0.3}
+        self.directions[self.raw_of(1)]={"side":"right","offset":0.3}
+        self.env["build_and_queue"](self.request(images=self.photos[:2],photo_sequence=True,prompt="go {{face_side}}"))
+        self.assertEqual([self.sent_prompt(i) for i in range(2)],["go left","go right"])
+        self.assertEqual([e["face_side"]["used"] for e in self.env["HIST_DB"]],["left","right"])
+
+    def test_prompt_without_token_never_measures_faces(self):
+        self.env["build_and_queue"](self.request(count=1))
+        self.assertEqual(self.direction_calls,[]);self.assertIsNone(self.env["HIST_DB"][0]["face_side"])
 
 
 if __name__=="__main__": unittest.main()
