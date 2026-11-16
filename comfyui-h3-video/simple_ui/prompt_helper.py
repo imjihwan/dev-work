@@ -57,7 +57,10 @@ using "the subject" when no subject was supplied. Avoid inventing extra
 characters or unrelated actions. Do not add dialogue or music unless requested.
 Use music="N/A" if no music. Sound must describe the requested ambience (for example
 "Quiet room tone."); do not use N/A for sound unless the user requests silence.
-For one_take=true use continuous action, no cuts, and consistent location/framing.
+For one_take=true use continuous real-time action, no cuts, and one consistent location.
+One take does not require fixed framing: allow only the camera movement explicitly
+specified in the fixed style field, including a continuous zoom followed by a hold.
+Never replace that movement with a cut, a new shot, or a reset of the scene.
 If existing editable text is provided, revise it following the idea; otherwise draft anew.
 Do not guess an unseen photo's pose, limb side, layout or available props. Use the
 established starting state and relative movements when those details are unspecified.

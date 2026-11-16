@@ -30,9 +30,26 @@ vm.runInContext(source.slice(source.indexOf('async function submitJobs('),source
 const directFinal=text=>{get('final').value=text;get('final').oninput();assert.equal(context.manualFinal,true);};
 (async()=>{
   context.addShot(0,'Previous synthetic movement.');context.render();assert(get('final').value.includes('Previous synthetic movement.'));
-  assert(get('final').value.includes('viewpoint, position and framing established at the start of this video'));
+  assert(get('final').value.includes('one uninterrupted camera take'));
+  assert(!get('final').value.includes('viewpoint, position and framing established at the start of this video stable throughout'));
   assert(!get('final').value.includes('camera position and framing stay exactly the same as in <Picture 1>'));
   assert.equal(get('keep').value,'Keep original appearance.','The generated continuity rule must not overwrite saved retention text');
+  const originalStyle=get('style').value;
+  get('style').value='From 0.3 to 1.0 seconds, use a continuous zoom-out; then hold this framing.';
+  get('keep').value='Keep original appearance. No cuts.';
+  const movingTake=context.build();
+  assert(movingTake.includes(get('style').value),'A requested initial zoom must remain intact');
+  assert(movingTake.includes('Follow only the camera movement explicitly specified in the camera instructions.'));
+  assert(movingTake.includes('one uninterrupted camera take'),'A short no-cuts rule must not suppress full continuity guidance');
+  assert.equal(get('keep').value,'Keep original appearance. No cuts.');
+  context.addShot(2,'Continue the same synthetic motion.');
+  get('shots').children.at(-1).querySelector('input').value='2';
+  assert(!/\[Shot [2-9]\]/.test(context.build()),'Timed beats in one take must not become cut markers');
+  context.S.oneTake=false;
+  assert(context.build().includes('[Shot 2] At 00:02.000'));
+  assert(!context.build().includes('one uninterrupted camera take'),'Explicit multi-shot mode must remain available');
+  context.S.oneTake=true;get('shots').children.pop();
+  get('style').value=originalStyle;get('keep').value='Keep original appearance.';
   context.images.push('another-synthetic-reference');assert(context.build().includes('<Picture 2>'));assert(!context.build(1).includes('<Picture 2>'));context.images.pop();
   directFinal('A preserved custom final prompt.');context.render();assert.equal(get('final').value,'A preserved custom final prompt.');
   const first=get('shots').children[0];first.querySelector('textarea').value='Updated synthetic movement.';first.oninput();
