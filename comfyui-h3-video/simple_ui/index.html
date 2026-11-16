@@ -1225,39 +1225,57 @@ function applySnapshot(snapshot,{withImages=true}={}){
 // 사용자 한 명이 여러 창을 오가며 쓰므로 화면 칸·설정(form)과 사진(images)을 서버 한 곳에 두고 모든 창이 따라간다.
 // 마지막으로 고친 창이 기준이고, 이 창에서 고친 게 아직 안 올라갔으면 이 창이 이긴다.
 // 대기항목 수정·일괄수정은 그 항목을 화면에 불러온 임시 상태라 올리지 않고, 끝나면 들어가기 전 화면으로 되돌린다.
-const SYNC = {rev:{form:0,images:0}, last:{form:null,images:null}, timer:{}, inflight:{}, ready:false, applying:0, hold:0, beforeEdit:null};
+const SYNC = {rev:{form:0,images:0}, last:{form:null,images:null}, timer:{}, inflight:{}, dirty:{}, ready:false, applying:0, hold:0, beforeEdit:null, editLoad:0};
 const SYNC_PARTS = ["form","images"];
 const syncPaused = () => !SYNC.ready || SYNC.applying > 0 || SYNC.hold > 0 || !!editingJobId || bulkEditingIds.length > 0;
-const syncLocalBusy = () => SYNC_PARTS.some(part => SYNC.timer[part] || SYNC.inflight[part]);
+const syncLocalBusy = () => SYNC_PARTS.some(part => SYNC.timer[part] || SYNC.inflight[part] || SYNC.dirty[part]);
 function syncValue(part){
   if (part === "images") return [...images];
   const value = captureSettings(); delete value.images; return value;
 }
-function pushSync(part){
+function syncResponseValue(part, fallback){
+  if (!syncPaused()) return syncValue(part);
+  if (!SYNC.beforeEdit) return fallback;
+  if (part === "images") return SYNC.beforeEdit.images;
+  const value = {...SYNC.beforeEdit}; delete value.images; return value;
+}
+function pushSync(part, delay=part === "images" ? 150 : 400){
   if (syncPaused()) return;
+  SYNC.dirty[part] = true;
+  if (SYNC.inflight[part]) return;  // One writer per part; keep later input for the next request.
   clearTimeout(SYNC.timer[part]);
   SYNC.timer[part] = setTimeout(async () => {
     SYNC.timer[part] = null;
     if (syncPaused()) return;
     const value = syncValue(part), text = JSON.stringify(value);
-    if (text === SYNC.last[part]) return;
+    if (text === SYNC.last[part]) { SYNC.dirty[part] = false; return; }
+    const base = SYNC.last[part] ? JSON.parse(SYNC.last[part]) : null;
+    SYNC.dirty[part] = false;
     SYNC.inflight[part] = true;
-    let again = false;
+    let again = false, retryDelay = part === "images" ? 150 : 400;
     try {
       const r = await fetch("/api/ui-state", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({part,value,base:SYNC.rev[part]})});
       const j = await r.json();
       if (r.ok) { SYNC.rev[part] = j.rev; SYNC.last[part] = text; }
       else if (r.status === 409 && j.conflict) {
         // 그 사이 다른 창이 고쳤다: 최신 상태 위에 이 창에서 바꾼 칸만 얹어 다시 올린다(사진은 방금 이 창에서 바꾼 쪽)
-        const merged = part === "form" ? mergeFormChanges(SYNC.last.form ? JSON.parse(SYNC.last.form) : null, value, j.value) : value;
-        if (part === "form" && j.value) applySyncPart("form", merged);
+        // Merge the latest local input, including edits made after this POST started.
+        const local = syncResponseValue(part, value);
+        const merged = part === "form" ? mergeFormChanges(base, local, j.value) : local;
+        if (part === "form" && j.value) {
+          if (!syncPaused()) applySyncPart("form", merged);
+          else if (SYNC.beforeEdit) SYNC.beforeEdit = {...merged, images:SYNC.beforeEdit.images};
+        }
         SYNC.rev[part] = j.rev; SYNC.last[part] = JSON.stringify(j.value);
         again = true;
-      }
-    } catch {}
+      } else { again = true; retryDelay = 1500; }
+    } catch { again = true; retryDelay = 1500; }
     finally { SYNC.inflight[part] = false; }
-    if (again) pushSync(part);
-  }, part === "images" ? 150 : 400);
+    if (again || SYNC.dirty[part] || (!syncPaused() && JSON.stringify(syncValue(part)) !== SYNC.last[part])) {
+      SYNC.dirty[part] = true;
+      if (!syncPaused()) pushSync(part, retryDelay);
+    }
+  }, delay);
 }
 // base(마지막으로 맞춘 상태)에서 이 창이 바꾼 칸만 remote(최신) 위에 얹는다. 칸 단위: 내용 칸 하나하나, 장면 전체, 시드, 최종 프롬프트, 설정 하나하나
 function mergeFormChanges(base, local, remote){
@@ -1309,18 +1327,29 @@ async function initSync(){
 }
 // 대기항목을 화면에 불러와 수정 모드로 들어갈 때: 지금 화면을 기억하고, 불러오는 동안은 올리지 않는다
 async function loadForQueueEdit(entry, enter){
-  SYNC.beforeEdit = captureSettings(); SYNC.hold++;
-  try { if (await loadFromHist(entry)) { enter(); return true; } }
+  const token = ++SYNC.editLoad;
+  const historyToken = typeof loadSeq === "number" ? loadSeq + 1 : null;
+  if (!SYNC.beforeEdit) SYNC.beforeEdit = captureSettings();
+  SYNC.hold++;
+  try { if (await loadFromHist(entry)) { if (token !== SYNC.editLoad) return false; enter(); return true; } }
   finally { SYNC.hold--; }
-  restoreBeforeEdit();
+  if (token === SYNC.editLoad) {
+    if (historyToken === null || historyToken === loadSeq) restoreBeforeEdit();
+    else SYNC.beforeEdit = null;  // A normal history load superseded this edit load.
+  }
   return false;
 }
 function restoreBeforeEdit(){
+  SYNC.editLoad++;
+  if (typeof loadSeq === "number") loadSeq++;  // Cancel an actual history read still waiting on images.
   const snapshot = SYNC.beforeEdit; SYNC.beforeEdit = null;
   if (!snapshot) return;
   SYNC.applying++;
   try { applySnapshot(snapshot); } finally { SYNC.applying--; }
-  if (SYNC.ready) pullSync(true);   // 수정하는 동안 다른 창에서 바뀐 게 있으면 따라간다
+  if (SYNC.ready) {
+    for (const part of SYNC_PARTS) if (SYNC.dirty[part] || JSON.stringify(syncValue(part)) !== SYNC.last[part]) pushSync(part);
+    pullSync(true);
+  }
 }
 $("settingsSave").onclick = async () => {
   const name = prompt("설정 이름을 입력하세요.", $("summary").value.slice(0,40) || "내 설정")?.trim().slice(0,60);

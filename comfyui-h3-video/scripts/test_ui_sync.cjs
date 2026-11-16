@@ -111,5 +111,76 @@ function makeWindow(initial){
   assert.equal(server.form.f.duration, '9', 'the stale window keeps its own change');
   assert.equal(B.$('summary').value, 'newest from A', 'the stale window shows the merged state');
 
-  console.log('UI sync passed: first window seeds the server, later windows adopt it without echo, edits propagate, local pending edits win, queue-edit loads stay local and are restored, stale windows merge instead of overwriting.');
+  // A delayed conflict response must preserve input typed after the request began.
+  const D=makeWindow({summary:'base',anchor:true,images:[]});await D.run('initSync()');
+  A.$('summary').value='remote changed';A.run('save()');await wait(450);
+  let releaseConflict,held=false;
+  D.fetch=async(url,options)=>{
+    if(options?.method==='POST'){
+      const out=serverPost(JSON.parse(options.body));
+      if(!held){held=true;await new Promise(ok=>releaseConflict=ok);}
+      return {ok:out.status===200,status:out.status,json:async()=>out.body};
+    }
+    return {ok:true,json:async()=>serverGet(url)};
+  };
+  D.$('duration').value='11';D.run('save()');await wait(450);assert(held);
+  D.$('summary').value='input typed during POST';D.run('save()');releaseConflict();await wait(900);
+  assert.equal(D.$('summary').value,'input typed during POST');
+  assert.equal(server.form.f.summary,'input typed during POST');assert.equal(server.form.f.duration,'11');
+
+  // Even if the debounce expires, one part may have only one POST in flight.
+  let releaseSuccess,calls=0,active=0,maxActive=0;
+  D.fetch=async(url,options)=>{
+    if(options?.method==='POST'){
+      calls++;active++;maxActive=Math.max(maxActive,active);
+      const out=serverPost(JSON.parse(options.body));
+      if(calls===1)await new Promise(ok=>releaseSuccess=ok);
+      active--;return {ok:out.status===200,status:out.status,json:async()=>out.body};
+    }
+    return {ok:true,json:async()=>serverGet(url)};
+  };
+  D.$('summary').value='first in-flight value';D.run('save()');await wait(450);
+  D.$('summary').value='latest in-flight value';D.run('save()');await wait(450);
+  assert.equal(calls,1);releaseSuccess();await wait(500);
+  assert.equal(calls,2);assert.equal(maxActive,1);assert.equal(server.form.f.summary,'latest in-flight value');
+
+  // A response arriving in the queue editor updates the saved pre-edit screen only.
+  const F=makeWindow({summary:'initial',anchor:true,images:[]});await F.run('initSync()');
+  A.$('summary').value='remote while editor opens';A.run('save()');await wait(900);
+  let releaseEditorResponse,editorHeld=false;
+  F.fetch=async(url,options)=>{
+    if(options?.method==='POST'){
+      const out=serverPost(JSON.parse(options.body));
+      if(!editorHeld){editorHeld=true;await new Promise(ok=>releaseEditorResponse=ok);}
+      return {ok:out.status===200,status:out.status,json:async()=>out.body};
+    }
+    return {ok:true,json:async()=>serverGet(url)};
+  };
+  F.$('duration').value='13';F.run('save()');await wait(450);
+  await F.run("loadForQueueEdit({summary:'queue-only form'},()=>{editingJobId='queue-only'})");
+  releaseEditorResponse();await wait(20);
+  assert.equal(F.$('summary').value,'queue-only form');assert.equal(F.$('duration').value,'15');
+  F.run('editingJobId=null;restoreBeforeEdit()');await wait(900);
+  assert.equal(F.$('summary').value,'remote while editor opens');assert.equal(F.$('duration').value,'13');
+  assert.equal(server.form.f.summary,'remote while editor opens');assert.equal(server.form.f.duration,'13');
+
+  // Only the newest edit-load owns the snapshot; a superseded failure cannot restore it.
+  const E=makeWindow({summary:'pre-edit screen',anchor:true,images:[]});const pending={};
+  E.loadFromHist=entry=>new Promise(ok=>pending[entry.id]=ok);
+  const oldEdit=E.run("loadForQueueEdit({id:'old'},()=>{editingJobId='old'})");
+  const newEdit=E.run("loadForQueueEdit({id:'new'},()=>{editingJobId='new'})");
+  E.$('summary').value='new edit form';pending.new(true);await newEdit;pending.old(false);await oldEdit;
+  assert.equal(E.editingJobId,'new');assert.equal(E.$('summary').value,'new edit form');
+  E.run('editingJobId=null;restoreBeforeEdit()');assert.equal(E.$('summary').value,'pre-edit screen');
+
+  // Exiting edit mode must invalidate a history read that has not applied its images yet.
+  E.run('let loadSeq=0');let finishRead;
+  E.loadFromHist=()=>{const token=E.run('++loadSeq');return new Promise(ok=>finishRead=()=>{
+    if(token!==E.run('loadSeq'))return ok(false);E.$('summary').value='cancelled late read';ok(true);
+  });};
+  const cancelled=E.run("loadForQueueEdit({id:'cancelled'},()=>{editingJobId='cancelled'})");
+  E.run('restoreBeforeEdit()');finishRead();await cancelled;
+  assert.equal(E.editingJobId,null);assert.equal(E.$('summary').value,'pre-edit screen');
+
+  console.log('UI sync passed: shared state, stale-field merge, delayed-response input preservation, serialized writes and edit-load ownership/cancellation.');
 })().catch(error => { console.error(error); process.exit(1); });

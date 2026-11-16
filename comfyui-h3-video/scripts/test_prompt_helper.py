@@ -1,18 +1,37 @@
 """Prompt helper validation and resource limits without loading a model."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("prompt_helper_test", ROOT / "simple_ui/prompt_helper.py")
+SPEC = importlib.util.spec_from_file_location("prompt_helper_test", Path(os.environ.get("PROMPT_HELPER_TEST_SOURCE", ROOT / "simple_ui")) / "prompt_helper.py")
 HELPER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(HELPER)
 
 
 class PromptHelperTests(unittest.TestCase):
+    def test_multilingual_requested_objects_are_preserved_with_uncertainty_notes(self):
+        for idea in ("컵을 들고 미소 지어 주세요.", "컵을 hold하고 smile해 주세요.", "本を持って微笑んでください。"):
+            with self.subTest(idea=idea):
+                text="She holds a cup and smiles."
+                draft={"f":{"summary":text},"shots":[[0,text]]}
+                notes=HELPER.ground_draft(draft,{"idea":idea,"fixed":{},"existing":{}})
+                self.assertEqual(draft,{"f":{"summary":text},"shots":[[0,text]]})
+                self.assertTrue(notes)
+                self.assertTrue(all(not note['removed'] and note['language_uncertain'] for note in notes))
+                issues=HELPER.unrequested_issues(notes)
+                self.assertTrue(all(issue['category']=='uncertainty' for issue in issues))
+                self.assertTrue(all('요청에 없는' not in issue['issue'] for issue in issues))
+
+    def test_multilingual_edit_terms_do_not_accuse_requested_translations(self):
+        notes=HELPER.flag_edit_terms({'changes':[{'after':'She holds a cup and smiles.'}]},{'idea':'컵을 들어 주세요.'})
+        self.assertTrue(notes[0]['language_uncertain'])
+        self.assertEqual(HELPER.unrequested_issues(notes)[0]['category'],'uncertainty')
+
     def test_request_only_passes_opted_in_text(self):
         request = HELPER.validate_request({"idea": "safe idea", "images": ["must not pass"], "history": "private", "duration": 5})
         self.assertNotIn("images", request)

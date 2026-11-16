@@ -304,6 +304,13 @@ def strip_unrequested(text, allowed):
 def ground_draft(draft, request):
     """새 초안의 요약·장면에서 지어낸 문장을 빼고 무엇을 뺐는지 남긴다."""
     allowed, notes = request_text(request), []
+    if any(ord(char) > 127 and char.isalpha() for char in allowed):
+        # Literal English matching cannot establish that a Korean/multilingual request omitted an object.
+        for where, text in [("요약", draft["f"]["summary"])] + [(f"장면 {i + 1}", shot[1]) for i, shot in enumerate(draft["shots"])]:
+            terms = unrequested_terms(text, allowed)
+            if terms:
+                notes.append({"terms": terms, "sentence": text, "removed": False, "where": where, "language_uncertain": True})
+        return notes
     summary, found = strip_unrequested(draft["f"]["summary"], allowed)
     draft["f"]["summary"] = summary
     notes += [dict(note, where="요약") for note in found]
@@ -320,7 +327,8 @@ def flag_edit_terms(draft, request):
     for change in draft.get("changes", []):
         terms = unrequested_terms(str(change.get("after", "")), allowed)
         if terms:
-            notes.append({"terms": terms, "sentence": str(change.get("after", ""))[:300], "removed": False, "where": "수정 문구"})
+            notes.append({"terms": terms, "sentence": str(change.get("after", ""))[:300], "removed": False, "where": "수정 문구",
+                          "language_uncertain": any(ord(char) > 127 and char.isalpha() for char in allowed)})
     return notes
 
 
@@ -328,6 +336,11 @@ def unrequested_issues(notes):
     issues = []
     for note in notes:
         terms = ", ".join(note["terms"])
+        if note.get("language_uncertain"):
+            issues.append({"severity": "warning", "category": "uncertainty", "at": note["where"], "evidence": note["sentence"][:300],
+                           "issue": f"요청과 생성문의 언어가 달라 '{terms}'이(가) 요청에 포함됐는지 자동 확인하지 못했습니다. 문장은 유지했습니다.",
+                           "suggestion": "요청한 대상·동작과 일치하는지 확인해 주세요."})
+            continue
         issues.append({"severity": "warning", "category": "constraints", "at": note["where"], "evidence": note["sentence"][:300],
                        "issue": (f"요청에 없는 '{terms}' 부분(\"{note['fragment'][:120]}\")을 뺐습니다." if note["removed"] and note.get("fragment")
                                  else f"요청에 없는 '{terms}'을(를) 넣은 문장을 뺐습니다." if note["removed"]
