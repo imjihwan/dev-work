@@ -260,16 +260,20 @@ def hist_result(pid, st):
     """작업이 끝나면(완료·오류) 이력에 결과를 적는다. 상태가 바뀔 때만 파일에 쓴다."""
     if st.get("state") not in ("done", "error", "lost"):
         return
+    changed = None
     with HLOCK:
         for e in HIST_DB:
             if e["id"] == pid and e.get("state") != st["state"]:
                 e.update(state=st["state"], video=st.get("video"), error=st.get("error"), t_end=time.time())
                 _save_json(HIST, HIST_DB)
-                try:
-                    GALLERY.remember([e])
-                except OSError:
-                    pass  # A later gallery refresh can retry saving the association.
-                return
+                changed = json.loads(json.dumps(e))
+                break
+    if changed is not None:
+        # 갤러리 연결은 이력 잠금을 푼 뒤에: 갤러리 잠금을 기다리는 동안 이력·상태 조회가 막히지 않게
+        try:
+            GALLERY.remember([changed])
+        except OSError:
+            pass  # A later gallery refresh can retry saving the association.
 CARD_DB = _load_json(CARDS, {"model": {}, "lora": {}})
 CARD_DB.setdefault("model", {})
 CARD_DB.setdefault("lora", {})
@@ -761,12 +765,16 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
 
     # --- 사진·프롬프트 ---
     items, sizes, names = [], [], []
-    face_items, face_cropped = [], 0
+    face_items, face_cropped, face_unavailable = [], 0, None
     face_mode = sequence and len(imgs) > 1
     if face_mode:
         from face_references import ensure_available, crop_reference, MODEL_NAME
         face_model_path = os.path.join(ROOT, 'models', 'face_detection', MODEL_NAME)
-        ensure_available(face_model_path)
+        try:
+            ensure_available(face_model_path)
+        except ValueError as exc:
+            # 검출 모델·OpenCV 가 없으면 등록 전체를 막지 않고 원본 사진으로 진행한다(화면에 이유 표시)
+            face_mode, face_unavailable = False, str(exc)
     if reference:
         previous = json.loads(reference["prompt"][DIRECTOR]["inputs"]["timeline_data"])["items"]
         for i, name in enumerate(imgs):
@@ -827,40 +835,50 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
         add_anchor(p, names[0])
     classes = {k: v["class_type"] for k, v in p.items()}
     jobs = []
-    for index, s in enumerate(seeds):
-        job_names = names[index:] + names[:index] if sequence else names
-        job_w, job_h = canvas(aspect, resolution, sizes[index] if sequence else sizes[0])
-        if sequence:
-            order = list(range(index, len(items))) + list(range(index))
-            rotated = [items[index]] + [(face_items[i] if face_mode else items[i]) for i in order[1:]]
-            job_names = [item['value'] for item in rotated]
-            tl["items"] = [dict(item, slot=i, order=i, start=i) for i, item in enumerate(rotated)]
-            d.update(width=job_w, height=job_h, timeline_data=json.dumps(tl, ensure_ascii=False))
-            if anchor:
-                p[ANCHOR_IMG]["inputs"]["image"] = job_names[0]
-        p[SEED]["inputs"]["seed_value"] = s
-        if prepare_only:
-            if count != 1 or edit_id:
-                raise ValueError("별도 워크플로 준비는 한 편씩 진행합니다.")
-            return {"prompt":p,"images":list(names),"width":w,"height":h,"seed":s}
-        r = replace_queued_prompt(edit_id, p) if edit_id else queue_prompt_first(p) if queue_first else json.load(comfy("/prompt", json.dumps({"prompt": p, "client_id": CLIENT_ID}).encode(),
-                            {"Content-Type": "application/json"}))
-        if r.get("node_errors") and not edit_id:
-            raise ValueError(json.dumps(r["node_errors"], ensure_ascii=False)[:500])
-        with PLOCK:
-            PROGRESS[r["prompt_id"]] = {"classes": classes, "pct": 0.0, "label": "대기"}
-        jobs.append({"id": r["prompt_id"], "seed": s, "width": job_w, "height": job_h,
-                     "model": model, "steps": steps, "anchor": anchor,
-                     "images": list(job_names), "sequence_index": index + 1 if sequence else reference["entry"].get("sequence_index") if reference else None})
-    now = time.time()
-    entries = [{"id": j["id"], "t": now, "seed": j["seed"], "state": "queued", "video": None, "error": None,
+    def make_entries(done):
+        now = time.time()
+        return [{"id": j["id"], "t": now, "seed": j["seed"], "state": "queued", "video": None, "error": None,
                "mode": mode, "model": model, "steps": steps,
                "sampler": p[SAMPLER]["inputs"]["sampler_name"], "scheduler": p[SCHED]["inputs"]["scheduler"],
                "shift_video": p[SHIFT]["inputs"]["shift_video"], "shift_audio": p[SHIFT]["inputs"]["shift_audio"],
                "loras": [{"name": x["name"], "strength": float(x.get("strength", 1))} for x in loras],
                "aspect": aspect, "resolution": resolution, "duration": duration, "width": j["width"], "height": j["height"],
                "count": count, "anchor": anchor, "prompt": text, "images": j["images"],
-               "sequence_index": j["sequence_index"], "ui": req.get("ui")} for j in jobs]
+               "sequence_index": j["sequence_index"], "ui": req.get("ui")} for j in done]
+    try:
+        for index, s in enumerate(seeds):
+            job_names = names[index:] + names[:index] if sequence else names
+            job_w, job_h = canvas(aspect, resolution, sizes[index] if sequence else sizes[0])
+            if sequence:
+                order = list(range(index, len(items))) + list(range(index))
+                rotated = [items[index]] + [(face_items[i] if face_mode else items[i]) for i in order[1:]]
+                job_names = [item['value'] for item in rotated]
+                tl["items"] = [dict(item, slot=i, order=i, start=i) for i, item in enumerate(rotated)]
+                d.update(width=job_w, height=job_h, timeline_data=json.dumps(tl, ensure_ascii=False))
+                if anchor:
+                    p[ANCHOR_IMG]["inputs"]["image"] = job_names[0]
+            p[SEED]["inputs"]["seed_value"] = s
+            if prepare_only:
+                if count != 1 or edit_id:
+                    raise ValueError("별도 워크플로 준비는 한 편씩 진행합니다.")
+                return {"prompt":p,"images":list(names),"width":w,"height":h,"seed":s}
+            r = replace_queued_prompt(edit_id, p) if edit_id else queue_prompt_first(p) if queue_first else json.load(comfy("/prompt", json.dumps({"prompt": p, "client_id": CLIENT_ID}).encode(),
+                                {"Content-Type": "application/json"}))
+            if r.get("node_errors") and not edit_id:
+                raise ValueError(json.dumps(r["node_errors"], ensure_ascii=False)[:500])
+            with PLOCK:
+                PROGRESS[r["prompt_id"]] = {"classes": classes, "pct": 0.0, "label": "대기"}
+            jobs.append({"id": r["prompt_id"], "seed": s, "width": job_w, "height": job_h,
+                         "model": model, "steps": steps, "anchor": anchor,
+                         "images": list(job_names), "sequence_index": index + 1 if sequence else reference["entry"].get("sequence_index") if reference else None})
+    except Exception as exc:
+        # 여러 편 등록 중 실패: 이미 ComfyUI 에 들어간 작업은 이력에 남겨 추적·중지·결과 연결이 되게 한다
+        if jobs and not edit_id:
+            hist_add(make_entries(jobs))
+            raise ValueError(f"{len(jobs)}개는 대기열에 등록했고 그다음 등록에서 실패했습니다: {exc}") from exc
+        raise
+    now = time.time()
+    entries = make_entries(jobs)
     if edit_id:
         with HLOCK:
             entry = next((e for e in HIST_DB if e["id"] == edit_id), None)
@@ -877,7 +895,9 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
         hist_add(entries)
     return {"jobs": jobs, "id": jobs[0]["id"], "seed": jobs[0]["seed"], "width": w, "height": h,
             "model": os.path.basename(model.replace("\\", "/")), "steps": steps, "loras": len(loras), "mode": mode,
-            "anchor": anchor, "face_crops": {"cropped": face_cropped, "original": len(imgs) - face_cropped} if face_mode else None}
+            "anchor": anchor, "face_crops": dict({"cropped": face_cropped, "original": len(imgs) - face_cropped},
+                               **({"unavailable": face_unavailable} if face_unavailable else {}))
+            if face_mode or face_unavailable else None}
 
 
 def bulk_queue_context():
@@ -920,6 +940,12 @@ def bulk_edit_queue(req):
         incoming = req.get("ui") or {}
         if "content" in fields:
             values["prompt"] = req.get("prompt")
+            # 화면은 첫 대상의 사진 수 기준으로 얼굴 참조 문구를 만든다 → 대상의 사진 수에 맞는 버전으로 바꿔 쓴다
+            variants = req.get("prompt_by_count")
+            if isinstance(variants, dict) and entry.get("mode") == "REF2VA":
+                chosen = variants.get(str(len(entry.get("images") or [])))
+                if isinstance(chosen, str) and chosen.strip():
+                    values["prompt"] = chosen
             for key in ("subject", "summary", "style", "keep", "sound", "music"):
                 if key in incoming.get("f", {}): form[key] = incoming["f"][key]
             for key in ("shots", "final", "oneTake"):
@@ -940,9 +966,18 @@ def bulk_edit_queue(req):
         try:
             result = build_and_queue(values, reference={"entry": entry, "prompt": pending[pid][2]})
             updated.extend(dict(job, loras=values.get("loras", [])) for job in result["jobs"])
-        except (ValueError, urllib.error.URLError) as exc:
+        except (ValueError, OSError) as exc:
             failed.append({"id": pid, "error": str(exc)})
     return {"jobs": updated, "failed": failed, "bulk_edit": True, "all_pending": all_pending, "target_count": len(set(ids))}
+
+
+def face_detector_ready():
+    try:
+        from face_references import ensure_available, MODEL_NAME
+        ensure_available(os.path.join(ROOT, 'models', 'face_detection', MODEL_NAME))
+        return True
+    except (ValueError, ImportError):
+        return False
 
 
 def add_anchor(p, image_name):
@@ -969,7 +1004,24 @@ def status(pid):
     return st
 
 
-def _status(pid):
+def _queue_state(pid, q):
+    """대기열 스냅샷에서 실행 중·대기 상태를 찾는다(없으면 None)."""
+    if any(x[1] == pid for x in q.get("queue_running", [])):
+        with PLOCK:
+            st = PROGRESS.get(pid) or {}
+        return {"state": "running", "pct": round(st.get("pct", 0)), "label": st.get("label", "")}
+    pend = [x[1] for x in sorted(q.get("queue_pending", []), key=lambda x: x[0])]
+    if pid in pend:
+        return {"state": "queued", "position": pend.index(pid) + 1}
+    return None
+
+
+def _status(pid, q=None):
+    # 이미 받은 대기열 스냅샷이 있으면 그걸로 먼저 판정(대기·실행 중인 작업은 history 에 아직 없다)
+    if q is not None:
+        found = _queue_state(pid, q)
+        if found:
+            return found
     h = json.load(comfy(f"/history/{urllib.parse.quote(pid)}"))
     if pid in h:
         e = h[pid]
@@ -983,15 +1035,9 @@ def _status(pid):
             elif m[0] == "execution_interrupted":
                 msg = "중지됨(이 화면의 중지 버튼이나 ComfyUI 화면에서 멈춤)"
         return {"state": "error", "error": msg or st.get("status_str", "error")}
-    q = json.load(comfy("/queue"))
-    if any(x[1] == pid for x in q.get("queue_running", [])):
-        with PLOCK:
-            st = PROGRESS.get(pid) or {}
-        return {"state": "running", "pct": round(st.get("pct", 0)), "label": st.get("label", "")}
-    pend = [x[1] for x in sorted(q.get("queue_pending", []), key=lambda x: x[0])]
-    if pid in pend:
-        return {"state": "queued", "position": pend.index(pid) + 1}
-    return {"state": "unknown"}
+    if q is None:
+        q = json.load(comfy("/queue"))
+    return _queue_state(pid, q) or {"state": "unknown"}
 
 
 def hist_list(offset, limit):
@@ -999,10 +1045,13 @@ def hist_list(offset, limit):
     with HLOCK:
         items = list(reversed(HIST_DB))
     page = items[offset:offset + limit]
+    q = None  # 페이지마다 대기열은 한 번만 받는다(대기 수백 건이면 항목마다 받던 것이 수백 번이 됐다)
     for i, e in enumerate(page):
         if e.get("state") in ("queued", "running"):
             try:
-                st = _status(e["id"])
+                if q is None:
+                    q = json.load(comfy("/queue"))
+                st = _status(e["id"], q)
             except Exception:  # noqa: BLE001 — ComfyUI 꺼짐: 지금 상태만 모름
                 continue
             if st["state"] == "unknown":
@@ -1079,7 +1128,9 @@ class H(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b)
             elif u.path == "/api/health":
-                self._json({"ok": True, "sequence_face_crop": True})
+                # sequence_face_crop = 이 서버가 얼굴 크롭을 아는 버전인지(화면의 버전 확인용),
+                # face_detector_ready = 지금 실제로 크롭할 수 있는지(모델·OpenCV 준비 여부)
+                self._json({"ok": True, "sequence_face_crop": True, "face_detector_ready": face_detector_ready()})
             elif u.path == "/api/status":
                 self._json(status(q["id"]))
             elif u.path == "/api/history":

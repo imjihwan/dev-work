@@ -1,4 +1,5 @@
 """User-approved four-clip projects; only exact project-owned jobs and media are used."""
+import http.client
 import base64
 import copy
 import io
@@ -45,9 +46,11 @@ def merge_clips(paths, destination, cancel, bgm=None):
             current=(video.width,video.height,video.average_rate)
             if shape is not None and current!=shape: raise ValueError("네 편의 영상 크기와 FPS가 서로 다릅니다.")
             shape=current
-    destination=Path(destination)
-    destination.parent.mkdir(parents=True,exist_ok=True)
-    manifest=destination.with_suffix(".concat")
+    final=Path(destination)
+    final.parent.mkdir(parents=True,exist_ok=True)
+    # 병합 중·실패한 파일이 갤러리(output/story 의 .mp4)에 보이지 않게 임시 이름으로 쓴 뒤 검증하고 옮긴다
+    destination=final.with_name(final.name+".part")
+    manifest=final.with_suffix(".concat")
     # Generated absolute paths are quoted for FFmpeg's concat syntax, never a shell.
     manifest.write_text("".join("file '"+str(Path(path).resolve()).replace("\\","/").replace("'","'\\''")+"'\n" for path in paths),encoding="utf-8")
     command=[ffmpeg,"-hide_banner","-loglevel","error","-nostdin","-y","-f","concat","-safe","0","-i",str(manifest)]
@@ -57,7 +60,7 @@ def merge_clips(paths, destination, cancel, bgm=None):
     else: command += ["-map","0:v:0","-map","0:a:0"]
     command += ["-t",str(CLIP_COUNT*CLIP_SECONDS),"-vf","setpts=PTS-STARTPTS","-c:v","libx264","-preset","veryfast",
         "-crf","18","-threads","2","-c:a","aac","-ar","48000","-b:a","192k","-af","aresample=async=1:first_pts=0",
-        "-movflags","+faststart",str(destination)]
+        "-movflags","+faststart","-f","mp4",str(destination)]
     if bgm:
         # Simple audio filters cannot be combined with a mapped complex audio graph.
         at=command.index("-af");del command[at:at+2]
@@ -73,6 +76,7 @@ def merge_clips(paths, destination, cancel, bgm=None):
         with av.open(str(destination)) as result:
             seconds=float(result.duration or 0)/av.time_base
             if not 19.8<=seconds<=20.2: raise ValueError("병합 길이를 확인하지 못했습니다. 각 편의 영상은 유지됩니다.")
+        os.replace(destination,final)
     finally:
         if process and process.poll() is None:
             process.terminate()
@@ -80,7 +84,8 @@ def merge_clips(paths, destination, cancel, bgm=None):
             except subprocess.TimeoutExpired:
                 process.kill();process.wait()
         manifest.unlink(missing_ok=True)
-    return destination
+        destination.unlink(missing_ok=True)
+    return final
 
 
 class StoryProjects:
@@ -237,11 +242,14 @@ class StoryProjects:
             if not operation: return {"ok":True}
             project["active"]["cancelled"]=True;self._write(project)
             job_id=operation.get("job_id")
-        if job_id:
-            with self._post("/queue",{"delete":[job_id]}) as response: response.read()
-            with self._post("/interrupt",{"prompt_id":job_id}) as response: response.read()
         with self.lock:
             if project_id in self.cancels: self.cancels[project_id].set()
+        if job_id:
+            try:
+                with self._post("/queue",{"delete":[job_id]}) as response: response.read()
+                with self._post("/interrupt",{"prompt_id":job_id}) as response: response.read()
+            except (OSError,http.client.HTTPException):
+                pass
         return {"ok":True}
 
     def _post(self,path,body):
@@ -312,7 +320,8 @@ class StoryProjects:
             missing=0
             while not cancel.is_set():
                 try: state=self.status(job_id)
-                except urllib.error.URLError:
+                except (OSError,http.client.HTTPException,json.JSONDecodeError):
+                    # URLError·TimeoutError·ConnectionResetError 는 모두 OSError. ComfyUI 작업은 계속 돌고 있을 수 있다
                     if cancel.wait(2): break
                     continue
                 if state["state"]=="done":

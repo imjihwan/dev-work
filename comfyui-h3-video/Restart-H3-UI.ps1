@@ -1,9 +1,10 @@
-param()
+param([string]$ComfyDir)
 $ErrorActionPreference = 'Stop'
 $taskRoot = $PSScriptRoot
-$taskComfy = Join-Path $taskRoot 'ComfyUI'
+$taskComfy = if ($ComfyDir) { $ComfyDir } elseif (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'ComfyUI') -PathType Container) { Join-Path $PSScriptRoot 'ComfyUI' } else { Join-Path $env:USERPROFILE 'ComfyUI' }
 $taskUi = Join-Path $taskComfy 'simple_ui'
 $taskPython = Join-Path $taskComfy '.venv\Scripts\python.exe'
+$env:SIMPLEUI_COMFY = $taskComfy
 & $taskPython (Join-Path $taskRoot 'scripts\prepare_ui_restart.py')
 if ($LASTEXITCODE -ne 0) { throw 'UI restart preparation failed; no process was stopped.' }
 $taskListener = Get-NetTCPConnection -LocalPort 8190 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1

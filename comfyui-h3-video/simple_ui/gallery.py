@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import threading
 import time
+import uuid
 
 class VideoGallery:
     def __init__(self, output, home, thumbnailer=None):
@@ -192,9 +193,17 @@ class VideoGallery:
                 return path.read_bytes()
             if self.thumbnailer is None:
                 raise FileNotFoundError("원본 사진을 불러올 수 없습니다.")
-            data = self.thumbnailer(name)
+        # 썸네일 만들기(ComfyUI 호출, 최대 수십 초)는 잠금 밖에서: 잠금을 쥔 채 기다리면 이력·상태 조회까지 멈춘다
+        data = self.thumbnailer(name)
+        # 캐시 파일 읽기(위)와 교체는 같은 잠금 안에서: Windows 에서 읽는 중인 파일을 바꾸면 PermissionError
+        with self.lock:
+            if path.is_file():
+                return data  # 그사이 다른 요청이 먼저 만들었다
             path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = path.with_suffix(".tmp")
-            temporary.write_bytes(data)
-            os.replace(temporary, path)
-            return data
+            temporary = path.with_name(f"{path.stem}.{uuid.uuid4().hex}.tmp")
+            try:
+                temporary.write_bytes(data)
+                os.replace(temporary, path)
+            finally:
+                temporary.unlink(missing_ok=True)
+        return data

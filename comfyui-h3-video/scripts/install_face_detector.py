@@ -28,5 +28,9 @@ def install(comfy):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--comfy', type=Path, default=ROOT / 'ComfyUI')
-    install(parser.parse_args().comfy)
+    parser.add_argument('--comfy', type=Path, default=None)
+    comfy = parser.parse_args().comfy
+    if comfy is None:
+        local = ROOT / 'ComfyUI'
+        comfy = local if local.is_dir() else Path.home() / 'ComfyUI'
+    install(comfy)

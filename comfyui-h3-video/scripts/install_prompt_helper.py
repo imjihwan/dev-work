@@ -8,7 +8,13 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEST = ROOT / "local-prompt-helper"
+DEST = None  # main 에서 정함: ComfyUI 폴더와 같은 위치(simple_ui/prompt_helper.py 가 찾는 곳)
+
+
+def default_comfy(project):
+    """ComfyUI 위치: <저장소>/ComfyUI 가 있으면 그것, 없으면 setup.ps1 기본값 %USERPROFILE%\\ComfyUI."""
+    local = project / "ComfyUI"
+    return local if local.is_dir() else Path.home() / "ComfyUI"
 
 
 def download(spec):
@@ -41,6 +47,12 @@ if __name__ == "__main__":
     if os.name == "nt":
         import ctypes
         ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x4000)
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--comfy", type=Path, default=None, help="ComfyUI 폴더(기본: 저장소\\ComfyUI 또는 %%USERPROFILE%%\\ComfyUI)")
+    comfy = (parser.parse_args().comfy or default_comfy(ROOT)).resolve()
+    DEST = comfy.parent / "local-prompt-helper"
+    print(f"Install location: {DEST}", flush=True)
     DEST.mkdir(exist_ok=True)
     specs = json.loads((ROOT / "models.json").read_text(encoding="utf-8"))["prompt_helper"]
     runtime = download(specs["runtime"])

@@ -1,8 +1,8 @@
-param([switch]$NoBrowser)
+param([switch]$NoBrowser, [string]$ComfyDir)
 $ErrorActionPreference = 'Stop'
 $taskRoot = $PSScriptRoot
 New-Item -ItemType Directory -Path (Join-Path $taskRoot 'logs') -Force | Out-Null
-$taskComfy = Join-Path $taskRoot 'ComfyUI'
+$taskComfy = if ($ComfyDir) { $ComfyDir } elseif (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'ComfyUI') -PathType Container) { Join-Path $PSScriptRoot 'ComfyUI' } else { Join-Path $env:USERPROFILE 'ComfyUI' }
 $taskPython = Join-Path $taskComfy '.venv\Scripts\python.exe'
 $taskSpecs = (Get-Content (Join-Path $taskRoot 'models.json') -Raw -Encoding UTF8 | ConvertFrom-Json).files
 $taskMissing = @($taskSpecs | Where-Object {

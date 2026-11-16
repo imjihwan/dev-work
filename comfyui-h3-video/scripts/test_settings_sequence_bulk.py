@@ -173,11 +173,14 @@ class FeatureTests(unittest.TestCase):
         self.crop_module.ensure_available=lambda path:(_ for _ in ()).throw(AssertionError('Not needed'))
         self.env['build_and_queue'](self.request(images=self.photos[:1],photo_sequence=True))
 
-    def test_missing_detector_queues_nothing(self):
+    def test_missing_detector_queues_originals_and_reports_reason(self):
         self.crop_module.ensure_available=lambda path:(_ for _ in ()).throw(ValueError('Unavailable'))
-        with self.assertRaises(ValueError):self.sequence()
-        self.assertEqual(self.sent,[])
-        self.assertEqual(self.uploaded,[])
+        outcome=self.sequence()
+        self.assertEqual(self.crop_calls,[])
+        self.assertEqual(len(self.sent),len(self.photos))
+        self.assertEqual(len(self.uploaded),len(self.photos))
+        self.assertEqual(outcome['face_crops']['unavailable'],'Unavailable')
+        self.assertEqual(outcome['face_crops']['cropped'],0)
 
     def test_bulk_preserves_photos_order_seed_mode_and_anchor(self):
         result=self.sequence();before=json.loads(json.dumps(self.env["HIST_DB"]));uploads=len(self.uploaded)

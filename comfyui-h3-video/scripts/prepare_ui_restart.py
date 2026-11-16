@@ -6,7 +6,9 @@ import urllib.parse
 import urllib.request
 
 PROJECT = Path(__file__).resolve().parents[1]
-HOME = PROJECT / "ComfyUI/simple_ui"
+_comfy = Path(os.environ["SIMPLEUI_COMFY"]) if os.environ.get("SIMPLEUI_COMFY") else (
+    PROJECT / "ComfyUI" if (PROJECT / "ComfyUI").is_dir() else Path.home() / "ComfyUI")
+HOME = _comfy / "simple_ui"
 
 
 def read(path):
@@ -19,9 +21,13 @@ if story_home.is_dir():
     for state_file in story_home.glob("*/project.json"):
         if json.loads(state_file.read_text(encoding="utf-8")).get("active"):
             raise SystemExit("A UI-owned story operation is still active; no process was stopped.")
-history = json.loads((HOME / "history.json").read_text(encoding="utf-8"))
+history_file = HOME / "history.json"
+history = json.loads(history_file.read_text(encoding="utf-8")) if history_file.is_file() else []
 own_ids = {entry["id"] for entry in history}
-live = read("http://127.0.0.1:8188/queue")
+try:
+    live = read("http://127.0.0.1:8188/queue")
+except OSError:
+    live = {"queue_running": [], "queue_pending": []}  # ComfyUI 가 꺼져 있으면 넘겨줄 진행 상태가 없다
 jobs = [item for item in live["queue_running"] + live["queue_pending"] if item[1] in own_ids]
 progress, clients = {}, []
 for item in jobs:

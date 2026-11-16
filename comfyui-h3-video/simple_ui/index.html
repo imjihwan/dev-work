@@ -1265,6 +1265,7 @@ async function submitJobs(sequence=false){
     const snapshot = captureSettings();
     const r = await fetch(bulkIds.length ? "/api/queue/bulk-edit" : "/api/generate", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({
       images:bulkIds.length ? [] : images, prompt: $("final").value, aspect: $("aspect").value, resolution: $("resolution").value, edit_id: editId,
+      prompt_by_count: bulkIds.length && isRef() ? Object.fromEntries(Array.from({length:9},(_,i)=>[i+1,withFaceReferenceRules($("final").value,i+1)])) : undefined,
       edit_ids:allPending ? [] : bulkIds, all_pending:allPending, bulk_fields:bulkFields, photo_sequence:sequence,
       duration: $("duration").value, seed: $("seed").value, mode: sendMode(), model: S.model,
       steps: S.steps, sampler: S.sampler, scheduler: S.scheduler, shift_video: S.shift_video, shift_audio: S.shift_audio,
@@ -1288,6 +1289,7 @@ async function submitJobs(sequence=false){
     else poll(add, Date.now(), jobs.length > 1 ? info : `${info}, 시드 ${jobs[0].seed}`);
     if (j.failed?.length) { $("queueFeedback").textContent = `${add.length}개 수정 완료, ${j.failed.length}개 미적용: ${j.failed[0].error}`; $("queueFeedback").hidden = false; }
     else if(allPending){$("queueFeedback").textContent=add.length?`전체 대기항목 ${add.length}개 수정 완료 · 실행 중인 작업은 제외했습니다.`:"저장 시점에 수정할 대기항목이 없어 적용하지 않았습니다.";$("queueFeedback").hidden=false;}
+    else if(j.face_crops?.unavailable){$("queueFeedback").textContent=`순차 ${add.length}건 등록 · 얼굴 보조 크롭을 쓰지 못해 원본 사진으로 등록했습니다: ${j.face_crops.unavailable}`;$("queueFeedback").hidden=false;}
     else if(j.face_crops){$("queueFeedback").textContent=`순차 ${add.length}건 등록 · 얼굴 보조 크롭 ${j.face_crops.cropped}장, 원본 유지 ${j.face_crops.original}장. 각 작업의 사진 1은 원본입니다.`;$("queueFeedback").hidden=false;}
     $("go").disabled = false;
     loadHist(false, true);
@@ -1311,7 +1313,7 @@ async function submitIndividualPhotos(selectedFiles){
   const added=[];let processed=0,failed=0,lastError="",uncertain=false;
   try{
     if(!manualFinal)render();const snapshot=captureSettings(),m=snapshot.model;
-    const prompt=manualFinal?$("final").value:build(1);
+    const prompt=withFaceReferenceRules(manualFinal?$("final").value:build(1),1);
     if(!prompt.trim())throw new Error("2번 내용을 작성해 주세요.");
     const loras=Object.entries(m.loras).map(([name,strength])=>({name,strength}));
     const request={prompt,mode:"REF2VA",aspect:snapshot.f.aspect,resolution:snapshot.f.resolution,duration:snapshot.f.duration,seed:snapshot.seed,
@@ -1447,7 +1449,9 @@ async function loadHist(more, force=false){
     } while (fetched < target);
     HIST.items = [...new Map(items.map(e => [e.id, e])).values()];
     HIST.offset = offset; HIST.total = total;
-    drawHist();
+    // 주기 갱신에서 바뀐 게 진행률(%)뿐이면 목록 전체를 다시 그리지 않는다(펼친 프롬프트·미리보기 유지)
+    if (!more && !force && HIST.sig === histSig(HIST.items) && HIST.rendered.length === HIST.items.length) patchHistoryProgress();
+    else drawHist();
     refreshVideoLoraOverlays();
   } catch { HIST.error = true; }
   finally {
@@ -1675,9 +1679,26 @@ function historyThumb(e){
   if (e.images?.[0]) return `<div class="hthumb input-photo"><img loading="lazy" decoding="async" fetchpriority="low" src="/api/input?name=${encodeURIComponent(e.images[0])}&amp;thumbnail=1" alt="등록한 첫 번째 입력 사진" data-input-photo><span class="hthumb-kind">입력 사진 1</span><span class="hthumb-state">${esc(state)}</span></div>`;
   return `<div class="hthumb">${esc(state)}</div>`;
 }
+function histSig(items){ return HIST.total + "|" + JSON.stringify(items.map(({pct, label, ...rest}) => rest)); }
+function watchInputPhoto(image){
+  image.onerror=()=>{ image.hidden=true; const kind=image.parentElement?.querySelector(".hthumb-kind"); if(kind)kind.textContent="사진 없음"; };
+}
+function patchHistoryProgress(){
+  HIST.rendered = HIST.items;
+  for (const e of HIST.items) {
+    if (e.video) continue;
+    const row = [...$("histList").querySelectorAll("[data-history-id]")].find(el => el.dataset.historyId === e.id);
+    const old = row?.querySelector(".hthumb"), key = `${e.state}|${e.pct ?? ""}`;
+    if (!old || old.dataset.progressKey === key) continue;
+    const holder = document.createElement("div"); holder.innerHTML = historyThumb(e);
+    const fresh = holder.firstElementChild; if (!fresh) continue;
+    fresh.dataset.progressKey = key; fresh.querySelectorAll("img[data-input-photo]").forEach(watchInputPhoto); old.replaceWith(fresh);
+  }
+}
 function drawHist(){
   resetHistoryPreviews();
   HIST.rendered = HIST.items;
+  HIST.sig = histSig(HIST.items);
   $("histCount").textContent = HIST.total ? `${HIST.total}개` : "";
   $("histClear").hidden = !HIST.total;
   if (!HIST.items.length) { hideHistoryDetails(); refreshQueueSelection(); refreshVideoCompareSelection(); $("histList").innerHTML = `<div class="empty">아직 기록이 없습니다.</div>`; return; }
@@ -1697,9 +1718,7 @@ function drawHist(){
       <pre class="hprompt" id="hp${i}" hidden></pre></div></div>`;
   }).join("");
   watchHistoryPreviews();
-  $("histList").querySelectorAll("img[data-input-photo]").forEach(image=>{ image.onerror=()=>{
-    image.hidden=true; image.parentElement.querySelector(".hthumb-kind").textContent="사진 없음";
-  }; });
+  $("histList").querySelectorAll("img[data-input-photo]").forEach(watchInputPhoto);
   refreshQueueSelection();
   refreshVideoCompareSelection();
   syncHistoryDetails();
@@ -1736,7 +1755,7 @@ async function beginBulkEdit(all=false){
       ids=data.ids;first=data.first;
     }
     if(!first||!ids.length){setStatus("수정할 대기항목이 없습니다.");return;}
-    setQueueEdit(null);await loadFromHist(first);setQueueEdit(first,ids,all);
+    setQueueEdit(null);if(await loadFromHist(first))setQueueEdit(first,ids,all);
     setStatus(all?"전체 대기항목 수정 모드입니다. 적용할 항목을 고르고 수정한 뒤 맨 위 ‘전체 대기항목 수정 저장’을 누르세요.":"적용할 항목을 고르고 내용을 수정한 뒤 맨 위 ‘일괄수정 저장’을 누르세요.");
   }
   catch (error) { setStatus(error.message,"err"); }
@@ -1778,8 +1797,7 @@ $("histList").onclick = async ev => {
       const state = await (await fetch("/api/status?id=" + encodeURIComponent(e.id))).json();
       if (state.state !== "queued") throw new Error("이미 생성이 시작됐거나 대기열에서 빠진 항목입니다.");
       if (!CAT) throw new Error("모델 목록을 불러오는 중입니다. 잠시 후 다시 시도해 주세요.");
-      await loadFromHist(e); setQueueEdit(e);
-      setStatus("내용을 수정한 뒤 맨 위의 ‘수정 저장’을 누르세요.");
+      if (await loadFromHist(e)) { setQueueEdit(e); setStatus("내용을 수정한 뒤 맨 위의 ‘수정 저장’을 누르세요."); }
     } catch (error) { setStatus(error.message, "err"); }
   }
   else if (t.dataset.prompt != null) { const pre = $("hp" + t.dataset.prompt); pre.textContent = e.prompt; pre.hidden = !pre.hidden; }
@@ -1802,9 +1820,23 @@ $("histClear").onclick = async () => {
   finally { $("histClear").disabled=false; }
 };
 // 그때 구성을 화면에 다시 채운다: 사진·내용·모델·스텝·LoRA·화질·길이·시드(그대로 넣어 같은 결과 재현)
+// 연달아 눌러도 마지막 요청만 반영한다(사진을 받는 동안 다른 항목을 누르면 앞 요청은 버림)
+let loadSeq = 0;
 async function loadFromHist(e){
-  if (!CAT) return;
-  const u = e.ui || {}, warn = [];
+  if (!CAT) return false;
+  const token = ++loadSeq, u = e.ui || {}, warn = [];
+  setStatus("이력에서 불러오는 중…");
+  // 사진: ComfyUI input 폴더에서 먼저 모두 받은 뒤, 칸·설정·사진을 한 번에 바꾼다(섞임 방지)
+  const got = [];
+  for (const name of e.images || []) {
+    try {
+      const r = await fetch("/api/input?name=" + encodeURIComponent(name)); if (!r.ok) throw 0;
+      const b = await r.blob();
+      got.push(await new Promise((ok, fail) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => fail(fr.error); fr.readAsDataURL(b); }));
+    } catch { warn.push(`사진 ${name} 없음`); }
+    if (token !== loadSeq) return false;
+  }
+  if (token !== loadSeq) return false;
   if (u.f) apply({f: u.f, shots: u.shots});
   for (const [k, v] of [["aspect", e.aspect], ["resolution", e.resolution], ["duration", e.duration]]) if (v != null) $(k).value = v;
   lastDur = Number($("duration").value) || 5;
@@ -1817,15 +1849,6 @@ async function loadFromHist(e){
   if (u.trig != null) S.trig = u.trig;
   if (u.oneTake != null) { S.oneTake = u.oneTake; $("oneTake").checked = u.oneTake; }
   S.anchor = !!e.anchor; $("anchor").checked = S.anchor;
-  // 사진: ComfyUI input 폴더에서 다시 읽기
-  const got = [];
-  for (const name of e.images || []) {
-    try {
-      const r = await fetch("/api/input?name=" + encodeURIComponent(name)); if (!r.ok) throw 0;
-      const b = await r.blob();
-      got.push(await new Promise(ok => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); }));
-    } catch { warn.push(`사진 ${name} 없음`); }
-  }
   images.length = 0; images.push(...got);
   manualFinal = false; $("resetFinal").hidden = true; $("finalHint").textContent = "위 칸을 고치면 자동으로 다시 만들어집니다.";
   drawThumbs(); drawModelCard();
@@ -1834,6 +1857,7 @@ async function loadFromHist(e){
   render();
   window.scrollTo({top: 0, behavior: "smooth"});
   setStatus(`이력에서 불러왔습니다 (시드 ${e.seed})${warn.length ? ` — ${warn.join(", ")}` : ""}. 같은 시드로 만들면 같은 결과가 나옵니다.`, warn.length ? "err" : "ok");
+  return true;
 }
 
 $("openFolder").onclick = () => fetch("/api/open-folder", {method:"POST", body:"{}"});

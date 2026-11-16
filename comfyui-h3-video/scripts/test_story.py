@@ -17,6 +17,8 @@ import urllib.error
 from PIL import Image
 
 ROOT=Path(__file__).resolve().parents[1]
+# 설치 위치 규칙: <저장소>/ComfyUI 폴더가 있으면 그것, 없으면 %USERPROFILE%\ComfyUI
+COMFY=ROOT/'ComfyUI' if (ROOT/'ComfyUI').is_dir() else Path.home()/'ComfyUI'
 sys.path.insert(0,str(ROOT/'simple_ui'))
 from story import StoryProjects, media_path, merge_clips
 from story_workflow import CLIP_COUNT, DIRECTOR, GUIDE, GUIDER, SAVE, compose_prompt, continuation_graph
@@ -170,19 +172,19 @@ class StoryTests(unittest.TestCase):
         self.render(0)
         self.assertEqual(len([path for path,_ in self.calls if path=='/prompt']),1)
 
-    @unittest.skipUnless((ROOT/'ComfyUI/custom_nodes/ComfyUI-DaSiWa-Nodes/nodes/h3_continuity/validation.py').is_file(), 'Pinned DaSiWa nodes unavailable')
+    @unittest.skipUnless((COMFY/'custom_nodes/ComfyUI-DaSiWa-Nodes/nodes/h3_continuity/validation.py').is_file(), 'Pinned DaSiWa nodes unavailable')
     def test_separate_graph_has_valid_capture_chain_and_does_not_change_base(self):
         source=graph();before=copy.deepcopy(source)
         p=continuation_graph(source,self.pid,1,'a'*32,'synthetic continuation')
         self.assertEqual(source,before)
-        spec=importlib.util.spec_from_file_location('capture_validation',ROOT/'ComfyUI/custom_nodes/ComfyUI-DaSiWa-Nodes/nodes/h3_continuity/validation.py')
+        spec=importlib.util.spec_from_file_location('capture_validation',COMFY/'custom_nodes/ComfyUI-DaSiWa-Nodes/nodes/h3_continuity/validation.py')
         validation=importlib.util.module_from_spec(spec);spec.loader.exec_module(validation)
         validation.validate_capture_graph(p,GUIDE,'segment')
         common=definition()['common'];text=compose_prompt(common,definition()['clips'][1],1,['','','','',''])
         self.assertIn('<Picture 1>',text);self.assertIn('preceding',text);self.assertIn('Fixed camera.',text)
         self.assertIn('At 0.917 seconds',text)
 
-    @unittest.skipUnless((ROOT/'ComfyUI/custom_nodes/ComfyUI-DaSiWa-Nodes/nodes/h3_continuity/validation.py').is_file(), 'Pinned DaSiWa nodes unavailable')
+    @unittest.skipUnless((COMFY/'custom_nodes/ComfyUI-DaSiWa-Nodes/nodes/h3_continuity/validation.py').is_file(), 'Pinned DaSiWa nodes unavailable')
     def test_preparation_hook_does_not_enqueue_or_write_single_video_history(self):
         import test_settings_sequence_bulk as fixtures
         fixture=fixtures.FeatureTests();fixture.setUp()
@@ -191,7 +193,7 @@ class StoryTests(unittest.TestCase):
             self.assertEqual(fixture.sent,[])
             self.assertEqual(fixture.env['HIST_DB'],[])
             p=continuation_graph(prepared['prompt'],self.pid,0,None,'Synthetic story prompt.')
-            spec=importlib.util.spec_from_file_location('capture_validation_real_template',ROOT/'ComfyUI/custom_nodes/ComfyUI-DaSiWa-Nodes/nodes/h3_continuity/validation.py')
+            spec=importlib.util.spec_from_file_location('capture_validation_real_template',COMFY/'custom_nodes/ComfyUI-DaSiWa-Nodes/nodes/h3_continuity/validation.py')
             validation=importlib.util.module_from_spec(spec);spec.loader.exec_module(validation)
             validation.validate_capture_graph(p,GUIDE,'segment')
             self.assertEqual(p[SAVE]['inputs']['frame_rate'],24)

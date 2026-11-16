@@ -22,10 +22,10 @@ const context = vm.createContext({$, console, setTimeout, clearTimeout, Date, JS
   HSTATE:{queued:'대기',running:'만드는 중',error:'실패',lost:'결과 없음'},vurl:()=>'/api/video?filename=synthetic.mp4',
   prompt:()=>pickedName,confirm:()=>true,
   fetch:async (url,options) => {if(url==='/api/health')return {ok:true,json:async()=>({sequence_face_crop:true})};requests.push({url,body:options?.body ? JSON.parse(options.body) : null});return {ok:true,json:async()=>replyHandler ? replyHandler(url) : reply};},
-  isRef:()=>true,runCount:()=>20,sendMode:()=> 'REF2VA', drawGoInfo:()=>context.updateSequenceButton(),
+  isRef:()=>true,runCount:()=>20,withFaceReferenceRules:(text,count)=>text+'|n='+count,sendMode:()=> 'REF2VA', drawGoInfo:()=>context.updateSequenceButton(),
   setStatus:()=>{},curModel:()=>null,histModelName:x=>x,finished:x=>x.state==='done',
   poll:jobs=>{context.currentJobs=jobs;},loadHist:()=>{},closeResult:()=>{},
-  loadFromHist:async entry=>{context.lastLoaded=entry;},apply:s=>{lastApplied=s;for (const [key,value] of Object.entries(s.f||{})) $(key).value=value;},setMode:()=>{},drawModelCard:()=>{},render:()=>{},saveImgs:()=>{},esc:x=>x
+  loadFromHist:async entry=>{context.lastLoaded=entry;return true;},apply:s=>{lastApplied=s;for (const [key,value] of Object.entries(s.f||{})) $(key).value=value;},setMode:()=>{},drawModelCard:()=>{},render:()=>{},saveImgs:()=>{},esc:x=>x
 });
 $('summary').value='safe summary';$('duration').value='5';$('aspect').value='auto';$('resolution').value='draft';
 $('final').value='safe prompt';$('seed').value='100';
@@ -58,6 +58,7 @@ vm.runInContext(section('function storyModelSettings()', 'function selectAppTab(
   reply={jobs:[{id:'a',seed:100,width:768,height:768,steps:4,model:'test-model'}],failed:[{id:'b',error:'already running'}]};
   await context.submitJobs();
   const bulk=requests.at(-1);assert.equal(bulk.url,'/api/queue/bulk-edit');assert.equal(bulk.body.images.length,0);
+  assert.deepEqual(Object.keys(bulk.body.prompt_by_count),['1','2','3','4','5','6','7','8','9']);assert(bulk.body.prompt_by_count['3'].endsWith('|n=3'));
   assert.deepEqual(bulk.body.edit_ids,['a','b']);assert.deepEqual(bulk.body.bulk_fields,['content','video']);
   assert.equal($('photoFields').disabled,false);assert.equal($('queueFeedback').hidden,false);
   context.HIST.selected=new Set(['a','done']);context.refreshQueueSelection();
