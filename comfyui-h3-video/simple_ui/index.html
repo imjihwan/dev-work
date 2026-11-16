@@ -256,9 +256,9 @@ a{color:var(--acc)}
         </div>
       </details>
       <div id="subjectBox">
-        <label>누가/무엇이 나오나 <small>— 비워 두면 사진에서 그대로 가져옴</small></label>
-        <textarea id="subject" placeholder="(비워 두기 권장) 사진에 없는 걸 지정할 때만: 예) wearing a red jacket"></textarea>
-        <div class="hint">생김새는 사진에서 가져오므로 성별·외모를 적지 않아도 됩니다. 사진에 없는 게 생기면 "유지할 것" 칸에 "no headband"처럼 적으세요.</div>
+        <label>누가/무엇이 나오나 <small>— 비워 두면 기본 문장(사진 1의 얼굴·머리·옷·배경 그대로)</small></label>
+        <textarea id="subject" placeholder="사진과 부딪치지 않는 규칙만: 예) 주인공 지정(the largest person in &lt;Picture 1&gt;), 사진에 안 보이는 몸·옷을 보이는 옷에 맞춰 채우기"></textarea>
+        <div class="hint">&lt;Picture 1&gt;을 넣어 쓰면 기본 문장 대신 이 글이 쓰이므로 "얼굴·머리·옷·배경은 사진 그대로"도 함께 적으세요. 넣지 않으면 기본 문장 뒤에 덧붙습니다. 사진에 보이는 옷·머리를 바꾸는 용도는 아닙니다(첫 장면 고정·유지 칸과 부딪쳐 무시되거나 도중에 바뀜). 사진에 없는 게 생기면 "유지할 것" 칸에 "no headband"처럼 적으세요.</div>
       </div>
 
       <label>한 줄 요약</label>
@@ -905,7 +905,7 @@ async function loadCatalog(manual){
 // 따봉 영상 예시 — 성별·생김새·옷·배경을 특정하지 않는다(외모는 사진에서 가져감)
 const EXAMPLE = {
   f: {
-    subject: "",
+    subject: "<Picture 1> shows the main subject: the largest, most prominent person in the photo. Copy their face, hairstyle, outfit and background from <Picture 1>. Any part of their body or outfit that is not visible in <Picture 1> is completed naturally to match the visible outfit's style and colors and the person's build.",
     summary: "Photorealistic live-action shot. After a brief still moment on <Picture 1>, a black tricycle appears in front of the person. They sit on it, steel themselves, show off, then strain hard to pedal, but the tricycle never moves, and they slump forward over the handlebars, exhausted. The face keeps the exact direction it has in <Picture 1> from start to finish.",
     style: "Photorealistic live-action footage, natural lighting and colors matching <Picture 1>, real-world weight and physics. Target composition: the bottom edge of the frame cuts just below the tops of the tricycle's wheels, so only their upper rims peek into the frame, with a little room above the subject's head and the face as large, sharp and fully visible as this framing allows. If <Picture 1> is already close to this framing, the camera stays locked with its original framing. If it is tighter, such as a passport-style photo, the camera pulls back, rises, lowers or shifts sideways; if it is much wider and the subject looks small, it pushes gently straight in; either way it stops at the target composition, never wider and never closer. This is one smooth, continuous move in the same shot from 00:00.300 to 00:01.000, never orbiting around the subject, so the face keeps the same angle to the camera. As the frame changes, it reveals the same person's own body and extends the existing surroundings with the same walls, colors and lighting; a plain backdrop simply continues. It is never a cut or a new angle, and the person is never redrawn. The framing reached at 00:01.000, not the opening frame, stays locked for the rest of the video.",
     keep: "Same face and identity as <Picture 1> throughout. The person is never replaced or redrawn: the same body continues from the first frame, with no cut and no scene change. The face keeps exactly the left-right direction it has in <Picture 1> for the whole video: never turn the face toward or away from the camera and never reveal a different side of the face. If the head is tilted or the subject is lying in <Picture 1>, the head may come upright naturally as the body straightens, but the face stays turned to the same side; only the eyes, brows and mouth move for the expressions. The torso and legs may rotate toward the tricycle, with a slight twist at the waist so the head can keep its original direction. Once it appears, the tricycle keeps one fixed position, direction and shape for the rest of the video, with the bell staying on its right handlebar. Keep the hairstyle, body shape, outfit and background exactly as in <Picture 1>: no clothing change, no color change, no morphing. Any other people in <Picture 1> stay where they are, unchanged. Add nothing except the tricycle and its bell. No text, captions, logos or watermarks.",
