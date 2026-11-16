@@ -196,6 +196,36 @@ class PromptHelperTests(unittest.TestCase):
         issue=job["draft"]["review"]["issues"][0]
         self.assertEqual(issue["category"],"constraints");self.assertIn("teapot",issue["issue"])
 
+    def test_only_the_invented_phrase_or_clause_is_cut(self):
+        allowed="A person waves, smiles, then walks slowly to the window. She lifts a teapot."
+        cases={
+            "The subject, wearing a blue jacket, raises one hand and waves.":"The subject raises one hand and waves.",
+            "The subject stands in a sunlit living room holding a white teapot.":"The subject stands holding a teapot.",
+            "They walk toward the window, their jacket swaying slightly.":"They walk toward the window.",
+            "The subject holds a book and smiles warmly.":"The subject smiles warmly.",
+            "She waves in a white shirt and black jeans.":"She waves.",
+            "The subject sits at the table and looks toward the window.":"The subject sits and looks toward the window.",
+        }
+        for before,after in cases.items():
+            with self.subTest(before=before):
+                text,notes=HELPER.strip_unrequested(before,allowed)
+                self.assertEqual(text,after)
+                self.assertTrue(notes[0]["removed"]);self.assertTrue(notes[0]["fragment"])
+        # 요청에 있는 단어만 든 문장은 그대로
+        self.assertEqual(HELPER.strip_unrequested("She lifts a teapot toward the window.",allowed),("She lifts a teapot toward the window.",[]))
+
+    def test_shot_whose_only_action_would_vanish_is_kept_and_flagged(self):
+        text,notes=HELPER.strip_unrequested("The subject holds a book.","A person waves.")
+        self.assertEqual(text,"The subject holds a book.")
+        self.assertEqual([note["removed"] for note in notes],[False])
+        issue=HELPER.unrequested_issues([dict(notes[0],where="장면 1")])[0]["issue"]
+        self.assertIn("book",issue);self.assertIn("확인",issue)
+
+    def test_cut_phrase_is_named_in_the_review_issue(self):
+        _,notes=HELPER.strip_unrequested("The subject, wearing a blue jacket, raises one hand and waves.","A person waves.")
+        issue=HELPER.unrequested_issues([dict(notes[0],where="장면 1")])[0]["issue"]
+        self.assertIn("wearing a blue jacket",issue)
+
     def test_terms_named_in_request_or_fixed_fields_are_kept(self):
         request={"idea":"She lifts the teapot.","fixed":{"style":"A quiet kitchen, static camera."}}
         draft={"f":{"summary":"She lifts the teapot in the kitchen."},"shots":[[0,"She lifts the teapot from the counter in the kitchen."]]}

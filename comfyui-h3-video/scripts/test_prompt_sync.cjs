@@ -79,6 +79,7 @@ const directFinal=text=>{get('final').value=text;get('final').oninput();assert.e
   const originalFetch=context.fetch,beforeRequests=requests.length,statusMessages=[];
   context.setStatus=message=>statusMessages.push(message);
   context.fetch=async(url,options)=>url==='/api/health'?{ok:false}:originalFetch(url,options);
+  context.S.faceBoost=true;  // 얼굴인식강화를 켰을 때만 크롭(=서버 버전 확인)이 필요하다
   await context.submitJobs(true);
   assert.equal(requests.length,beforeRequests,'An old server must not silently queue uncropped references');
   assert(statusMessages.some(message=>message.includes('Restart-H3-UI.ps1')));

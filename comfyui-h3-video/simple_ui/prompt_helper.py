@@ -195,17 +195,110 @@ def unrequested_terms(text, allowed):
     return found
 
 
+# 지어낸 단어를 꾸미는 구(句): "wearing a blue jacket", "in a sunlit living room", "holding a white teapot"
+_PHRASE_LEAD = (r"(?:wearing|dressed in|clad in|holding|carrying|clutching|gripping|next to|in front of|"
+                r"toward|towards|in|with|on|at|near|beside|by|inside|from|across|into|onto|under|behind|over|against)")
+_ARTICLE = r"(?:(?:a pair of|a|an|the|his|her|their|its)\s+)?"
+_COLOR_TERMS = set(UNREQUESTED_TERMS["색"].split())
+# 지어낸 물건을 목적어로 받는 동사: "holds a cup and smiles" → "smiles"
+_OBJECT_VERB = r"(?:holds|carries|wears|clutches|grips|sips from|drinks from|picks up|puts down|sets down)"
+_DETERMINERS = {"a", "an", "the", "his", "her", "their", "its", "this", "that"}
+
+
+def _is_sentence(text):
+    """잘라 낸 뒤 남은 것이 문장 구실을 하는지: 3단어 이상, 또는 "She waves." 같은 2단어(관사+명사 "The subject." 는 아님)."""
+    words = text.rstrip(".!?").split()
+    return len(words) >= 3 or (len(words) == 2 and words[0].lower() not in _DETERMINERS)
+
+
+def _tidy(sentence):
+    """구·절을 뺀 뒤 쉼표·공백·대문자·마침표를 정리한다."""
+    text = re.sub(r"\s+", " ", sentence)
+    text = re.sub(r"\s+([,.;!?])", r"\1", text)
+    text = re.sub(r"(?:,\s*){2,}", ", ", text)
+    text = re.sub(r"^[,;\s]+|[,;\s]+$", "", text)
+    text = re.sub(r"(?:,?\s+(?:and|or|while|as|then))+([.!?]?)$", r"\1", text)
+    text = re.sub(r",\s*([.!?])$", r"\1", text)
+    if not text:
+        return ""
+    text = text[0].upper() + text[1:]
+    return text if text[-1] in ".!?" else text + "."
+
+
+def _drop_phrases(sentence, allowed):
+    """지어낸 단어가 든 구만 뺀다. 남은 문장에 지어낸 단어가 없고 문장 구실을 하면 성공."""
+    result, cut = sentence, []
+    terms = unrequested_terms(sentence, allowed)
+    # 명사(옷·소품·장소)를 먼저: "a white teapot" 에서 색만 먼저 자르면 "teapot" 이 홀로 남는다
+    terms.sort(key=lambda term: term in _COLOR_TERMS)
+    any_term = "(?:" + "|".join(re.escape(term) for term in terms) + r")(?:s|es)?(?![\w-])"
+    # 수식어는 0~3단어, 다른 구의 시작 단어는 넘지 않는다("in the room holding a cup" 에서 room 까지 지우지 않게)
+    modifier = r"(?:(?!" + _PHRASE_LEAD + r"\s)[\w'-]+\s+)"
+    for term in terms:
+        word = re.escape(term) + r"(?:s|es)?(?![\w-])"
+        if term in _COLOR_TERMS:
+            # 색이 구의 끝("dressed in white")일 때만 구째, 아니면 꾸밈말인 색 단어만 뺀다("a white teapot" → "a teapot")
+            word += r"(?=\s*(?:[,.;!?]|$)|\s+(?:and|or|while|as|then)\b)"
+        pattern = re.compile(r"(,\s*)?(?<![\w-])(?:(?P<verb>" + _OBJECT_VERB + ")|" + _PHRASE_LEAD + r")\s+" + _ARTICLE + modifier + "{0,3}?" + word +
+                             # "white shirt and black jeans" 처럼 지어낸 단어끼리 and/or 로 이어지면 함께
+                             r"(?:\s+(?:and|or)\s+" + _ARTICLE + modifier + "{0,2}?" + any_term + r"(?:\s+" + any_term + ")*)?" +
+                             # 앞 쉼표를 먹었으면 짝이 되는 뒤 쉼표도("The subject, wearing a jacket, waves")
+                             r"(?(1)\s*,?)" +
+                             # 동사째 빼면 뒤의 and 도("holds a cup and smiles" → "smiles")
+                             r"(?(verb)(?:\s+and(?=\s))?)", re.IGNORECASE)
+        for match in list(pattern.finditer(result)):
+            if unrequested_terms(match.group(0), allowed):
+                cut.append(match.group(0).strip(" ,"))
+                result = result.replace(match.group(0), " ", 1)
+        if term in _COLOR_TERMS:
+            bare = re.compile(r"(?<![\w-])" + re.escape(term) + r"(?![\w-])(?:\s*(?:and|or|-)\s*(?:" +
+                              "|".join(sorted(_COLOR_TERMS)) + r")(?![\w-]))?", re.IGNORECASE)
+            for match in list(bare.finditer(result)):
+                cut.append(match.group(0))
+            result = bare.sub(" ", result)
+    result = _tidy(result)
+    if any(term in _COLOR_TERMS for term in terms):  # 색을 빼서 "an cup" 이 된 경우
+        result = re.sub(r"\b([Aa])n(\s+[b-df-hj-np-tv-z])", r"\1\2", result)
+    if cut and not unrequested_terms(result, allowed) and _is_sentence(result):
+        return result, cut
+    return None, []
+
+
+def _drop_clauses(sentence, allowed):
+    """구로 안 되면 지어낸 단어가 든 절(쉼표·and·while 로 나뉜 부분)만 뺀다."""
+    parts = re.split(r"\s*(?:,|;|\s[—–-]\s)\s*|\s+(?:and|while|as|then)\s+", sentence.rstrip(".!?"))
+    keep = [part for part in parts if part.strip() and not unrequested_terms(part, allowed)]
+    cut = [part.strip() for part in parts if part.strip() and unrequested_terms(part, allowed)]
+    result = _tidy(", ".join(keep))
+    if cut and keep and _is_sentence(result):
+        return result, cut
+    return None, []
+
+
 def strip_unrequested(text, allowed):
-    """요청에 없는 외모·소품·장소 단어가 든 문장을 뺀다. 다 빠지면 원문을 두고 표시만 한다."""
+    """요청에 없는 외모·소품·장소 단어를 뺀다: 그 단어가 든 구 → 절 → 문장 순으로 가장 작게.
+    장면의 동작 문장이 모두 사라지게 되면 원문을 두고 표시만 한다."""
     sentences = [part for part in re.split(r"(?<=[.!?])\s+", text.strip()) if part]
-    kept, removed = [], []
+    kept, notes, whole = [], [], []
     for sentence in sentences:
         terms = [] if sentence.startswith(REFERENCE_APPEARANCE) else unrequested_terms(sentence, allowed)
-        (removed if terms else kept).append((sentence, terms))
-    action = [sentence for sentence, _ in kept if not sentence.startswith(REFERENCE_APPEARANCE)]
-    if removed and not action:
-        return text, [{"terms": terms, "sentence": sentence, "removed": False} for sentence, terms in removed]
-    return " ".join(sentence for sentence, _ in kept), [{"terms": terms, "sentence": sentence, "removed": True} for sentence, terms in removed]
+        if not terms:
+            kept.append(sentence)
+            continue
+        for method in (_drop_phrases, _drop_clauses):
+            reduced, cut = method(sentence, allowed)
+            if reduced:
+                kept.append(reduced)
+                notes.append({"terms": terms, "sentence": sentence, "removed": True, "fragment": "; ".join(cut)})
+                break
+        else:
+            whole.append((sentence, terms))
+    action = [sentence for sentence in kept if not sentence.startswith(REFERENCE_APPEARANCE)]
+    if whole and not action:
+        return text, [{"terms": terms, "sentence": sentence, "removed": False} for sentence, terms in whole] + \
+            [dict(note, removed=False) for note in notes]
+    notes += [{"terms": terms, "sentence": sentence, "removed": True} for sentence, terms in whole]
+    return " ".join(kept), notes
 
 
 def ground_draft(draft, request):
@@ -236,7 +329,8 @@ def unrequested_issues(notes):
     for note in notes:
         terms = ", ".join(note["terms"])
         issues.append({"severity": "warning", "category": "constraints", "at": note["where"], "evidence": note["sentence"][:300],
-                       "issue": (f"요청에 없는 '{terms}'을(를) 넣은 문장을 뺐습니다." if note["removed"]
+                       "issue": (f"요청에 없는 '{terms}' 부분(\"{note['fragment'][:120]}\")을 뺐습니다." if note["removed"] and note.get("fragment")
+                                 else f"요청에 없는 '{terms}'을(를) 넣은 문장을 뺐습니다." if note["removed"]
                                  else f"요청에 없는 '{terms}'이(가) 들어 있습니다. 적용 전에 확인해 주세요."),
                        "suggestion": "외모·옷은 사진 1, 장소는 고정 칸을 따릅니다. 꼭 필요하면 요청에 직접 적어 주세요."})
     return issues
