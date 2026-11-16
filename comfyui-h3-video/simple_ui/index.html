@@ -1529,22 +1529,24 @@ function syncHistoryDetails(){
 }
 function leaveHistoryDetails(){
   clearTimeout(HISTORY_DETAILS.timer);HISTORY_DETAILS.timer=null;
-  if(!HISTORY_DETAILS.pinned)HISTORY_DETAILS.timer=setTimeout(hideHistoryDetails,200);
+  // 버튼에서 옆의 설정 창으로 마우스를 옮길 시간
+  if(!HISTORY_DETAILS.pinned)HISTORY_DETAILS.timer=setTimeout(hideHistoryDetails,350);
 }
+// 마우스를 올려 설정 창을 여는 곳은 '설정' 버튼뿐이다(항목 전체로 잡으면 목록을 훑을 때마다 창이 떠서 가린다)
 $("histList").addEventListener("pointerover",ev => {
   if(ev.pointerType==="touch" || HISTORY_DETAILS.pinned)return;
-  const row=ev.target.closest("[data-history-id]");if(!row)return;
-  if(ev.target.closest("video")){hideHistoryDetails();return;}
+  const button=ev.target.closest("[data-history-settings]");if(!button)return;
+  const row=button.closest("[data-history-id]");if(!row)return;
   const from=ev.relatedTarget?.nodeType ? ev.relatedTarget : null;
-  if(row.contains(from) && !from?.closest?.("video"))return;
+  if(button.contains(from))return;
   clearTimeout(HISTORY_DETAILS.timer);HISTORY_DETAILS.timer=null;
   if(row===HISTORY_DETAILS.row)return;
   HISTORY_DETAILS.timer=setTimeout(() => showHistoryDetails(row),180);
 });
 $("histList").addEventListener("pointerout",ev => {
-  const row=ev.target.closest("[data-history-id]");
+  const button=ev.target.closest("[data-history-settings]");if(!button)return;
   const to=ev.relatedTarget?.nodeType ? ev.relatedTarget : null;
-  if(row && !row.contains(to) && !$("historyDetails").contains(to))leaveHistoryDetails();
+  if(!button.contains(to) && !$("historyDetails").contains(to))leaveHistoryDetails();
 });
 $("histList").addEventListener("focusin",ev => {
   if(ev.target.matches("[data-history-settings]"))showHistoryDetails(ev.target.closest("[data-history-id]"));
