@@ -202,6 +202,19 @@ class PromptHelperTests(unittest.TestCase):
         self.assertEqual(HELPER.ground_draft(draft,request),[])
         self.assertIn("teapot",draft["shots"][0][1])
 
+    def test_beat_times_are_spread_over_the_whole_video(self):
+        R=HELPER.REFERENCE_APPEARANCE
+        shots=[[0,R+" The subject nods twice, the head dipping forward and back in a steady rhythm."],
+               [1.2,"A soft laugh breaks out, shoulders lifting slightly."],[1.8,"The subject turns the head to look to the side."]]
+        spread=HELPER.spread_times(shots,5)
+        times=[when for when,_ in spread]
+        self.assertEqual(times[0],0);self.assertTrue(all(b>a for a,b in zip(times,times[1:])));self.assertLess(times[-1],5)
+        lengths=[b-a for a,b in zip(times,times[1:]+[5])]
+        self.assertGreaterEqual(min(lengths),1.0)          # 앞쪽에 몰리지 않는다(원래 0.6초 구간)
+        self.assertLess(max(lengths)-min(lengths),1.0)      # 마지막 장면만 길게 남지 않는다
+        self.assertEqual([text for _,text in spread],[text for _,text in shots])  # 순서·문장은 그대로
+        self.assertEqual(HELPER.spread_times([[0,"Only one beat."]],5),[[0,"Only one beat."]])
+
     def test_failed_review_keeps_draft_and_reports_incomplete(self):
         generated={"summary":"A block slides.","sound":"Quiet room.","music":"N/A","shots":[{"time":0,"text":"A block slides."}]}
         job,_=self.run_fake_model({"idea":"Slide a block."},[generated,ValueError("synthetic expansion failure"),ValueError("synthetic review failure")])

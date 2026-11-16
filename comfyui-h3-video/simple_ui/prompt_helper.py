@@ -21,7 +21,9 @@ Return JSON only, with summary, sound, music, shots.
 All descriptions must be English; preserve the original language of spoken dialogue.
 Each shot is {"time": seconds, "text": description}. First time is 0; every time must
 be before the video ends, strictly increasing. Times mark continuous action phases,
-not cuts. Use 1-3 connected beats within the requested duration. The final beat must
+not cuts. Use 1-3 connected beats within the requested duration. Spread the beat start
+times across the whole duration in proportion to how long each action takes; never
+crowd several actions into the first seconds and leave one long idle beat at the end. The final beat must
 leave time for its action to complete or hand off naturally to the following clip.
 Keep summary to ONE sentence. Start the requested movement at time 0, rather than
 spending the first phase standing still. Put every requested action, including the
@@ -238,6 +240,30 @@ def unrequested_issues(notes):
                                  else f"요청에 없는 '{terms}'이(가) 들어 있습니다. 적용 전에 확인해 주세요."),
                        "suggestion": "외모·옷은 사진 1, 장소는 고정 칸을 따릅니다. 꼭 필요하면 요청에 직접 적어 주세요."})
     return issues
+
+
+def spread_times(shots, duration):
+    """장면 시작 시각을 영상 전체에 다시 나눈다(작은 모델은 앞쪽 0~2초에 몰아 넣는 경향: 실측 0/1.2/1.8초).
+    몫 = 절반은 균등, 절반은 동작 설명 길이(제곱근으로 완화). 장면마다 최소 0.8초. 순서·문장은 그대로."""
+    count = len(shots)
+    if count < 2:
+        return shots
+    def action_words(text):
+        return len(text.removeprefix(REFERENCE_APPEARANCE).split())
+    weights = [math.sqrt(max(action_words(text), 4)) for _, text in shots]
+    total = sum(weights)
+    shares = [0.5 / count + 0.5 * weight / total for weight in weights]
+    floor = min(0.8, duration / count * 0.6)
+    lengths = [max(floor, share * duration) for share in shares]
+    scale = duration / sum(lengths)
+    lengths = [length * scale for length in lengths]
+    start, times = 0.0, []
+    for length in lengths:
+        times.append(round(start, 1))
+        start += length
+    for index in range(1, count):  # 반올림 뒤에도 시간순·영상 길이 안
+        times[index] = min(max(times[index], times[index - 1] + 0.1), round(duration - 0.1 * (count - index), 1))
+    return [[when, text] for when, (_, text) in zip(times, shots)]
 
 
 def replace_exact(text, before, after):
@@ -579,6 +605,7 @@ class PromptHelper:
             if not request.get("review_only"):
                 notes=flag_edit_terms(draft,request) if editing else ground_draft(draft,request)
                 if notes: draft["unrequested"]=notes
+                if not editing: draft["shots"]=spread_times(draft["shots"],request["duration"])
             with self.lock: self.job["state"]="reviewing"
             content=review_candidate(request,draft)
             try:
