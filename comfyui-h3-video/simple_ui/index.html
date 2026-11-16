@@ -23,7 +23,38 @@ body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,"Mal
 h1{font-size:20px;margin:0 0 4px;grid-column:1/-1}
 .sub{color:var(--mute);font-size:13px;margin:-14px 0 0;grid-column:1/-1}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
-.queue-actions{grid-column:1/-1;margin-bottom:0}
+.make-col,.hist-col{min-width:0}
+/* 만들기·진행 바: 입력을 다 채운 자리(화면 아래)에 늘 붙어 있다 */
+.action-bar{grid-column:1/-1;position:sticky;bottom:0;z-index:30;background:var(--card);border:1px solid var(--line);border-radius:12px 12px 0 0;padding:10px 14px;box-shadow:0 -6px 18px rgba(0,0,0,.10)}
+.action-main{display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap}
+.action-main .go{flex:0 0 240px;width:auto}
+.action-info{flex:1 1 280px;min-width:0}
+.action-info .status{margin-top:2px;font-size:13px;min-height:0}
+.action-info .bar{margin-top:6px;height:6px}
+.action-run{display:flex;gap:6px;flex-wrap:wrap}
+.action-run .ghost{min-height:36px}
+.shots-head{display:flex;justify-content:space-between;align-items:flex-end;gap:6px 12px;flex-wrap:wrap}
+.dur-inline{display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;white-space:nowrap;flex-shrink:0}
+.dur-inline input{width:72px;flex:0 0 72px}
+.more-add{margin-top:14px}
+.mobile-views{display:none;grid-column:1/-1;gap:6px}
+.mobile-views button{flex:1;min-height:44px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;font-size:14px;cursor:pointer}
+.mobile-views button[aria-selected=true]{background:var(--acc-soft);border-color:var(--acc);font-weight:600}
+@media (max-width:900px){
+  .mobile-views{display:flex}
+  .wrap.view-make .hist-col,.wrap.view-hist .make-col{display:none}
+}
+@media (max-width:600px){
+  /* 핸드폰: 버튼 한 줄 + 상태 한두 줄로 줄여 입력 칸을 덜 가린다 */
+  .action-bar{padding:8px 10px}
+  .action-main{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}
+  .action-main .go{grid-column:1;grid-row:1;width:100%;min-width:0;padding:10px 6px;font-size:15px}
+  .action-run{grid-column:2;grid-row:1;flex-wrap:nowrap}
+  .action-run .ghost{min-height:44px;padding:4px 6px;font-size:11px;white-space:nowrap}
+  .action-info{grid-column:1/-1;grid-row:2}
+  .action-info .hint,.action-info .status{font-size:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .action-info:has(.status:not(:empty)) .hint{display:none}
+}
 .settings-actions,.section-title{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:space-between}
 .photo-fields{border:0;padding:0;margin:0;min-width:0}
 .bulk-fields{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}
@@ -183,33 +214,14 @@ a{color:var(--acc)}
 <div class="app-view-options"><label><input type="checkbox" id="loraOverlayToggle"> LoRA 정보 표시</label></div>
 <iframe id="storyFrame" class="story-frame" title="4편 이어 만들기" hidden></iframe>
 <iframe id="galleryFrame" class="gallery-frame" title="결과 갤러리" hidden></iframe>
-<div class="wrap" id="singleApp" role="tabpanel" aria-labelledby="singleTab">
-  <div class="card queue-actions">
-    <button class="go" id="go">영상 만들기</button>
-    <div class="hint" id="goInfo" style="margin-top:6px"></div>
-    <button class="ghost" id="sequenceGo" disabled style="width:100%;margin-top:8px">사진 순차적 대기열 추가</button>
-    <div class="hint" id="sequenceHint"></div>
-    <input type="file" id="photoBatchFiles" accept="image/*" multiple hidden>
-    <button class="ghost" id="photoBatchGo" disabled style="width:100%;margin-top:8px">사진별 개별 대기열 추가</button>
-    <div class="hint">버튼을 눌러 사진을 선택하면 한 장당 한 작업씩 현재 설정으로 추가합니다. 반복 횟수와 기존 참조 사진 목록은 그대로 두며, 시드를 지정하면 모든 사진에 같은 시드를 씁니다.</div>
-    <button class="ghost" id="stopPhotoBatch" hidden>추가 중단</button><div class="hint" id="photoBatchStatus" role="status" aria-live="polite"></div>
-    <div class="note" id="queueFeedback" hidden></div>
-    <div class="note" id="queueEdit" hidden><span id="queueEditInfo"></span> <button class="textbtn" id="cancelEdit">수정 취소</button>
-      <div class="bulk-fields" id="bulkFields" hidden>
-        <label><input type="checkbox" value="content" checked>내용</label>
-        <label><input type="checkbox" value="model" checked>모델·LoRA</label>
-        <label><input type="checkbox" value="video" checked>화면·길이</label>
-      </div>
-    </div>
-    <div class="bar" id="bar" hidden><div></div></div>
-    <div class="status" id="status"></div>
-    <button class="ghost" id="restartCurrent" hidden style="margin-top:6px">현재 작업 재시작</button>
-    <button class="ghost" id="cancel" hidden style="margin-top:6px">중지</button>
-  </div>
+<div class="wrap view-make" id="singleApp" role="tabpanel" aria-labelledby="singleTab">
   <h1>H3 영상 만들기</h1>
   <p class="sub">사진 넣고 → 무엇을 하는지 적고 → 모델 고르고 → 만들기. 영어로 쓰면 더 잘 알아듣습니다(한글도 됨).</p>
+  <div class="mobile-views" id="mobileViews" role="tablist" aria-label="만들기·작업 이력">
+    <button type="button" role="tab" data-view="make" aria-selected="true">만들기</button><button type="button" role="tab" data-view="hist" aria-selected="false">작업 이력</button>
+  </div>
 
-  <div>
+  <div class="make-col">
     <div class="card">
       <fieldset class="photo-fields" id="photoFields">
       <div class="seg" id="modeSeg">
@@ -264,7 +276,7 @@ a{color:var(--acc)}
       <label>한 줄 요약</label>
       <input type="text" id="summary" placeholder="예: The mug slowly rotates.">
 
-      <label>장면별 동작 <small>— 시작 시각(초)과 동작</small></label>
+      <div class="shots-head"><label>장면별 동작 <small>— 시작 시각(초)과 동작</small></label><label class="dur-inline">영상 길이 <input type="number" id="duration" value="5" min="1" max="15" step="1"> 초</label></div>
       <div id="shots"></div><div class="hint">장면별 동작·시각을 바꾸면 최종 프롬프트를 즉시 다시 만듭니다.</div>
       <div class="hint" id="shotHint" style="color:var(--warn)"></div>
       <button class="ghost" id="addShot" style="margin-top:8px">+ 장면 추가</button>
@@ -338,8 +350,8 @@ a{color:var(--acc)}
     </div>
 
     <div class="card">
-      <h2>4. 설정</h2>
-      <div class="row row5s">
+      <h2>4. 만들기</h2>
+      <div class="row">
         <div><label>화면비</label>
           <select id="aspect">
             <option value="auto">자동(첫 사진)</option><option value="16:9">16:9 가로</option><option value="9:16">9:16 세로</option>
@@ -347,7 +359,6 @@ a{color:var(--acc)}
           </select></div>
         <div><label>화질</label>
           <select id="resolution"><option value="draft">초안(가장 빠름)</option><option value="auto" selected>기본(빠름)</option><option value="720p">720p</option><option value="1080p">1080p(느림)</option></select></div>
-        <div><label>길이(초)</label><input type="number" id="duration" value="5" min="1" max="15" step="1"></div>
         <div><label>시드 <small>비우면 랜덤</small></label><input type="text" id="seed" placeholder="랜덤"></div>
         <div><label>반복 <small>시드만 바꿔서</small></label><input type="number" id="count" value="1" min="1" max="20" step="1"></div>
       </div>
@@ -359,10 +370,19 @@ a{color:var(--acc)}
         <button class="ghost" id="resetFinal" hidden>자동으로 되돌리기</button>
         <button type="button" class="ghost" id="refreshFaceRefs" hidden>현재 사진 참조 문구만 반영</button>
       </details>
+      <details class="more-add">
+        <summary>다른 추가 방식 — 사진마다 따로 만들기</summary>
+        <button class="ghost" id="sequenceGo" disabled style="width:100%;margin-top:8px">사진 순차적 대기열 추가</button>
+        <div class="hint" id="sequenceHint"></div>
+        <input type="file" id="photoBatchFiles" accept="image/*" multiple hidden>
+        <button class="ghost" id="photoBatchGo" disabled style="width:100%;margin-top:8px">사진별 개별 대기열 추가</button>
+        <div class="hint">사진을 고르면 한 장당 한 작업씩 현재 설정으로 추가합니다.</div>
+      </details>
+      <button class="ghost" id="stopPhotoBatch" hidden>추가 중단</button><div class="hint" id="photoBatchStatus" role="status" aria-live="polite"></div>
     </div>
   </div>
 
-  <div>
+  <div class="hist-col">
     <button class="ghost" id="openFolder" style="width:100%;padding:10px">📂 결과 폴더 열기</button>
     <div class="card" style="margin-top:16px">
       <div class="sec-h"><h2 style="margin:0">작업 이력 <small id="histCount" style="font-weight:400;color:var(--mute)"></small></h2><button class="textbtn" id="histClear">전체 지우기</button></div>
@@ -375,6 +395,25 @@ a{color:var(--acc)}
       <div class="hint" style="margin-bottom:8px">완료 영상을 최대 3개까지 체크한 뒤 ‘선택 영상 재생’을 누르세요. 썸네일을 눌러서도 선택할 수 있습니다.</div>
       <div id="histList"></div>
       <div class="hint" id="histEnd" role="status" aria-live="polite" style="min-height:1px;margin-top:8px" hidden></div>
+    </div>
+  </div>
+  <div class="action-bar" id="actionBar">
+    <div class="action-main">
+      <button class="go" id="go">영상 만들기</button>
+      <div class="action-info">
+        <div class="hint" id="goInfo"></div>
+        <div class="status" id="status"></div>
+        <div class="bar" id="bar" hidden><div></div></div>
+      </div>
+      <div class="action-run"><button class="ghost" id="restartCurrent" hidden>현재 작업 재시작</button><button class="ghost" id="cancel" hidden>중지</button></div>
+    </div>
+    <div class="note" id="queueFeedback" hidden></div>
+    <div class="note" id="queueEdit" hidden><span id="queueEditInfo"></span> <button class="textbtn" id="cancelEdit">수정 취소</button>
+      <div class="bulk-fields" id="bulkFields" hidden>
+        <label><input type="checkbox" value="content" checked>내용</label>
+        <label><input type="checkbox" value="model" checked>모델·LoRA</label>
+        <label><input type="checkbox" value="video" checked>화면·길이</label>
+      </div>
     </div>
   </div>
 </div>
@@ -1568,7 +1607,7 @@ function updateHistoryEnd(){
   $("histEnd").textContent = HIST.loading ? "이력을 불러오는 중…" : HIST.error ? "불러오지 못했습니다. 다시 스크롤하면 재시도합니다." : "";
 }
 function maybeLoadHistory(){
-  if ($("singleApp").hidden || HIST.loading || (!HIST.error && HIST.offset >= HIST.total) || !$("videoCompare").hidden) return;
+  if ($("singleApp").hidden || !$("histList").offsetParent || HIST.loading || (!HIST.error && HIST.offset >= HIST.total) || !$("videoCompare").hidden) return;
   const rect = $("histEnd").getBoundingClientRect();
   if (rect.top <= window.innerHeight + 400 && rect.bottom >= 0) loadHist(!HIST.error);
 }
@@ -1913,6 +1952,13 @@ $("histList").onclick = async ev => {
   else { setQueueEdit(null); loadFromHist(e); }
 };
 window.addEventListener("scroll", maybeLoadHistory, {passive: true});
+// 핸드폰·아이패드(한 줄 화면): 만들기 / 작업 이력 중 하나만 보여 준다(넓은 화면은 둘 다)
+function setMobileView(view){
+  $("singleApp").classList.toggle("view-make", view !== "hist"); $("singleApp").classList.toggle("view-hist", view === "hist");
+  $("mobileViews").querySelectorAll("[data-view]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.view === (view === "hist" ? "hist" : "make"))));
+  if (view === "hist") { syncHistoryPreviews?.(); maybeLoadHistory(); }
+}
+$("mobileViews").onclick = ev => { const b = ev.target.closest("[data-view]"); if (b) { setMobileView(b.dataset.view); window.scrollTo({top: 0}); } };
 window.addEventListener("resize", maybeLoadHistory);
 $("histClear").onclick = async () => {
   if (!confirm(`작업이력 ${HIST.total}개를 모두 삭제할까요? 해당 작업은 대기열에서도 삭제하고, 실행 중이면 중지합니다. 영상 파일은 유지됩니다.`)) return;
@@ -1958,6 +2004,7 @@ async function loadFromHist(e){
   // 화면 칸으로 다시 만든 프롬프트가 그때와 다르면(직접 고쳤던 경우 등) 그때 프롬프트를 그대로 쓴다
   if ($("final").value !== e.prompt) { manualFinal = true; $("final").value = e.prompt; $("resetFinal").hidden = false; $("finalHint").textContent = "이력의 최종 프롬프트를 사용합니다. 2번 내용·장면을 수정하면 자동 작성으로 전환됩니다."; }
   render();
+  setMobileView("make");
   window.scrollTo({top: 0, behavior: "smooth"});
   setStatus(`이력에서 불러왔습니다 (시드 ${e.seed})${warn.length ? ` — ${warn.join(", ")}` : ""}. 같은 시드로 만들면 같은 결과가 나옵니다.`, warn.length ? "err" : "ok");
   return true;
