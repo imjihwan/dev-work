@@ -214,8 +214,13 @@ def ui_state_save(body):
     if part == "images" and not (isinstance(value, list) and len(value) <= 9
                                  and all(isinstance(x, str) and x.startswith("data:image/") for x in value)):
         raise ValueError("사진 상태가 올바르지 않습니다.")
+    base = body.get("base")
     with UI_STATE_LOCK:
         data = _ui_state_data()
+        current = data.get(part + "_rev", 0)
+        # 창이 마지막으로 본 번호(base)와 다르면 그 사이 다른 창이 고친 것 → 덮어쓰지 않고 최신 상태를 돌려준다
+        if isinstance(base, int) and not isinstance(base, bool) and base != current:
+            return {"conflict": True, "rev": current, "value": data.get(part)}
         data[part] = value
         data[part + "_rev"] = data.get(part + "_rev", 0) + 1
         _save_json(UI_STATE, data)
@@ -1317,7 +1322,8 @@ class H(BaseHTTPRequestHandler):
             elif self.path == "/api/settings/save":
                 self._json(save_settings(body.get("name"), body.get("data")))
             elif self.path == "/api/ui-state":
-                self._json(ui_state_save(body))
+                result = ui_state_save(body)
+                self._json(result, 409 if result.get("conflict") else 200)
             elif self.path == "/api/card/fetch":
                 kind, name = body.get("kind"), body.get("name")
                 if kind not in DIRS or not resolve(kind, name or ""):

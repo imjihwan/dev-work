@@ -19,10 +19,12 @@ function serverGet(url){
   return out;
 }
 function serverPost(body){
+  if (Number.isInteger(body.base) && body.base !== server[body.part + '_rev'])
+    return {status: 409, body: {conflict: true, rev: server[body.part + '_rev'], value: server[body.part]}};
   server.posts.push(body.part);
   server[body.part] = JSON.parse(JSON.stringify(body.value));
   server[body.part + '_rev'] += 1;
-  return {rev: server[body.part + '_rev']};
+  return {status: 200, body: {rev: server[body.part + '_rev']}};
 }
 
 function makeWindow(initial){
@@ -46,7 +48,7 @@ function makeWindow(initial){
     window: {addEventListener: () => {}},
     loadFromHist: async entry => { $('summary').value = entry.summary; $('duration').value = '15'; context.S.anchor = false; context.render(); return true; },
     fetch: async (url, options) => {
-      if (options?.method === 'POST') { const body = JSON.parse(options.body); return {ok: true, json: async () => serverPost(body)}; }
+      if (options?.method === 'POST') { const out = serverPost(JSON.parse(options.body)); return {ok: out.status === 200, status: out.status, json: async () => out.body}; }
       return {ok: true, json: async () => serverGet(url)};
     }});
   $('summary').value = initial.summary; $('duration').value = '7'; $('seed').value = ''; setShots([[0, 'scene']]);
@@ -83,7 +85,7 @@ function makeWindow(initial){
   B.$('summary').value = 'edited in B again'; B.run('save()'); await wait(10);
   await A.run('pullSync()');
   assert.equal(A.$('summary').value, 'typing in A', 'A pending local edit wins over a pull');
-  await wait(450);   // 둘 다 올라가면 나중에 고친 B 가 기준이고, A 도 그걸 따라간다
+  await wait(1000);   // 둘 다 올라가면 나중에 고친 B 가 기준이고(거절된 B 는 합쳐서 다시 올림), A 도 그걸 따라간다
   assert.equal(server.form.f.summary, 'edited in B again');
   await A.run('pullSync()'); assert.equal(A.$('summary').value, 'edited in B again');
   A.$('summary').value = 'typing in A'; A.run('save()'); await wait(450);
@@ -101,5 +103,13 @@ function makeWindow(initial){
   await wait(450);
   assert.deepEqual(server.posts, [], 'Restoring the pre-edit screen does not create a new shared revision');
 
-  console.log('UI sync passed: first window seeds the server, later windows adopt it without echo, edits propagate, local pending edits win, queue-edit loads stay local and are restored.');
+  // 6) 뒤에 숨어 있던 창(B)은 예전 상태인 채로 길이만 고쳐 올린다 → 서버가 거절하고, B는 A의 요약 위에 자기 길이만 얹어 다시 올린다
+  A.$('summary').value = 'newest from A'; A.run('save()'); await wait(450);
+  assert.equal(server.form.f.summary, 'newest from A');
+  B.$('duration').value = '9'; B.run('save()'); await wait(900);
+  assert.equal(server.form.f.summary, 'newest from A', 'A stale window must not overwrite a newer field');
+  assert.equal(server.form.f.duration, '9', 'the stale window keeps its own change');
+  assert.equal(B.$('summary').value, 'newest from A', 'the stale window shows the merged state');
+
+  console.log('UI sync passed: first window seeds the server, later windows adopt it without echo, edits propagate, local pending edits win, queue-edit loads stay local and are restored, stale windows merge instead of overwriting.');
 })().catch(error => { console.error(error); process.exit(1); });

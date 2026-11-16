@@ -10,20 +10,23 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,"Malgun Gothic",sans-serif}
 .wrap{max-width:1180px;margin:0 auto;padding:20px 16px 60px;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:20px}
-.app-tabs{max-width:1180px;margin:14px auto 0;padding:0 16px;display:flex;gap:8px;flex-wrap:wrap}
+.app-top{max-width:1180px;margin:14px auto 0;padding:0 16px;display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap}
+.app-tabs{display:flex;gap:8px;flex-wrap:wrap}
 .app-tabs button{min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;font-size:13px;cursor:pointer}
 .app-tabs button[aria-selected=true]{background:var(--acc);color:white}
-.app-view-options{max-width:1180px;margin:8px auto 0;padding:0 16px;display:flex;justify-content:flex-end}
+.app-view-options{margin-left:auto;display:flex;justify-content:flex-end}
 .app-view-options label{display:flex;align-items:center;gap:6px;margin:0;font-size:12px;font-weight:400}
 .wrap[hidden],.story-frame[hidden],.gallery-frame[hidden]{display:none}
 .story-frame{width:100%;height:1100px;border:0;display:block;margin-top:14px}
 .gallery-frame{width:100%;height:calc(100dvh - 120px);min-height:320px;border:0;display:block;margin-top:8px}
-@media(max-width:600px){.app-tabs{gap:5px;padding:0 10px}.app-tabs button{flex:1;padding:7px 5px;font-size:12px}.app-view-options{padding:0 10px}}
+@media(max-width:600px){.app-top{padding:0 10px}.app-tabs{gap:5px;flex:1 1 100%}.app-tabs button{flex:1;padding:7px 5px;font-size:12px}}
 @media (max-width:900px){.wrap{grid-template-columns:1fr}}
 h1{font-size:20px;margin:0 0 4px;grid-column:1/-1}
 .sub{color:var(--mute);font-size:13px;margin:-14px 0 0;grid-column:1/-1}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
 .make-col,.hist-col{min-width:0}
+.touch-only{display:none}
+@media (hover:none) and (pointer:coarse){.pc-only{display:none!important}.touch-only{display:inline}.fine-only{display:none}}
 /* 만들기·진행 바: 입력을 다 채운 자리(화면 아래)에 늘 붙어 있다 */
 .action-bar{grid-column:1/-1;position:sticky;bottom:0;z-index:30;background:var(--card);border:1px solid var(--line);border-radius:12px 12px 0 0;padding:10px 14px;box-shadow:0 -6px 18px rgba(0,0,0,.10)}
 .action-main{display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap}
@@ -31,12 +34,23 @@ h1{font-size:20px;margin:0 0 4px;grid-column:1/-1}
 .action-info{flex:1 1 280px;min-width:0}
 .action-info .status{margin-top:2px;font-size:13px;min-height:0}
 .action-info .bar{margin-top:6px;height:6px}
-.action-run{display:flex;gap:6px;flex-wrap:wrap}
-.action-run .ghost{min-height:36px}
 .shots-head{display:flex;justify-content:space-between;align-items:flex-end;gap:6px 12px;flex-wrap:wrap}
 .dur-inline{display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;white-space:nowrap;flex-shrink:0}
 .dur-inline input{width:72px;flex:0 0 72px}
-.more-add{margin-top:14px}
+.page-tools{grid-column:1/-1;display:flex;gap:6px 12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.page-hint{font-size:12px;color:var(--mute)}
+.page-list{grid-column:1/-1;margin:-8px 0 0}
+.bar-menu{position:relative}
+.bar-menu>summary{list-style:none;display:flex;align-items:center;min-height:44px;white-space:nowrap}
+.bar-menu>summary::-webkit-details-marker{display:none}
+.bar-menu-list{position:absolute;bottom:calc(100% + 8px);z-index:40;display:flex;flex-direction:column;gap:2px;width:max-content;max-width:min(320px,calc(100vw - 32px));padding:8px;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.add-menu .bar-menu-list{left:0}
+.run-menu .bar-menu-list{right:0}
+.bar-menu-list .textbtn{text-align:left;padding:8px 6px;font-size:14px;min-height:40px}
+.bar-menu-list .textbtn:disabled{color:var(--faint);cursor:default}
+.bar-menu-list .hint{margin:-4px 0 6px 6px}
+.bar-menu-list .del{border-top:1px solid var(--line);color:var(--warn)}
+.run-menu:not(:has(.bar-menu-list button:not([hidden])))>summary{display:none}
 .mobile-views{display:none;grid-column:1/-1;gap:6px}
 .mobile-views button{flex:1;min-height:44px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;font-size:14px;cursor:pointer}
 .mobile-views button[aria-selected=true]{background:var(--acc-soft);border-color:var(--acc);font-weight:600}
@@ -47,10 +61,12 @@ h1{font-size:20px;margin:0 0 4px;grid-column:1/-1}
 @media (max-width:600px){
   /* 핸드폰: 버튼 한 줄 + 상태 한두 줄로 줄여 입력 칸을 덜 가린다 */
   .action-bar{padding:8px 10px}
-  .action-main{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}
+  .action-main{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px}
   .action-main .go{grid-column:1;grid-row:1;width:100%;min-width:0;padding:10px 6px;font-size:15px}
-  .action-run{grid-column:2;grid-row:1;flex-wrap:nowrap}
-  .action-run .ghost{min-height:44px;padding:4px 6px;font-size:11px;white-space:nowrap}
+  .add-menu{grid-column:2;grid-row:1}
+  .run-menu{grid-column:3;grid-row:1}
+  .add-menu>summary{padding:4px 8px;font-size:12px}
+  #stopPhotoBatch{grid-column:1/-1;grid-row:3}
   .action-info{grid-column:1/-1;grid-row:2}
   .action-info .hint,.action-info .status{font-size:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .action-info:has(.status:not(:empty)) .hint{display:none}
@@ -222,13 +238,13 @@ a{color:var(--acc)}
 </style>
 </head>
 <body>
-<nav class="app-tabs" role="tablist" aria-label="화면 선택"><button id="singleTab" role="tab" aria-selected="true" aria-controls="singleApp">기존 영상 만들기</button><button id="storyTab" role="tab" aria-selected="false" aria-controls="storyFrame">4편 이어 만들기 · 약 20초</button><button id="galleryTab" role="tab" aria-selected="false" aria-controls="galleryFrame">결과 갤러리</button></nav>
-<div class="app-view-options"><label><input type="checkbox" id="loraOverlayToggle"> LoRA 정보 표시</label></div>
+<div class="app-top"><nav class="app-tabs" role="tablist" aria-label="화면 선택"><button id="singleTab" role="tab" aria-selected="true" aria-controls="singleApp">영상 1편 만들기</button><button id="storyTab" role="tab" aria-selected="false" aria-controls="storyFrame">4편 이어 만들기 · 약 20초</button><button id="galleryTab" role="tab" aria-selected="false" aria-controls="galleryFrame">결과 갤러리</button></nav>
+<div class="app-view-options"><label><input type="checkbox" id="loraOverlayToggle"> LoRA 정보 표시</label></div></div>
 <iframe id="storyFrame" class="story-frame" title="4편 이어 만들기" hidden></iframe>
 <iframe id="galleryFrame" class="gallery-frame" title="결과 갤러리" hidden></iframe>
 <div class="wrap view-make" id="singleApp" role="tabpanel" aria-labelledby="singleTab">
-  <h1>H3 영상 만들기</h1>
-  <p class="sub">사진 넣고 → 무엇을 하는지 적고 → 모델 고르고 → 만들기. 영어로 쓰면 더 잘 알아듣습니다(한글도 됨).</p>
+  <div class="page-tools"><span class="page-hint">사진 → 내용 → 모델 → 출력 순서로 채우고 아래 바에서 만들기 · 영어로 쓰면 더 잘 알아듣습니다</span><span class="settings-actions"><button class="ghost" id="settingsSave" title="사진·내용·모델·출력 설정을 이름 붙여 저장">설정 묶음 저장</button><button class="ghost" id="settingsLoad">설정 묶음 불러오기</button></span></div>
+  <div class="list page-list" id="settingsList" hidden></div>
   <div class="mobile-views" id="mobileViews" role="tablist" aria-label="만들기·작업 이력">
     <button type="button" role="tab" data-view="make" aria-selected="true">만들기</button><button type="button" role="tab" data-view="hist" aria-selected="false">작업 이력</button>
   </div>
@@ -236,12 +252,12 @@ a{color:var(--acc)}
   <div class="make-col">
     <div class="card">
       <fieldset class="photo-fields" id="photoFields">
+      <h2 id="photoTitle">1. 사진</h2>
       <div class="seg" id="modeSeg">
         <button data-mode="REF2VA">참조 사진으로 만들기</button>
         <button data-mode="FL2VA">첫·끝 장면으로 만들기</button>
       </div>
-      <h2 id="photoTitle">1. 사진</h2>
-      <div class="drop" id="drop">여기로 끌어다 놓거나 클릭해서 고르기 · Ctrl+V 붙여넣기도 됨</div>
+      <div class="drop" id="drop"><span class="fine-only">여기로 끌어다 놓거나 클릭해서 고르기 · Ctrl+V 붙여넣기도 됨</span><span class="touch-only">눌러서 사진 고르기</span></div>
       <input type="file" id="file" accept="image/*" multiple hidden>
       <div class="thumbs" id="thumbs"></div>
       <div class="hint" id="photoHint"></div>
@@ -259,9 +275,8 @@ a{color:var(--acc)}
     </div>
 
     <div class="card">
-      <h2 class="section-title"><span>2. 내용</span><span class="settings-actions"><button class="ghost" id="settingsSave" title="사진·내용·모델·설정을 이름 붙여 저장">설정 묶음 저장</button><button class="ghost" id="settingsLoad">설정 묶음 불러오기</button></span></h2>
-      <div class="list" id="settingsList" hidden></div>
-      <details class="prompt-helper" open>
+      <h2>2. 내용</h2>
+      <details class="prompt-helper">
         <summary>프롬프트 작성 도우미 · 로컬 CPU</summary>
         <label for="helperIdea">어떤 영상을 만들까요?</label>
         <textarea id="helperIdea" maxlength="4000" placeholder="예: 카페에서 커피잔을 내려놓고 창밖을 보는 5초 영상. 카메라는 천천히 접근. 음악 없이 주변 소리만."></textarea>
@@ -282,6 +297,8 @@ a{color:var(--acc)}
         <textarea id="subject" placeholder="사진과 부딪치지 않는 규칙만: 예) 주인공 지정(the largest person in &lt;Picture 1&gt;), 사진에 안 보이는 몸·옷을 보이는 옷에 맞춰 채우기"></textarea>
         <div class="hint">&lt;Picture 1&gt;을 넣으면 기본 문장을 대체합니다(그때는 "얼굴·머리·옷·배경은 사진 그대로"도 적기). 보이는 옷·머리를 바꾸는 용도는 아닙니다.</div>
       </div>
+      <label>사진에서 그대로 유지할 것</label>
+      <input type="text" id="keep" value="Keep the face and outfit exactly as in <Picture 1> throughout the video.">
 
       <label>한 줄 요약</label>
       <input type="text" id="summary" placeholder="예: The mug slowly rotates.">
@@ -298,9 +315,6 @@ a{color:var(--acc)}
 
       <label>장소·분위기·카메라</label>
       <textarea id="style">Photorealistic live-action footage, soft natural light, real skin and fabric detail, no CGI. Static camera, medium shot.</textarea>
-
-      <label>사진에서 그대로 유지할 것</label>
-      <input type="text" id="keep" value="Keep the face and outfit exactly as in <Picture 1> throughout the video.">
 
       <div class="row">
         <div style="grid-column:span 2"><label>소리</label><input type="text" id="sound" placeholder="예: Quiet room tone."></div>
@@ -352,15 +366,15 @@ a{color:var(--acc)}
       </details>
 
       <div class="foot">
-        <button class="textbtn" data-open="model">📂 모델 폴더</button>
-        <button class="textbtn" data-open="lora">📂 LoRA 폴더</button>
+        <button class="textbtn pc-only" data-open="model" title="이 PC의 탐색기로 엽니다">📂 모델 폴더</button>
+        <button class="textbtn pc-only" data-open="lora" title="이 PC의 탐색기로 엽니다">📂 LoRA 폴더</button>
         <button class="textbtn" id="refresh">↻ 폴더 다시 읽기</button>
       </div>
       <div class="hint" id="mHint"></div>
     </div>
 
     <div class="card">
-      <h2>4. 만들기</h2>
+      <h2>4. 출력·확인</h2>
       <div class="row">
         <div><label>화면비</label>
           <select id="aspect">
@@ -380,20 +394,11 @@ a{color:var(--acc)}
         <button class="ghost" id="resetFinal" hidden>자동으로 되돌리기</button>
         <button type="button" class="ghost" id="refreshFaceRefs" hidden>현재 사진 참조 문구만 반영</button>
       </details>
-      <details class="more-add">
-        <summary>다른 추가 방식 — 사진마다 따로 만들기</summary>
-        <button class="ghost" id="sequenceGo" disabled style="width:100%;margin-top:8px">사진 순차적 대기열 추가</button>
-        <div class="hint" id="sequenceHint"></div>
-        <input type="file" id="photoBatchFiles" accept="image/*" multiple hidden>
-        <button class="ghost" id="photoBatchGo" disabled style="width:100%;margin-top:8px">사진별 개별 대기열 추가</button>
-        <div class="hint">사진을 고르면 한 장당 한 작업씩 현재 설정으로 추가합니다.</div>
-      </details>
-      <button class="ghost" id="stopPhotoBatch" hidden>추가 중단</button><div class="hint" id="photoBatchStatus" role="status" aria-live="polite"></div>
     </div>
   </div>
 
   <div class="hist-col">
-    <button class="ghost" id="openFolder" style="width:100%;padding:10px">📂 결과 폴더 열기</button>
+    <button class="ghost pc-only" id="openFolder" style="width:100%;padding:10px" title="이 PC의 탐색기로 엽니다">📂 결과 폴더 열기</button>
     <div class="card" style="margin-top:16px">
       <div class="sec-h"><h2 style="margin:0">작업 이력 <small id="histCount" style="font-weight:400;color:var(--mute)"></small></h2><button class="textbtn" id="histClear">전체 지우기</button></div>
       <div class="hint" style="margin-bottom:6px"><b>불러오기</b>로 그때 구성을 다시 채웁니다. 설정·프롬프트·삭제는 ⋯ 에 있습니다. 기록을 지워도 영상 파일은 남습니다.</div>
@@ -409,12 +414,21 @@ a{color:var(--acc)}
   <div class="action-bar" id="actionBar">
     <div class="action-main">
       <button class="go" id="go">영상 만들기</button>
+      <details class="bar-menu add-menu" id="addMenu"><summary class="ghost">사진별로 추가 ▾</summary><div class="bar-menu-list">
+        <button class="textbtn" id="sequenceGo" disabled>올린 사진을 번갈아 사진 1로</button><div class="hint" id="sequenceHint"></div>
+        <button class="textbtn" id="photoBatchGo" disabled>사진을 골라 한 장당 하나씩</button><div class="hint">고른 사진마다 현재 설정으로 한 작업씩 추가합니다.</div>
+      </div></details>
+      <input type="file" id="photoBatchFiles" accept="image/*" multiple hidden>
       <div class="action-info">
         <div class="hint" id="goInfo"></div>
         <div class="status" id="status"></div>
         <div class="bar" id="bar" hidden><div></div></div>
+        <div class="hint" id="photoBatchStatus" role="status" aria-live="polite"></div>
       </div>
-      <div class="action-run"><button class="ghost" id="restartCurrent" hidden>현재 작업 재시작</button><button class="ghost" id="cancel" hidden>중지</button></div>
+      <button class="ghost" id="stopPhotoBatch" hidden>추가 중단</button>
+      <details class="bar-menu run-menu" id="runMenu"><summary class="ghost" title="작업 제어(재시작·중지)" aria-label="작업 제어">⋯</summary><div class="bar-menu-list">
+        <button class="textbtn" id="restartCurrent" hidden>현재 작업 재시작</button><button class="textbtn del" id="cancel" hidden>중지</button>
+      </div></details>
     </div>
     <div class="note" id="queueFeedback" hidden></div>
     <div class="note" id="queueEdit" hidden><span id="queueEditInfo"></span> <button class="textbtn" id="cancelEdit">수정 취소</button>
@@ -954,14 +968,14 @@ async function loadCatalog(manual){
 const EXAMPLE = {
   f: {
     subject: "<Picture 1> shows the main subject: the largest, most prominent person in the photo. Copy their face, hairstyle, outfit and background from <Picture 1>. Any part of their body or outfit that is not visible in <Picture 1> is completed naturally to match the visible outfit's style and colors and the person's build.",
-    summary: "Photorealistic live-action shot. After a brief still moment on <Picture 1>, a black tricycle appears in front of the person. They sit on it, steel themselves, show off, then strain hard to pedal, but the tricycle never moves, and they slump forward over the handlebars, exhausted. The face keeps the exact direction it has in <Picture 1> from start to finish.",
-    style: "Photorealistic live-action footage, natural lighting and colors matching <Picture 1>, real-world weight and physics. Target composition: the bottom edge of the frame cuts just below the tops of the tricycle's wheels, so only their upper rims peek into the frame, with a little room above the subject's head and the face as large, sharp and fully visible as this framing allows. If <Picture 1> is already close to this framing, the camera stays locked with its original framing. If it is tighter, such as a passport-style photo, the camera pulls back, rises, lowers or shifts sideways; if it is much wider and the subject looks small, it pushes gently straight in; either way it stops at the target composition, never wider and never closer. This is one smooth, continuous move in the same shot from 00:00.300 to 00:01.000, never orbiting around the subject, so the face keeps the same angle to the camera. As the frame changes, it reveals the same person's own body and extends the existing surroundings with the same walls, colors and lighting; a plain backdrop simply continues. It is never a cut or a new angle, and the person is never redrawn. The framing reached at 00:01.000, not the opening frame, stays locked for the rest of the video.",
-    keep: "Same face and identity as <Picture 1> throughout. The person is never replaced or redrawn: the same body continues from the first frame, with no cut and no scene change. The face keeps exactly the left-right direction it has in <Picture 1> for the whole video: never turn the face toward or away from the camera and never reveal a different side of the face. If the head is tilted or the subject is lying in <Picture 1>, the head may come upright naturally as the body straightens, but the face stays turned to the same side; only the eyes, brows and mouth move for the expressions. The torso and legs may rotate toward the tricycle, with a slight twist at the waist so the head can keep its original direction. Once it appears, the tricycle keeps one fixed position, direction and shape for the rest of the video, with the bell staying on its right handlebar. Keep the hairstyle, body shape, outfit and background exactly as in <Picture 1>: no clothing change, no color change, no morphing. Any other people in <Picture 1> stay where they are, unchanged. Add nothing except the tricycle and its bell. No text, captions, logos or watermarks.",
+    summary: "Photorealistic live-action shot. After a brief still moment on <Picture 1>, an invisible tricycle appears in front of the person. They sit on it, steel themselves, show off, then strain hard to pedal, but the tricycle never moves, and they slump forward over the handlebars, exhausted. The face keeps the exact direction it has in <Picture 1> from start to finish.",
+    style: "Photorealistic live-action footage, natural lighting and colors matching <Picture 1>, real-world weight and physics. Target composition: the seated person framed from the head down to just below the knees, so the hands on the invisible handlebars and the bent knees on the invisible pedals show which way the tricycle points, with a little room above the subject's head and the face as large, sharp and fully visible as this framing allows. If <Picture 1> is already close to this framing, the camera stays locked with its original framing. If it is tighter, such as a passport-style photo, the camera pulls back, rises, lowers or shifts sideways; if it is much wider and the subject looks small, it pushes gently straight in; either way it stops at the target composition, never wider and never closer. This is one smooth, continuous move in the same shot from 00:00.300 to 00:01.000, never orbiting around the subject, so the face keeps the same angle to the camera. As the frame changes, it reveals the same person's own body and extends the existing surroundings with the same walls, colors and lighting; a plain backdrop simply continues. It is never a cut or a new angle, and the person is never redrawn. The framing reached at 00:01.000, not the opening frame, stays locked for the rest of the video.",
+    keep: "Same face and identity as <Picture 1> throughout. The person is never replaced or redrawn: the same body continues from the first frame, with no cut and no scene change. The face keeps exactly the left-right direction it has in <Picture 1> for the whole video: never turn the face toward or away from the camera and never reveal a different side of the face. If the head is tilted or the subject is lying in <Picture 1>, the head may come upright naturally as the body straightens, but the face stays turned to the same side; only the eyes, brows and mouth move for the expressions. The torso and legs may rotate toward the tricycle, with a slight twist at the waist so the head can keep its original direction. Once it appears, the tricycle keeps one fixed position, the same three-quarter direction and shape for the rest of the video, with the bell staying on its right handlebar. Keep the hairstyle, body shape, outfit and background exactly as in <Picture 1>: no clothing change, no color change, no morphing. Any other people in <Picture 1> stay where they are, unchanged. Add nothing except the tricycle and its bell. The tricycle stays completely invisible for the whole video; only the person's posture and the bell's sound show it. No text, captions, logos or watermarks.",
     sound: "Checkpoints: startled gasp; short confident \"hah!\"; one bell ring; strained grunts, no rolling sound; long exhausted sigh.",
     music: "N/A", aspect: "auto", resolution: "auto", duration: "7",
   },
   shots: [
-    [0, "For the first 0.3 seconds the frame stays exactly like <Picture 1>, with no movement of the face, body or camera. From 00:00.300 to 00:01.000, a real tricycle appears on the floor or ground right in front of the subject, sized for the subject, never small and never floating in front of the face. Checkpoint, tricycle look: matte black frame; big silver bell on the right handlebar. Direction rule, in frame terms: compare the two cheeks of the face in <Picture 1>; the side of the frame where the cheek looks smaller (the side the nose tip points to) is the facing side. The tricycle's handlebars and front wheel point about 30 degrees toward that side of the frame; if both cheeks look about equal, use the right side of the frame. At 00:00.800: surprised, staring at the tricycle, the head staying in its original direction."],
+    [0, "For the first 0.3 seconds the frame stays exactly like <Picture 1>, with no movement of the face, body or camera. From 00:00.300 to 00:01.000, an invisible tricycle appears on the floor or ground right in front of the subject, sized for the subject: as it arrives only a faint ripple in the air shows where it is, then nothing of it is visible. Checkpoint, tricycle look: completely invisible, like the invisible man: no frame, wheels, seat, pedals, handlebars, bell, glass, edges, outline, reflection or shadow is ever visible, and the background behind it shows unchanged; only its effects show: the person sits on empty air at seat height, grips invisible handlebars and pushes invisible pedals, and the bell is only heard. Direction rule, in frame terms: compare the two cheeks of the face in <Picture 1>; the side of the frame where the cheek looks smaller (the side the nose tip points to) is the facing side. The invisible tricycle sits in a three-quarter view, not straight-on and not in side profile: its front and handlebars are turned about 30 degrees off the camera axis toward that facing side of the frame, and this shows in the person's posture: once seated, their hips, knees, hands and chest are all angled about 30 degrees toward that side; if both cheeks look about equal, turn it toward the right side of the frame. Because the chest points the same way as the handlebars, the face can keep its direction. At 00:00.800: surprised, staring at the tricycle, the head staying in its original direction."],
     [1, "If the subject is sitting or lying in <Picture 1>, they first get up. Checkpoint: sits on the tricycle slowly and calmly and takes the handlebars, the head staying in its original direction."],
     [2.6, "Checkpoint: grim, determined look; squeezes the left handgrip twice."],
     [3.4, "Checkpoint: confident wide grin; right hand shoots up, then comes down and rings the bell once."],
@@ -1228,13 +1242,32 @@ function pushSync(part){
     const value = syncValue(part), text = JSON.stringify(value);
     if (text === SYNC.last[part]) return;
     SYNC.inflight[part] = true;
+    let again = false;
     try {
-      const r = await fetch("/api/ui-state", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({part,value})});
+      const r = await fetch("/api/ui-state", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({part,value,base:SYNC.rev[part]})});
       const j = await r.json();
       if (r.ok) { SYNC.rev[part] = j.rev; SYNC.last[part] = text; }
+      else if (r.status === 409 && j.conflict) {
+        // 그 사이 다른 창이 고쳤다: 최신 상태 위에 이 창에서 바꾼 칸만 얹어 다시 올린다(사진은 방금 이 창에서 바꾼 쪽)
+        const merged = part === "form" ? mergeFormChanges(SYNC.last.form ? JSON.parse(SYNC.last.form) : null, value, j.value) : value;
+        if (part === "form" && j.value) applySyncPart("form", merged);
+        SYNC.rev[part] = j.rev; SYNC.last[part] = JSON.stringify(j.value);
+        again = true;
+      }
     } catch {}
     finally { SYNC.inflight[part] = false; }
+    if (again) pushSync(part);
   }, part === "images" ? 150 : 400);
+}
+// base(마지막으로 맞춘 상태)에서 이 창이 바꾼 칸만 remote(최신) 위에 얹는다. 칸 단위: 내용 칸 하나하나, 장면 전체, 시드, 최종 프롬프트, 설정 하나하나
+function mergeFormChanges(base, local, remote){
+  if (!remote) return local;
+  const out = JSON.parse(JSON.stringify(remote)); out.f = out.f || {}; out.model = out.model || {};
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  for (const key of Object.keys(local.f || {})) if (!same(local.f[key], base?.f?.[key])) out.f[key] = local.f[key];
+  for (const key of Object.keys(local.model || {})) if (!same(local.model[key], base?.model?.[key])) out.model[key] = local.model[key];
+  for (const key of ["shots", "seed", "final"]) if (!same(local[key], base?.[key])) out[key] = local[key];
+  return out;
 }
 function applySyncPart(part, value){
   if (JSON.stringify(value) !== JSON.stringify(syncValue(part))) {
@@ -1341,7 +1374,7 @@ $("seed").addEventListener("input", () => { drawGoInfo(); save(); });
 function updateSequenceButton(){
   $("sequenceGo").disabled = queueSubmitting || !!editingJobId || !!bulkEditingIds.length || !isRef() || !images.length || !CAT?.capabilities?.photo_sequence;
   $("photoBatchGo").disabled = queueSubmitting || !!editingJobId || !!bulkEditingIds.length || !isRef() || !CAT;
-  $("sequenceHint").textContent = isRef() ? `사진 ${images.length}장을 번갈아 사진 1로 배치해 ${images.length}건을 추가합니다. 사진 1은 원본, 나머지는 가장 큰 얼굴 주변을 여유 있게 자른 보조 사진입니다. 검출 실패 시 원본을 사용합니다. 첫 장면 고정은 위 체크박스를 따릅니다.` : "사진 순차 추가는 참조 사진 방식에서 사용할 수 있습니다.";
+  $("sequenceHint").textContent = !isRef() ? "참조 사진 방식에서 쓸 수 있습니다." : !images.length ? "1번 칸에 사진을 먼저 올리세요." : `올린 사진 ${images.length}장을 번갈아 사진 1로 써서 ${images.length}건을 추가합니다${S.faceBoost && images.length > 1 ? "(나머지는 얼굴 크롭)" : ""}.`;
 }
 function updateGoLabel(){ $("go").textContent = bulkAllEditing ? "전체 대기항목 수정 저장" : bulkEditingIds.length ? "일괄수정 저장" : editingJobId ? "수정 저장" : currentJobs.some(j => !finished(j)) ? "대기열에 추가" : "영상 만들기"; }
 function setQueueEdit(e, ids=[], all=false){
@@ -1514,11 +1547,12 @@ async function restartCurrentJob(id){
 }
 $("restartCurrent").onclick = () => {
   const job = currentJobs.find(j => j.state === "running");
-  if (job) restartCurrentJob(job.id);
+  if (job && confirm("지금 만들고 있는 작업을 처음부터 다시 시작할까요? 진행한 부분은 버립니다.")) restartCurrentJob(job.id);
 };
 $("cancel").onclick = () => {
   const left = currentJobs.filter(j => !finished(j));
   if (!left.length) return;
+  if (!confirm(left.length > 1 ? `남은 작업 ${left.length}개를 모두 중지할까요? 대기열에서 빠지고, 만들고 있는 작업도 멈춥니다.` : "이 작업을 중지할까요?")) return;
   fetch("/api/cancel", {method:"POST", body: JSON.stringify({ids: left.map(j => j.id)})});
   // 대기열에서 빠진 작업은 기록이 남지 않으므로 여기서 '중지됨'으로 표시해 기다림을 끝낸다
   left.forEach(j => Object.assign(j, {state: "error", error: "중지됨"}));
@@ -1695,6 +1729,8 @@ $("histList").addEventListener("focusin",ev => {
 $("histList").addEventListener("toggle", ev => {
   if (ev.target.matches?.("details.row-menu") && ev.target.open) $("histList").querySelectorAll("details.row-menu[open]").forEach(d => { if (d !== ev.target) d.removeAttribute("open"); });
 }, true);
+document.querySelectorAll("details.bar-menu").forEach(menu => menu.addEventListener("click", ev => { if (ev.target.closest?.(".bar-menu-list button")) menu.removeAttribute("open"); }));
+document.addEventListener("pointerdown", ev => { if (!ev.target.closest?.("details.bar-menu")) document.querySelectorAll("details.bar-menu[open]").forEach(d => d.removeAttribute("open")); });
 document.addEventListener("pointerdown", ev => { if (!ev.target.closest?.("details.row-menu")) document.querySelectorAll("details.row-menu[open]").forEach(d => d.removeAttribute("open")); });
 $("historyDetails").addEventListener("pointerenter",() => {clearTimeout(HISTORY_DETAILS.timer);HISTORY_DETAILS.timer=null;});
 $("historyDetails").addEventListener("pointerleave",leaveHistoryDetails);

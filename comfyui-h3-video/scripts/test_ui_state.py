@@ -51,6 +51,14 @@ class UiStateTest(unittest.TestCase):
         out = self.env["ui_state_get"]({"form": 0, "images": 1})
         self.assertEqual(out, {"form_rev": 0, "images_rev": 1})
 
+    def test_stale_base_is_rejected_with_the_newer_state(self):
+        save = self.env["ui_state_save"]
+        save({"part": "form", "value": {"f": {"summary": "first"}}, "base": 0})
+        save({"part": "form", "value": {"f": {"summary": "newer"}}, "base": 1})
+        out = save({"part": "form", "value": {"f": {"summary": "stale"}}, "base": 1})
+        self.assertEqual(out, {"conflict": True, "rev": 2, "value": {"f": {"summary": "newer"}}})
+        self.assertEqual(self.env["ui_state_get"]({"form": -1, "images": -1})["form"], {"f": {"summary": "newer"}})
+
     def test_invalid_parts_are_rejected(self):
         save = self.env["ui_state_save"]
         for body in ({"part": "other", "value": {}}, {"part": "form", "value": []}, {"part": "form", "value": {"f": "x"}},
