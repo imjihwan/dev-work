@@ -176,6 +176,51 @@ def _save_json(path, obj):
 SETTINGS = os.path.join(HERE, "saved-settings.json")
 SETTINGS_LOCK = threading.Lock()
 
+# 화면 상태 동기화: 사용자 한 명이 여러 창을 오가며 쓰므로 화면 칸·설정(form)과 사진(images)을
+# 서버 한 곳에 두고 모든 창이 따라간다(마지막으로 고친 창이 기준). 부분마다 번호(rev)를 올려 바뀐 것만 내려준다.
+UI_STATE = os.path.join(HERE, "ui-state.json")
+UI_STATE_LOCK = threading.Lock()
+UI_STATE_PARTS = ("form", "images")
+_ui_state = None
+
+
+def _ui_state_data():
+    global _ui_state
+    if _ui_state is None:
+        data = _load_json(UI_STATE, {})
+        _ui_state = data if isinstance(data, dict) else {}
+    return _ui_state
+
+
+def ui_state_get(have):
+    """have = {부분: 창이 가진 rev}. rev 가 다른 부분만 내용을 싣는다(같으면 번호만)."""
+    with UI_STATE_LOCK:
+        data = _ui_state_data()
+        out = {}
+        for part in UI_STATE_PARTS:
+            rev = data.get(part + "_rev", 0)
+            out[part + "_rev"] = rev
+            if have.get(part) != rev:
+                out[part] = data.get(part)
+        return out
+
+
+def ui_state_save(body):
+    part, value = body.get("part"), body.get("value")
+    if part not in UI_STATE_PARTS:
+        raise ValueError("저장할 화면 상태가 올바르지 않습니다.")
+    if part == "form" and not (isinstance(value, dict) and isinstance(value.get("f"), dict)):
+        raise ValueError("화면 칸 상태가 올바르지 않습니다.")
+    if part == "images" and not (isinstance(value, list) and len(value) <= 9
+                                 and all(isinstance(x, str) and x.startswith("data:image/") for x in value)):
+        raise ValueError("사진 상태가 올바르지 않습니다.")
+    with UI_STATE_LOCK:
+        data = _ui_state_data()
+        data[part] = value
+        data[part + "_rev"] = data.get(part + "_rev", 0) + 1
+        _save_json(UI_STATE, data)
+        return {"rev": data[part + "_rev"]}
+
 
 def save_settings(name, data):
     name = str(name or "").strip()[:60]
@@ -1181,6 +1226,12 @@ class H(BaseHTTPRequestHandler):
                     if q.get("download"): self.send_header("Content-Disposition","attachment; filename=story-video.mp4")
                     self.end_headers()
                     while chunk:=response.read(65536): self.wfile.write(chunk)
+            elif u.path == "/api/ui-state":
+                have = {}
+                for part in UI_STATE_PARTS:
+                    try: have[part] = int(q.get(part, -1))
+                    except (TypeError, ValueError): have[part] = -1
+                self._json(ui_state_get(have))
             elif u.path == "/api/settings":
                 with SETTINGS_LOCK:
                     settings = _load_json(SETTINGS, {})
@@ -1265,6 +1316,8 @@ class H(BaseHTTPRequestHandler):
                 self._json(restart_running_prompt(body.get("id")))
             elif self.path == "/api/settings/save":
                 self._json(save_settings(body.get("name"), body.get("data")))
+            elif self.path == "/api/ui-state":
+                self._json(ui_state_save(body))
             elif self.path == "/api/card/fetch":
                 kind, name = body.get("kind"), body.get("name")
                 if kind not in DIRS or not resolve(kind, name or ""):
@@ -1333,7 +1386,7 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, fmt, *a):
         line = a[0] if a else ""
         # 자주 부르는 조회만 숨긴다(이력 삭제 같은 POST 는 남김)
-        if not (line.startswith("GET ") and any(s in line for s in ("/api/status", "/api/fetch-state", "/api/history", "/api/input", "/api/video", "/api/gallery", "/api/queue/bulk-context"))):
+        if not (line.startswith("GET ") and any(s in line for s in ("/api/status", "/api/fetch-state", "/api/history", "/api/input", "/api/video", "/api/gallery", "/api/queue/bulk-context", "/api/ui-state"))):
             print("%s %s" % (self.command, self.path), flush=True)
 
 

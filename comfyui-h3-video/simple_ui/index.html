@@ -438,7 +438,7 @@ const IDB = (() => {
   return { get: k => tx("readonly", s => s.get(k)), set: (k, v) => tx("readwrite", s => s.put(v, k)) };
 })();
 let imgsReady = false;      // 복원 전에 빈 목록으로 덮어쓰지 않게
-function saveImgs(){ if (imgsReady) IDB.set("images", [...images]).catch(() => {}); }
+function saveImgs(){ if (imgsReady) { IDB.set("images", [...images]).catch(() => {}); pushSync("images"); } }
 async function restoreImgs(){
   try { const v = await IDB.get("images"); if (!images.length && Array.isArray(v)) images.push(...v.slice(0, maxImgs())); } catch {}
   imgsReady = true; drawThumbs();
@@ -926,6 +926,7 @@ function save(){
       seed: $("seed").value, final: manualFinal ? $("final").value : null}));
     localStorage.setItem(KEY_M, JSON.stringify(S));
   } catch {}
+  pushSync("form");
 }
 function apply(s){
   for (const [k,v] of Object.entries(s.f || {})) if ($(k)) $(k).value = v;
@@ -1143,6 +1144,101 @@ function captureSettings(){
     seed:$("seed").value, final:manualFinal ? $("final").value : null,
     model:JSON.parse(JSON.stringify(S)), images:[...images]};
 }
+// 저장한 설정·다른 창의 상태·수정 전 화면을 칸·설정·사진에 한 번에 되살린다
+function applySnapshot(snapshot,{withImages=true}={}){
+  for (const key of Object.keys(S)) if (snapshot.model && Object.hasOwn(snapshot.model,key)) S[key] = snapshot.model[key];
+  apply(snapshot);
+  if (withImages) { images.length = 0; images.push(...(snapshot.images || [])); imgsReady = true; }
+  $("seed").value = snapshot.seed ?? "";
+  manualFinal = typeof snapshot.final === "string";
+  if (manualFinal) $("final").value = snapshot.final;
+  $("resetFinal").hidden = !manualFinal;
+  $("finalHint").textContent = manualFinal ? "저장한 최종 프롬프트를 사용합니다. 2번 내용·장면을 수정하면 자동 작성으로 전환됩니다." : "위 칸을 고치면 자동으로 다시 만들어집니다.";
+  setMode(S.mode); if (CAT) drawModelCard(); render(); if (withImages) saveImgs();
+}
+
+// ---------- 창 사이 화면 상태 동기화 ----------
+// 사용자 한 명이 여러 창을 오가며 쓰므로 화면 칸·설정(form)과 사진(images)을 서버 한 곳에 두고 모든 창이 따라간다.
+// 마지막으로 고친 창이 기준이고, 이 창에서 고친 게 아직 안 올라갔으면 이 창이 이긴다.
+// 대기항목 수정·일괄수정은 그 항목을 화면에 불러온 임시 상태라 올리지 않고, 끝나면 들어가기 전 화면으로 되돌린다.
+const SYNC = {rev:{form:0,images:0}, last:{form:null,images:null}, timer:{}, inflight:{}, ready:false, applying:0, hold:0, beforeEdit:null};
+const SYNC_PARTS = ["form","images"];
+const syncPaused = () => !SYNC.ready || SYNC.applying > 0 || SYNC.hold > 0 || !!editingJobId || bulkEditingIds.length > 0;
+const syncLocalBusy = () => SYNC_PARTS.some(part => SYNC.timer[part] || SYNC.inflight[part]);
+function syncValue(part){
+  if (part === "images") return [...images];
+  const value = captureSettings(); delete value.images; return value;
+}
+function pushSync(part){
+  if (syncPaused()) return;
+  clearTimeout(SYNC.timer[part]);
+  SYNC.timer[part] = setTimeout(async () => {
+    SYNC.timer[part] = null;
+    if (syncPaused()) return;
+    const value = syncValue(part), text = JSON.stringify(value);
+    if (text === SYNC.last[part]) return;
+    SYNC.inflight[part] = true;
+    try {
+      const r = await fetch("/api/ui-state", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({part,value})});
+      const j = await r.json();
+      if (r.ok) { SYNC.rev[part] = j.rev; SYNC.last[part] = text; }
+    } catch {}
+    finally { SYNC.inflight[part] = false; }
+  }, part === "images" ? 150 : 400);
+}
+function applySyncPart(part, value){
+  if (JSON.stringify(value) !== JSON.stringify(syncValue(part))) {
+    SYNC.applying++;
+    try {
+      if (part === "form") applySnapshot(value, {withImages:false});
+      else { images.length = 0; images.push(...value.slice(0, maxImgs())); imgsReady = true; drawThumbs(); }
+    } finally { SYNC.applying--; }
+  }
+  SYNC.last[part] = JSON.stringify(syncValue(part));
+}
+// all=true 면 번호와 상관없이 서버 상태 전체를 받아 맞춘다(수정 모드를 나올 때)
+async function pullSync(all=false){
+  if (syncPaused() || syncLocalBusy()) return;
+  let j;
+  try {
+    const r = await fetch(`/api/ui-state?form=${all ? -1 : SYNC.rev.form}&images=${all ? -1 : SYNC.rev.images}`, {cache:"no-store"});
+    if (!r.ok) return; j = await r.json();
+  } catch { return; }
+  if (syncPaused() || syncLocalBusy()) return;   // 기다리는 사이 이 창에서 고쳤으면 이 창이 이긴다
+  for (const part of SYNC_PARTS) {
+    if (j[part] != null) applySyncPart(part, j[part]);
+    SYNC.rev[part] = j[part + "_rev"] || 0;
+  }
+}
+async function initSync(){
+  let j = null;
+  try { const r = await fetch("/api/ui-state?form=-1&images=-1", {cache:"no-store"}); if (r.ok) j = await r.json(); } catch {}
+  if (!j || typeof j !== "object") return;   // 동기화가 없는 서버면 예전처럼 이 브라우저 저장만 쓴다
+  for (const part of SYNC_PARTS) {
+    if (j[part] != null) applySyncPart(part, j[part]);
+    SYNC.rev[part] = j[part + "_rev"] || 0;
+  }
+  SYNC.ready = true;
+  for (const part of SYNC_PARTS) if (j[part] == null) pushSync(part);   // 처음 쓰는 서버면 이 창 상태를 기준으로 올린다
+  setInterval(() => { if (!document.hidden) pullSync(); }, 1500);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) pullSync(); });
+  window.addEventListener("focus", () => pullSync());
+}
+// 대기항목을 화면에 불러와 수정 모드로 들어갈 때: 지금 화면을 기억하고, 불러오는 동안은 올리지 않는다
+async function loadForQueueEdit(entry, enter){
+  SYNC.beforeEdit = captureSettings(); SYNC.hold++;
+  try { if (await loadFromHist(entry)) { enter(); return true; } }
+  finally { SYNC.hold--; }
+  restoreBeforeEdit();
+  return false;
+}
+function restoreBeforeEdit(){
+  const snapshot = SYNC.beforeEdit; SYNC.beforeEdit = null;
+  if (!snapshot) return;
+  SYNC.applying++;
+  try { applySnapshot(snapshot); } finally { SYNC.applying--; }
+  if (SYNC.ready) pullSync(true);   // 수정하는 동안 다른 창에서 바뀐 게 있으면 따라간다
+}
 $("settingsSave").onclick = async () => {
   const name = prompt("설정 이름을 입력하세요.", $("summary").value.slice(0,40) || "내 설정")?.trim().slice(0,60);
   if (!name) return;
@@ -1173,15 +1269,7 @@ $("settingsList").onclick = async ev => {
     if (!r.ok) throw new Error(stored.error || "설정을 불러오지 못했습니다.");
     const snapshot = stored.data;
     setQueueEdit(null);
-    for (const key of Object.keys(S)) if (Object.hasOwn(snapshot.model,key)) S[key] = snapshot.model[key];
-    apply(snapshot);
-    images.length = 0; images.push(...(snapshot.images || [])); imgsReady = true;
-    $("seed").value = snapshot.seed ?? "";
-    manualFinal = typeof snapshot.final === "string";
-    if (manualFinal) $("final").value = snapshot.final;
-    $("resetFinal").hidden = !manualFinal;
-    $("finalHint").textContent = manualFinal ? "저장한 최종 프롬프트를 사용합니다. 2번 내용·장면을 수정하면 자동 작성으로 전환됩니다." : "위 칸을 고치면 자동으로 다시 만들어집니다.";
-    setMode(S.mode); drawModelCard(); render(); saveImgs();
+    applySnapshot(snapshot);
     $("settingsList").hidden = true;
     setStatus(`‘${button.dataset.setting}’ 설정을 불러왔습니다.`,"ok");
   } catch (error) { setStatus(error.message,"err"); }
@@ -1207,6 +1295,7 @@ function updateSequenceButton(){
 }
 function updateGoLabel(){ $("go").textContent = bulkAllEditing ? "전체 대기항목 수정 저장" : bulkEditingIds.length ? "일괄수정 저장" : editingJobId ? "수정 저장" : currentJobs.some(j => !finished(j)) ? "대기열에 추가" : "영상 만들기"; }
 function setQueueEdit(e, ids=[], all=false){
+  const wasEditing = !!editingJobId || bulkEditingIds.length > 0;
   bulkAllEditing=!!all&&ids.length>0;
   bulkEditingIds = [...ids]; editingJobId = ids.length ? null : e?.id || null;
   const editing = !!editingJobId || !!ids.length;
@@ -1217,6 +1306,7 @@ function setQueueEdit(e, ids=[], all=false){
   $("count").disabled = editing;
   if (editing) $("count").value = 1;
   updateGoLabel(); drawGoInfo();
+  if (wasEditing && !editing) restoreBeforeEdit();   // 수정 모드를 나오면 들어가기 전 화면으로
 }
 $("cancelEdit").onclick = () => { setQueueEdit(null); setStatus("대기 항목 수정을 취소했습니다."); };
 function setStatus(t, cls=""){ $("status").textContent = t; $("status").className = "status " + cls; }
@@ -1765,7 +1855,7 @@ async function beginBulkEdit(all=false){
       ids=data.ids;first=data.first;
     }
     if(!first||!ids.length){setStatus("수정할 대기항목이 없습니다.");return;}
-    setQueueEdit(null);if(await loadFromHist(first))setQueueEdit(first,ids,all);
+    setQueueEdit(null);await loadForQueueEdit(first,()=>setQueueEdit(first,ids,all));
     setStatus(all?"전체 대기항목 수정 모드입니다. 적용할 항목을 고르고 수정한 뒤 맨 위 ‘전체 대기항목 수정 저장’을 누르세요.":"적용할 항목을 고르고 내용을 수정한 뒤 맨 위 ‘일괄수정 저장’을 누르세요.");
   }
   catch (error) { setStatus(error.message,"err"); }
@@ -1807,7 +1897,7 @@ $("histList").onclick = async ev => {
       const state = await (await fetch("/api/status?id=" + encodeURIComponent(e.id))).json();
       if (state.state !== "queued") throw new Error("이미 생성이 시작됐거나 대기열에서 빠진 항목입니다.");
       if (!CAT) throw new Error("모델 목록을 불러오는 중입니다. 잠시 후 다시 시도해 주세요.");
-      if (await loadFromHist(e)) { setQueueEdit(e); setStatus("내용을 수정한 뒤 맨 위의 ‘수정 저장’을 누르세요."); }
+      if (await loadForQueueEdit(e, () => setQueueEdit(e))) setStatus("내용을 수정한 뒤 맨 위의 ‘수정 저장’을 누르세요.");
     } catch (error) { setStatus(error.message, "err"); }
   }
   else if (t.dataset.prompt != null) { const pre = $("hp" + t.dataset.prompt); pre.textContent = e.prompt; pre.hidden = !pre.hidden; }
@@ -1889,7 +1979,7 @@ $("galleryFrame").onload=()=>{if(location.origin!=="null"){$("galleryFrame").con
 window.addEventListener("resize",sizeGalleryFrame);window.visualViewport?.addEventListener("resize",sizeGalleryFrame);
 window.addEventListener("message",event=>{if(event.origin===location.origin&&event.source===$("storyFrame").contentWindow&&event.data?.type==="story-resize"&&Number.isFinite(event.data.height))$("storyFrame").style.height=Math.max(800,Math.min(60000,event.data.height))+"px";});
 initLoraOverlay();
-load(); setMode(S.mode || "REF2VA"); render(); loadCatalog().then(() => loadHist()); restoreImgs(); restoreJobs();
+load(); setMode(S.mode || "REF2VA"); render(); loadCatalog().then(() => loadHist()); restoreImgs().then(initSync); restoreJobs();
 // 파일로 직접 열면(file://) 서버 API 를 못 부르므로 서버 주소로 보낸다
 if (location.protocol === "file:") {
   $("go").disabled = true;

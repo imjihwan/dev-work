@@ -4,6 +4,7 @@ simple_ui/presets.json
 # 작업 이력(프롬프트·사진 이름 포함) — 개인 데이터
 simple_ui/history.json
 simple_ui/saved-settings.json
+simple_ui/ui-state.json
 simple_ui/queue-edit-recovery.json
 simple_ui/story_data/
 simple_ui/gallery_data/
@@ -45,6 +46,7 @@ node_modules/
 **/presets.json
 **/history.json
 **/saved-settings.json
+**/ui-state.json
 **/queue-edit-recovery.json
 **/story_data/
 **/gallery_data/
