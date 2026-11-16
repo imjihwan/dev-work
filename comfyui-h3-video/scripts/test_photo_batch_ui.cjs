@@ -14,7 +14,7 @@ function setup(options={}){
     images:Array.from({length:9},(_,i)=>'unchanged-reference-'+i),PARAMS:['steps','sampler','scheduler','shift_video','shift_audio'],
     currentJobs:[{id:'older',state:'queued',seed:9}],pollT0:123,CAT:{capabilities:{restart_running:true}},pollGen:0,timer:null,
     isRef:()=>true,render(){},withFaceReferenceRules:(text,count)=>{faceCounts.push(count);return text;},captureSettings:()=>JSON.parse(JSON.stringify(snapshot)),build:count=>{builds.push(count);return 'synthetic-reference-count:'+count;},
-    updateSequenceButton(){},updateGoLabel(){},loadHist(){},saveJobs(){},setStatus:message=>messages.push(message),
+    updateSequenceButton(){},updateGoLabel(){},loadHist(){},saveJobs(){},syncHistoryProgress(){},setStatus:message=>messages.push(message),
     histModelName:value=>value,finished:job=>job.state==='done'||job.state==='error',
     clearTimeout(){},setTimeout:()=>1,
     poll:jobs=>{polls++;context.currentJobs=jobs;},
