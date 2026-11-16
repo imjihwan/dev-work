@@ -26,9 +26,10 @@ leave time for its action to complete or hand off naturally to the following cli
 Keep summary to ONE sentence. Start the requested movement at time 0, rather than
 spending the first phase standing still. Put every requested action, including the
 final lowering/releasing/settling action, in shots as well as summary.
-Make shots concrete and richly detailed: aim for about
-250-400 English words across the action descriptions when the idea supports it.
-Do not pad to a word count. Detail means precise motion, not more events or adjectives.
+Keep shots concise: about 60-150 English words in total across the action descriptions.
+Describe only the requested actions. Never fill space with appearance, clothing, hair,
+colors, props, furniture or setting details; those come from <Picture 1> and the fixed fields.
+Detail means precise motion, not more events, objects or adjectives.
 Describe the relevant preparation, direction and extent of movement, speed/acceleration,
 contact or weight transfer, visible response, and settled or continuing end state.
 Develop one main action with supporting micro-movements that actually serve it.
@@ -42,7 +43,7 @@ for a stable pose or continuous motion handoff. Do not require multiple full act
 in one short interval, rushed dialogue, or a distant destination reached instantly.
 If the request cannot fit, describe a slower feasible partial progression toward it,
 without claiming the entire request was completed; the separate reviewer will flag it.
-Preserve the exact requested objects and actions: a teapot is not a cup.
+Preserve exactly the objects and actions the user named; never substitute, add or name any other object.
 The fixed subject, style (location, atmosphere, camera), and keep fields are immutable
 constraints. Do not rewrite or override them, even when the idea conflicts with them.
 Do not add or change locations, camera movements, lighting, or visual styles. Follow
@@ -113,7 +114,7 @@ candidate는 실제 영상이 아니라 프롬프트 텍스트다. timeline은 �
 고정 조건 위반이나 요청 동작 누락, 앞뒤 편의 연결 충돌이 있는지 확인한다.
 사진·실제 영상을 못 봤다는 이유만으로 문제를 만들지 않는다. 원문에 없는 속도·각도·거리·횟수를
 가정하지 않는다. 원본의 생김새를 추측하지 않는다. quiet room tone은 말이나 음악이 아니다.
-작은 물체를 조금 들고 1/4회전한 뒤 부드럽게 내려놓는 5초 연결 동작은 보통 가능하다.
+고개를 천천히 돌리고 미소 지은 뒤 원래 방향으로 돌아오는 5초 연결 동작은 보통 가능하다.
 서로 다른 중요한 문제만 최대 3개 쓴다. 같은 문제를 반복하지 않는다.
 각 문제의 evidence는 candidate 또는 fixed/story_context에서 그대로 복사한 짧은 원문이다.
 영어 원문이면 evidence도 영어 그대로 복사한다. 번역·의역·생략 부호를 넣지 않는다.
@@ -121,7 +122,7 @@ summary, issue, suggestion은 한국어로 쓴다. 근거 없는 수치·물리 
 최소 수정으로 동작 단순화·시간 조정·다음 편으로 분배를 제안한다. 원문을 자동 수정하지 않는다.
 severity는 warning 또는 critical, category는 timing/physics/continuity/constraints/uncertainty이다.
 status는 큰 충돌 미검출 ok, 주의 caution, 명백한 주요 충돌 revise이다.
-예시 A: 5초 안에 살짝 들기→1/4회전→부드럽게 내려놓기, 각 구간에 시간이 배분됨.
+예시 A: 5초 안에 고개 돌리기→미소→원래 방향으로 돌아오기, 각 구간에 시간이 배분됨.
 출력: {"status":"ok","summary":"주어진 시간과 동작 순서에서 큰 충돌이 발견되지 않았습니다.","issues":[]}
 예시 B: 5초 영상의 4초 시점 원문에 "remains motionless for ten complete seconds"가 있음.
 출력: {"status":"revise","summary":"마지막 동작이 남은 시간을 초과합니다.","issues":[{"severity":"critical","category":"timing","at":"4–5초","evidence":"for ten complete seconds","issue":"남은 1초 안에 10초 정지를 완료할 수 없습니다.","suggestion":"정지를 남은 시간으로 줄이거나 다음 편으로 나누세요."}]}
@@ -155,6 +156,88 @@ Avoid poetic adjectives, repeated preservation rules, lists and filler. A simple
 may stay shorter if there is nothing useful to add. Existing fields are context only.
 """
 SECTION_HEADERS = re.compile(r"(?m)^(subject_definitions|summary|retention_analysis|detailed_description|overall_soundscape|non_diegetic_music|integrated_multimodal_description):[ \t]*")
+
+
+# 사용자 요청·고정 칸·현재 내용에 없는데 모델이 지어내기 쉬운 단어(외모는 사진 1, 장소는 고정 칸이 정한다).
+# 동작 설명에 자주 쓰이는 단어(plant=발을 딛다, ball=발볼, curls=손가락을 말다, tie, watch 등)는 넣지 않는다.
+UNREQUESTED_TERMS = {
+    "옷": "shirt t-shirt blouse sweater jumper hoodie cardigan jacket coat blazer vest dress skirt jeans trousers pants shorts suit uniform apron scarf hat cap beanie helmet gloves shoes boots sneakers heels socks",
+    "장신구": "glasses sunglasses earring earrings necklace bracelet wristwatch handbag bag backpack purse",
+    "머리 모양": "ponytail bun braid braids bangs",
+    "색": "white black red blue green yellow pink purple beige brown gray grey orange",
+    "소품": "teapot cup mug glass bottle book books phone smartphone laptop tablet umbrella flower flowers bouquet pen paper notebook cigarette guitar toy tray plate bowl",
+    "가구": "table desk chair sofa couch bed shelf bookshelf lamp curtain curtains window door mirror",
+    "장소": "living room|kitchen|bedroom|office|cafe|café|restaurant|street|park|beach|garden|studio|hallway|corridor|classroom|balcony",
+}
+_TERM_RES = [(kind, term, re.compile(r"(?<![\w-])" + re.escape(term) + r"(?:s|es)?(?![\w-])", re.IGNORECASE))
+             for kind, terms in UNREQUESTED_TERMS.items()
+             for term in (terms.split("|") if "|" in terms else terms.split())]
+
+
+def request_text(request):
+    """요청에서 사용자가 직접 쓴 글 전체(이 안에 있는 단어는 지어낸 것이 아니다)."""
+    parts = [request.get("idea", ""), request.get("manual_prompt", "")]
+    parts += [value for value in (request.get("fixed") or {}).values() if isinstance(value, str)]
+    existing = request.get("existing") or {}
+    parts += [value for key, value in existing.items() if isinstance(value, str)]
+    parts += [str(shot[1]) for shot in existing.get("shots", []) if isinstance(shot, list) and len(shot) == 2]
+    parts.append(json.dumps(request.get("story_context") or {}, ensure_ascii=False))
+    return " ".join(parts)
+
+
+def unrequested_terms(text, allowed):
+    found = []
+    for kind, term, pattern in _TERM_RES:
+        if pattern.search(text) and not pattern.search(allowed) and term not in found:
+            found.append(term)
+    return found
+
+
+def strip_unrequested(text, allowed):
+    """요청에 없는 외모·소품·장소 단어가 든 문장을 뺀다. 다 빠지면 원문을 두고 표시만 한다."""
+    sentences = [part for part in re.split(r"(?<=[.!?])\s+", text.strip()) if part]
+    kept, removed = [], []
+    for sentence in sentences:
+        terms = [] if sentence.startswith(REFERENCE_APPEARANCE) else unrequested_terms(sentence, allowed)
+        (removed if terms else kept).append((sentence, terms))
+    action = [sentence for sentence, _ in kept if not sentence.startswith(REFERENCE_APPEARANCE)]
+    if removed and not action:
+        return text, [{"terms": terms, "sentence": sentence, "removed": False} for sentence, terms in removed]
+    return " ".join(sentence for sentence, _ in kept), [{"terms": terms, "sentence": sentence, "removed": True} for sentence, terms in removed]
+
+
+def ground_draft(draft, request):
+    """새 초안의 요약·장면에서 지어낸 문장을 빼고 무엇을 뺐는지 남긴다."""
+    allowed, notes = request_text(request), []
+    summary, found = strip_unrequested(draft["f"]["summary"], allowed)
+    draft["f"]["summary"] = summary
+    notes += [dict(note, where="요약") for note in found]
+    for index, shot in enumerate(draft["shots"]):
+        text, found = strip_unrequested(shot[1], allowed)
+        shot[1] = text
+        notes += [dict(note, where=f"장면 {index + 1}") for note in found]
+    return notes
+
+
+def flag_edit_terms(draft, request):
+    """부분 수정은 원문을 건드리지 않고, 새로 넣은 문구에 지어낸 단어가 있으면 표시만 한다."""
+    allowed, notes = request_text(request), []
+    for change in draft.get("changes", []):
+        terms = unrequested_terms(str(change.get("after", "")), allowed)
+        if terms:
+            notes.append({"terms": terms, "sentence": str(change.get("after", ""))[:300], "removed": False, "where": "수정 문구"})
+    return notes
+
+
+def unrequested_issues(notes):
+    issues = []
+    for note in notes:
+        terms = ", ".join(note["terms"])
+        issues.append({"severity": "warning", "category": "constraints", "at": note["where"], "evidence": note["sentence"][:300],
+                       "issue": (f"요청에 없는 '{terms}'을(를) 넣은 문장을 뺐습니다." if note["removed"]
+                                 else f"요청에 없는 '{terms}'이(가) 들어 있습니다. 적용 전에 확인해 주세요."),
+                       "suggestion": "외모·옷은 사진 1, 장소는 고정 칸을 따릅니다. 꼭 필요하면 요청에 직접 적어 주세요."})
+    return issues
 
 
 def replace_exact(text, before, after):
@@ -254,7 +337,7 @@ def validate_request(body):
     duration = float(body.get("duration") or 5)
     if not math.isfinite(duration) or not 1 <= duration <= 15:
         raise ValueError("영상 길이는 1~15초로 정해 주세요.")
-    clean = {"idea": idea.strip(), "duration": duration, "one_take": body.get("one_take") is True,
+    clean = {"idea": idea.strip(), "duration": duration, "one_take": body.get("one_take") is True, "detail": body.get("detail") is True,
              "mode": "REF2VA" if body.get("mode") == "REF2VA" else "I2VA/FL2VA"}
     fixed = body.get("fixed")
     if isinstance(fixed, dict):
@@ -472,7 +555,8 @@ class PromptHelper:
                 system=(EDIT_SYSTEM if editing else SYSTEM)+(STORY_SYSTEM if "story_context" in request else "")
                 output=self._complete(base,system,model_request,schema,1600 if editing else 1900,.1 if editing else .25)
                 draft=apply_edits(output,request) if editing else validate_draft(output,request["duration"])
-                if not editing and sum(len(text.split()) for _,text in draft["shots"])<180:
+                # 상세 보강은 분량을 늘리며 외모·소품을 지어내는 주원인이라 자동으로 하지 않는다(detail=true 일 때만)
+                if not editing and request.get("detail") and sum(len(text.split()) for _,text in draft["shots"])<180:
                     with self.lock: self.job["state"]="enriching"
                     keys=[f"beat_{i+1}" for i in range(len(draft["shots"]))]
                     detail_schema={"type":"object","properties":{key:{"type":"string"} for key in keys},"required":keys,"additionalProperties":False}
@@ -491,6 +575,10 @@ class PromptHelper:
                         # A failed optional expansion must not discard an otherwise usable draft.
                         pass
             if self.cancel_event.is_set(): raise RuntimeError("작성을 취소했습니다.")
+            notes=[]
+            if not request.get("review_only"):
+                notes=flag_edit_terms(draft,request) if editing else ground_draft(draft,request)
+                if notes: draft["unrequested"]=notes
             with self.lock: self.job["state"]="reviewing"
             content=review_candidate(request,draft)
             try:
@@ -499,9 +587,12 @@ class PromptHelper:
                     model_content["candidate"]["shots"]=[{"time":when,"text":text} for when,text in model_content["candidate"]["shots"]]
                 review=self._complete(base,REVIEW_SYSTEM,model_content,REVIEW_SCHEMA,1400,.05)
                 draft["review"]=validate_review(review,content)
+                if notes:
+                    draft["review"]["issues"]=unrequested_issues(notes)+draft["review"]["issues"]
+                    if draft["review"]["status"] in ("ok","unavailable"): draft["review"]["status"]="caution"
             except (OSError,ValueError,KeyError,IndexError,TypeError):
                 if reason or self.cancel_event.is_set(): raise RuntimeError("검토를 중지했습니다.")
-                draft["review"]={"status":"unavailable","summary":"동작·시간 검토를 완료하지 못했습니다. 현재 내용 검토 버튼으로 다시 요청해 주세요.","issues":[]}
+                draft["review"]={"status":"unavailable","summary":"동작·시간 검토를 완료하지 못했습니다. 현재 내용 검토 버튼으로 다시 요청해 주세요.","issues":unrequested_issues(notes)}
             if reason or self.cancel_event.is_set(): raise RuntimeError("검토를 중지했습니다.")
             final = {"state":"done","draft":draft}
         except (OSError, ValueError, KeyError, IndexError, TypeError, RuntimeError) as exc:

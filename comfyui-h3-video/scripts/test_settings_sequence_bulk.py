@@ -82,7 +82,7 @@ class FeatureTests(unittest.TestCase):
              "ui":{"f":{"summary":"safe test prompt"},"shots":[[0,"test"]]}}
         req.update(changes);return req
 
-    def sequence(self, anchor=True): return self.env["build_and_queue"](self.request(photo_sequence=True,count=20,anchor=anchor))
+    def sequence(self, anchor=True, face_boost=True): return self.env["build_and_queue"](self.request(photo_sequence=True,count=20,anchor=anchor,face_boost=face_boost))
 
     def test_nine_references_keep_picture_order_and_first_frame_anchor(self):
         photos=(self.photos*2)[:9]
@@ -149,7 +149,7 @@ class FeatureTests(unittest.TestCase):
             return output.getvalue(),(10,12)
         self.crop_module.crop_reference=crop
         photos=(self.photos*2)[:9]
-        outcome=self.env['build_and_queue'](self.request(images=photos,photo_sequence=True,anchor=True))
+        outcome=self.env['build_and_queue'](self.request(images=photos,photo_sequence=True,anchor=True,face_boost=True))
         self.assertEqual(len(self.crop_calls),9)
         self.assertEqual(len(self.uploaded),18)
         originals=[f'reference-{i*2+1}.png' for i in range(9)]
@@ -172,6 +172,31 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(len(self.crop_calls),5)
         self.crop_module.ensure_available=lambda path:(_ for _ in ()).throw(AssertionError('Not needed'))
         self.env['build_and_queue'](self.request(images=self.photos[:1],photo_sequence=True))
+
+    def test_face_boost_is_off_by_default(self):
+        self.crop_module.ensure_available=lambda path:(_ for _ in ()).throw(AssertionError('Not needed when off'))
+        outcome=self.sequence(face_boost=False)
+        self.assertEqual(self.crop_calls,[]);self.assertEqual(len(self.uploaded),len(self.photos))
+        self.assertIsNone(outcome['face_crops'])
+
+    def test_face_boost_in_regular_multi_photo_keeps_picture_one_original(self):
+        def crop(raw, model):
+            self.crop_calls.append(raw);return (b'face-crop',(10,10))
+        self.crop_module.crop_reference=crop
+        outcome=self.env['build_and_queue'](self.request(count=1,face_boost=True))
+        self.assertEqual(len(self.crop_calls),len(self.photos)-1)  # 사진 1은 자르지 않는다
+        graph=self.sent[0][1]['prompt']
+        timeline=json.loads(graph[self.env['DIRECTOR']]['inputs']['timeline_data'])
+        values=[item['value'] for item in timeline['items']]
+        self.assertEqual(values[0],'reference-1.png')
+        self.assertTrue(all(item['source_width']==10 for item in timeline['items'][1:]))
+        self.assertEqual(self.env['HIST_DB'][0]['images'],values)
+        self.assertEqual(outcome['face_crops'],{'cropped':len(self.photos)-1,'original':0})
+
+    def test_face_boost_never_crops_first_last_frames(self):
+        self.crop_module.ensure_available=lambda path:(_ for _ in ()).throw(AssertionError('FL2VA frames are not cropped'))
+        self.env['build_and_queue'](self.request(images=self.photos[:2],mode='FL2VA',count=1,face_boost=True))
+        self.assertEqual(self.crop_calls,[])
 
     def test_missing_detector_queues_originals_and_reports_reason(self):
         self.crop_module.ensure_available=lambda path:(_ for _ in ()).throw(ValueError('Unavailable'))

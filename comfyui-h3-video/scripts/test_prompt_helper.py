@@ -167,7 +167,7 @@ class PromptHelperTests(unittest.TestCase):
         verdict={"status":"caution","summary":"속도를 확인하세요.","issues":[{"severity":"warning","category":"uncertainty","at":"",
             "evidence":"block","issue":"원본의 이동 여유 공간은 확인되지 않았습니다.","suggestion":"원본 사진에서 이동 경로를 확인하세요."}]}
         details="The same block begins sliding gradually along its established path. Its movement is continuous as it leaves the starting position, without lifting from its existing support. It maintains a steady pace during the central part of the motion, then decelerates smoothly and settles without bouncing."
-        job,complete=self.run_fake_model({"idea":"Move a block slowly in five seconds.","duration":5},[generated,{"beat_1":details},verdict])
+        job,complete=self.run_fake_model({"idea":"Move a block slowly in five seconds.","duration":5,"detail":True},[generated,{"beat_1":details},verdict])
         self.assertEqual(job["state"],"done");self.assertEqual(complete.call_count,3)
         self.assertGreater(complete.call_args_list[0].args[4],1000)
         self.assertEqual(complete.call_args_list[1].args[1],HELPER.DETAIL_SYSTEM)
@@ -177,6 +177,30 @@ class PromptHelperTests(unittest.TestCase):
         self.assertEqual(job["draft"]["f"]["summary"],generated["summary"])
         self.assertEqual(job["draft"]["review"]["status"],"caution")
         self.assertNotIn("review",job["draft"]["f"])
+
+    def test_new_draft_is_not_expanded_unless_detail_requested(self):
+        generated={"summary":"A block slides slowly.","sound":"Quiet room.","music":"N/A","shots":[{"time":0,"text":"The block moves smoothly then settles."}]}
+        job,complete=self.run_fake_model({"idea":"Move a block slowly.","duration":5},[generated,{"status":"ok","summary":"문제 없음","issues":[]}])
+        self.assertEqual(job["state"],"done");self.assertEqual(complete.call_count,2)
+        self.assertNotIn(HELPER.DETAIL_SYSTEM,[call.args[1] for call in complete.call_args_list])
+
+    def test_unrequested_appearance_and_props_are_removed_and_reported(self):
+        generated={"summary":"A person waves and walks to the window.","sound":"Quiet room.","music":"N/A","shots":[
+            {"time":0,"text":"The subject stands in a sunlit living room holding a white teapot. The subject raises one hand and waves."},
+            {"time":2,"text":"They plant both feet, shift weight to the balls of the feet and walk toward the window."}]}
+        job,_=self.run_fake_model({"idea":"A person waves, then walks slowly to the window.","duration":5},[generated,{"status":"ok","summary":"문제 없음","issues":[]}])
+        shots=job["draft"]["shots"]
+        self.assertNotIn("teapot",shots[0][1]);self.assertIn("raises one hand and waves",shots[0][1])
+        self.assertIn("plant both feet",shots[1][1]);self.assertIn("window",shots[1][1])  # 요청에 있는 단어·동작 표현은 유지
+        self.assertEqual(job["draft"]["review"]["status"],"caution")
+        issue=job["draft"]["review"]["issues"][0]
+        self.assertEqual(issue["category"],"constraints");self.assertIn("teapot",issue["issue"])
+
+    def test_terms_named_in_request_or_fixed_fields_are_kept(self):
+        request={"idea":"She lifts the teapot.","fixed":{"style":"A quiet kitchen, static camera."}}
+        draft={"f":{"summary":"She lifts the teapot in the kitchen."},"shots":[[0,"She lifts the teapot from the counter in the kitchen."]]}
+        self.assertEqual(HELPER.ground_draft(draft,request),[])
+        self.assertIn("teapot",draft["shots"][0][1])
 
     def test_failed_review_keeps_draft_and_reports_incomplete(self):
         generated={"summary":"A block slides.","sound":"Quiet room.","music":"N/A","shots":[{"time":0,"text":"A block slides."}]}

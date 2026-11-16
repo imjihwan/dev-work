@@ -226,6 +226,11 @@ a{color:var(--acc)}
         <span><b>사진 1 을 첫 장면으로 고정</b> <small style="color:var(--mute)">(실험)</small><br>
         <small style="color:var(--mute)">영상이 사진 1 모습 그대로 시작합니다. 다른 사진은 얼굴 참고로만 쓰입니다. 끄면 모든 사진을 참고만 해서 첫 장면이 다른 사진 쪽으로 갈 수 있습니다.</small></span>
       </label>
+      <label id="faceBoostBox" style="display:flex;gap:8px;align-items:flex-start;font-weight:400;margin-top:10px">
+        <input type="checkbox" id="faceBoost" style="margin-top:3px">
+        <span><b>얼굴인식강화</b> <small style="color:var(--mute)">(실험)</small><br>
+        <small style="color:var(--mute)">사진이 2장 이상일 때 사진 2부터 얼굴 주변만 잘라 얼굴 참고로 씁니다(사진 1은 원본). 사진 속 옷·배경이 섞이는 것을 줄이려는 기능이며, CPU로 사진마다 몇 초 더 걸립니다.</small></span>
+      </label>
       </fieldset>
     </div>
 
@@ -397,7 +402,7 @@ let bulkAllEditing=false;
 const FIELDS = ["subject","summary","style","keep","sound","music","aspect","resolution","duration","count"];
 const PARAMS = ["steps","sampler","scheduler","shift_video","shift_audio"];
 let CAT = null;             // /api/catalog 결과
-const S = {mode:"REF2VA", model:"", steps:4, sampler:"euler", scheduler:"simple", shift_video:10, shift_audio:3, loras:{}, trig:true, anchor:true, oneTake:true};
+const S = {mode:"REF2VA", model:"", steps:4, sampler:"euler", scheduler:"simple", shift_video:10, shift_audio:3, loras:{}, trig:true, anchor:true, oneTake:true, faceBoost:false};
 const UI = {modelOpen:false, loraOpen:false, loraQ:"", info:{}};
 
 // ---------- 모드 ----------
@@ -410,6 +415,7 @@ function setMode(m){
   $("subjectBox").hidden = !isRef();
   $("anchorBox").hidden = !isRef(); $("anchor").checked = !!S.anchor;
   $("oneTakeBox").hidden = !isRef(); $("oneTake").checked = S.oneTake !== false;
+  $("faceBoostBox").hidden = !isRef(); $("faceBoost").checked = !!S.faceBoost;
   if (images.length > maxImgs()) images.splice(maxImgs());
   drawThumbs();
   if (CAT) drawModelCard();
@@ -484,6 +490,7 @@ function drawThumbs(){
 }
 $("anchor").onchange = () => { S.anchor = $("anchor").checked; save(); drawGoInfo(); };
 $("oneTake").onchange = () => { S.oneTake = $("oneTake").checked; render(); };
+$("faceBoost").onchange = () => { S.faceBoost = $("faceBoost").checked; save(); drawGoInfo(); };
 $("drop").onclick = () => $("file").click();
 $("file").onchange = e => { addFiles(e.target.files); e.target.value = ""; };
 $("drop").ondragover = e => { e.preventDefault(); $("drop").classList.add("over"); };
@@ -1186,7 +1193,7 @@ function drawGoInfo(){
   updateSequenceButton();
   if (!CAT) return;
   const m = curModel(), n = Object.keys(S.loras).length, c = runCount();
-  $("goInfo").textContent = `${m ? friendlyModel(m) : base(S.model)} · ${S.steps}스텝${n ? ` · LoRA ${n}개` : ""}${isRef() && S.anchor ? " · 사진 1 첫 장면 고정" : ""}${c > 1 ? ` · ${c}번 반복` : ""} · ${etaText(c)}`;
+  $("goInfo").textContent = `${m ? friendlyModel(m) : base(S.model)} · ${S.steps}스텝${n ? ` · LoRA ${n}개` : ""}${isRef() && S.anchor ? " · 사진 1 첫 장면 고정" : ""}${isRef() && S.faceBoost ? " · 얼굴인식강화" : ""}${c > 1 ? ` · ${c}번 반복` : ""} · ${etaText(c)}`;
   const seed = $("seed").value.trim();
   $("countHint").textContent = c > 1
     ? (seed && /^\d+$/.test(seed) ? `시드 ${seed}, ${BigInt(seed) + 1n}, … 처럼 1씩 늘려 ${c}개를 만듭니다(같은 시드를 다시 넣으면 같은 결과).` : `시드를 매번 랜덤으로 바꿔 ${c}개를 만듭니다. 마음에 든 결과의 시드는 결과 목록에 표시됩니다.`)
@@ -1254,9 +1261,10 @@ async function submitJobs(sequence=false){
   if (bulkIds.length && !bulkFields.length) return setStatus("적용할 수정 항목을 선택해 주세요.","err");
   queueSubmitting = true; updateSequenceButton(); $("queueFeedback").hidden = true;
   $("cancelEdit").disabled = true;
-  $("go").disabled = true; setStatus(sequence && images.length>1 ? "CPU에서 얼굴 보조 사진을 준비하고 순차 등록하는 중…" : "올리는 중…");
+  const faceBoost = isRef() && !!S.faceBoost && images.length>1 && !bulkIds.length && !editId;
+  $("go").disabled = true; setStatus(faceBoost ? "CPU에서 얼굴 보조 사진을 준비하고 등록하는 중…" : "올리는 중…");
   try {
-    if(sequence && images.length>1){
+    if(faceBoost){
       const healthResponse=await fetch('/api/health');
       const health=healthResponse.ok?await healthResponse.json():null;
       if(!health?.sequence_face_crop)throw new Error('얼굴 크롭 업데이트를 적용하려면 화면 서버를 재시작해 주세요. Restart-H3-UI.ps1을 실행한 뒤 다시 등록하세요.');
@@ -1269,8 +1277,8 @@ async function submitJobs(sequence=false){
       edit_ids:allPending ? [] : bulkIds, all_pending:allPending, bulk_fields:bulkFields, photo_sequence:sequence,
       duration: $("duration").value, seed: $("seed").value, mode: sendMode(), model: S.model,
       steps: S.steps, sampler: S.sampler, scheduler: S.scheduler, shift_video: S.shift_video, shift_audio: S.shift_audio,
-      loras: Object.entries(S.loras).map(([name,strength]) => ({name, strength})), count: sequence ? images.length : runCount(), anchor: isRef() && !!S.anchor,
-      ui: {f:snapshot.f, shots:snapshot.shots, final:snapshot.final, trig:S.trig, oneTake:S.oneTake !== false} })});
+      loras: Object.entries(S.loras).map(([name,strength]) => ({name, strength})), count: sequence ? images.length : runCount(), anchor: isRef() && !!S.anchor, face_boost: faceBoost,
+      ui: {f:snapshot.f, shots:snapshot.shots, final:snapshot.final, trig:S.trig, oneTake:S.oneTake !== false, faceBoost:!!S.faceBoost} })});
     const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status);
     const m = curModel(), jobs = j.jobs || [{id: j.id, seed: j.seed}];
     const info = `${j.width}×${j.height}, ${m ? friendlyModel(m) : j.model} ${j.steps}스텝${j.loras ? `, LoRA ${j.loras}개` : ""}${j.anchor ? ", 사진 1 첫 장면 고정" : ""}`;
@@ -1289,8 +1297,8 @@ async function submitJobs(sequence=false){
     else poll(add, Date.now(), jobs.length > 1 ? info : `${info}, 시드 ${jobs[0].seed}`);
     if (j.failed?.length) { $("queueFeedback").textContent = `${add.length}개 수정 완료, ${j.failed.length}개 미적용: ${j.failed[0].error}`; $("queueFeedback").hidden = false; }
     else if(allPending){$("queueFeedback").textContent=add.length?`전체 대기항목 ${add.length}개 수정 완료 · 실행 중인 작업은 제외했습니다.`:"저장 시점에 수정할 대기항목이 없어 적용하지 않았습니다.";$("queueFeedback").hidden=false;}
-    else if(j.face_crops?.unavailable){$("queueFeedback").textContent=`순차 ${add.length}건 등록 · 얼굴 보조 크롭을 쓰지 못해 원본 사진으로 등록했습니다: ${j.face_crops.unavailable}`;$("queueFeedback").hidden=false;}
-    else if(j.face_crops){$("queueFeedback").textContent=`순차 ${add.length}건 등록 · 얼굴 보조 크롭 ${j.face_crops.cropped}장, 원본 유지 ${j.face_crops.original}장. 각 작업의 사진 1은 원본입니다.`;$("queueFeedback").hidden=false;}
+    else if(j.face_crops?.unavailable){$("queueFeedback").textContent=`${sequence?"순차 ":""}${add.length}건 등록 · 얼굴인식강화를 쓰지 못해 원본 사진으로 등록했습니다: ${j.face_crops.unavailable}`;$("queueFeedback").hidden=false;}
+    else if(j.face_crops){$("queueFeedback").textContent=`${sequence?"순차 ":""}${add.length}건 등록 · 얼굴인식강화: 얼굴 크롭 ${j.face_crops.cropped}장, 얼굴을 못 찾아 원본 유지 ${j.face_crops.original}장. 사진 1은 원본입니다.`;$("queueFeedback").hidden=false;}
     $("go").disabled = false;
     loadHist(false, true);
   } catch (e) { setStatus("실패: " + e.message, "err"); $("go").disabled = false; }
@@ -1482,7 +1490,7 @@ function historySettingsHtml(e){
     ["영상 길이",e.duration != null ? `${e.duration}초` : "기록 없음"],
     ["스텝",value(e.steps)], ["샘플러",value(e.sampler)], ["스케줄러",value(e.scheduler)],
     ["영상 shift",value(e.shift_video)], ["소리 shift",value(e.shift_audio)], ["시드",value(e.seed)],
-    ["첫 장면 고정",toggle(e.anchor)], ["원테이크",toggle(e.ui?.oneTake)], ["트리거 자동적용",toggle(e.ui?.trig)]
+    ["첫 장면 고정",toggle(e.anchor)], ["얼굴인식강화",toggle(e.ui?.faceBoost)], ["원테이크",toggle(e.ui?.oneTake)], ["트리거 자동적용",toggle(e.ui?.trig)]
   ];
   const loras = Array.isArray(e.loras) ? e.loras.length
     ? `<ul>${e.loras.map(l => `<li><span>${esc(value(l.name))}</span><b>강도 ${esc(value(l.strength))}</b></li>`).join("")}</ul>`
@@ -1848,6 +1856,7 @@ async function loadFromHist(e){
   for (const x of e.loras || []) { if (CAT.loras.some(l => l.name === x.name)) S.loras[x.name] = x.strength; else warn.push(`LoRA ${base(x.name)} 없음`); }
   if (u.trig != null) S.trig = u.trig;
   if (u.oneTake != null) { S.oneTake = u.oneTake; $("oneTake").checked = u.oneTake; }
+  S.faceBoost = !!u.faceBoost; $("faceBoost").checked = S.faceBoost;
   S.anchor = !!e.anchor; $("anchor").checked = S.anchor;
   images.length = 0; images.push(...got);
   manualFinal = false; $("resetFinal").hidden = true; $("finalHint").textContent = "위 칸을 고치면 자동으로 다시 만들어집니다.";

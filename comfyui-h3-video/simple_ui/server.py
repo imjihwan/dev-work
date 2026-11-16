@@ -766,7 +766,9 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
     # --- 사진·프롬프트 ---
     items, sizes, names = [], [], []
     face_items, face_cropped, face_unavailable = [], 0, None
-    face_mode = sequence and len(imgs) > 1
+    # 얼굴인식강화(선택): 참조 방식에서 사진 2장 이상일 때만, 사진 2부터 얼굴 주변을 잘라 보조 참조로 쓴다.
+    # 첫·끝 장면 방식의 사진은 실제 프레임이라 자르지 않는다. 대기항목 수정은 원래 사진을 그대로 쓴다.
+    face_mode = req.get("face_boost") is True and mode == "REF2VA" and len(imgs) > 1 and not reference
     if face_mode:
         from face_references import ensure_available, crop_reference, MODEL_NAME
         face_model_path = os.path.join(ROOT, 'models', 'face_detection', MODEL_NAME)
@@ -796,7 +798,9 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
         items.append({"id": f"image-{uuid.uuid4().int % 10**13}-{i}", "enabled": True, "order": i, "slot": i,
                       "start": i, "duration": 1, "type": "image", "value": names[-1], "thumbnail": None,
                       "source_width": display_size[0], "source_height": display_size[1]})
-        if face_mode:
+        if face_mode and not sequence and i == 0:
+            face_items.append(items[-1])  # 일반 생성의 사진 1은 원본(순차 추가는 사진마다 사진 1이 될 수 있어 모두 준비)
+        elif face_mode:
             cropped = crop_reference(raw, face_model_path)
             if cropped is None:
                 face_items.append(items[-1])
@@ -811,6 +815,9 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
     w, h = canvas(aspect, resolution, sizes[0])
 
     d = p[DIRECTOR]["inputs"]
+    if face_mode and not sequence:
+        items = [items[0]] + face_items[1:]
+        names = [item["value"] for item in items]
     tl = json.loads(d["timeline_data"])
     tl["items"] = items
     tl["builder_state"]["simple_prompt"] = text
@@ -895,7 +902,7 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
         hist_add(entries)
     return {"jobs": jobs, "id": jobs[0]["id"], "seed": jobs[0]["seed"], "width": w, "height": h,
             "model": os.path.basename(model.replace("\\", "/")), "steps": steps, "loras": len(loras), "mode": mode,
-            "anchor": anchor, "face_crops": dict({"cropped": face_cropped, "original": len(imgs) - face_cropped},
+            "anchor": anchor, "face_crops": dict({"cropped": face_cropped, "original": (len(imgs) if sequence else len(imgs) - 1) - face_cropped},
                                **({"unavailable": face_unavailable} if face_unavailable else {}))
             if face_mode or face_unavailable else None}
 
