@@ -27,7 +27,7 @@ SCRIPT_FILES = (
     "test_gallery.py", "test_apply_queued_style.py", "test_add_queued_opening_pose.py",
     "test_prompt_helper.py", "test_local_translate.py", "test_translation_preview.cjs", "test_photo_batch_ui.cjs", "test_folder_photos.cjs", "test_opening_pose.cjs",
     "test_input_thumbnail.py", "test_history_ui.cjs", "test_history_media.cjs",
-    "test_history_delete.py", "test_gallery_ui.cjs", "test_gallery_navigation.cjs", "test_gallery_regenerate.py",
+    "test_history_delete.py", "test_gallery_ui.cjs", "test_gallery_thumbnails.cjs", "test_gallery_navigation.cjs", "test_gallery_regenerate.py",
     "test_gallery_progress.py", "test_settings_sequence_bulk.py",
     "test_restore_anchored_reference.py", "test_restart_running.py",
     "test_reference_restore.cjs", "test_queue_edit.py", "test_prompt_sync.cjs", "test_priority_queue.py",

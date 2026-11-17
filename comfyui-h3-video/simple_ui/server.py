@@ -321,6 +321,13 @@ def delete_history(req):
     with QUEUE_EDIT_LOCK:
         with HLOCK:
             ids = list(dict.fromkeys(e["id"] for e in HIST_DB if req.get("all") or e["id"] in requested))
+            links = [{**{key: e[key] for key in ("video", "images") if key in e},
+                      "regenerated": bool(e.get("regenerated") or (e.get("ui") or {}).get("regeneration"))}
+                     for e in HIST_DB if e["id"] in ids and e.get("video")]
+        # Preserve the first-input association before removing its last history record.
+        # No image/video decoding, and no prompts or generation settings are copied.
+        if links:
+            GALLERY.remember(links)
         if ids:
             state = json.load(comfy("/queue"))
             active = {item[1] for item in state["queue_running"] + state["queue_pending"]}
@@ -346,10 +353,14 @@ def hist_result(pid, st):
     changed = None
     with HLOCK:
         for e in HIST_DB:
-            if e["id"] == pid and e.get("state") != st["state"]:
-                e.update(state=st["state"], video=st.get("video"), error=st.get("error"), t_end=time.time())
-                _save_json(HIST, HIST_DB)
-                changed = json.loads(json.dumps(e))
+            if e["id"] == pid:
+                update = e.get("state") != st["state"] or (st.get("video") and e.get("video") != st["video"])
+                if update:
+                    e.update(state=st["state"], video=st.get("video") or e.get("video"), error=st.get("error"), t_end=time.time())
+                    _save_json(HIST, HIST_DB)
+                if e.get("video"):
+                    changed = {key: e[key] for key in ("video", "images", "regenerated") if key in e}
+                    changed["regenerated"] = bool(e.get("regenerated") or (e.get("ui") or {}).get("regeneration"))
                 break
     if changed is not None:
         # 갤러리 연결은 이력 잠금을 푼 뒤에: 갤러리 잠금을 기다리는 동안 이력·상태 조회가 막히지 않게
@@ -1217,15 +1228,22 @@ def gallery_progress():
         running, pending = state.get("queue_running", []), state.get("queue_pending", [])
         active = {item[1] for item in running + pending}
         with HLOCK:
-            unfinished = [(entry["id"], entry.get("t", 0)) for entry in HIST_DB
-                          if (entry.get("ui") or {}).get("regeneration")
-                          and entry.get("state") in ("queued", "running") and entry["id"] not in active]
+            unfinished = [(entry["id"], entry.get("t", 0), bool((entry.get("ui") or {}).get("regeneration"))) for entry in HIST_DB
+                          if (entry.get("state") in ("queued", "running") or (entry.get("state") == "done" and not entry.get("video")))
+                          and entry["id"] not in active]
         # A gallery-only session must also record completion and its source-image link.
-        for pid, created_at in unfinished[:8]:
+        # Include ordinary jobs, with bounded round-robin checks so old unknown IDs
+        # cannot indefinitely block newly completed videos from receiving a source.
+        cursor = GALLERY_PROGRESS_CACHE.get("completion_cursor", 0) % max(1, len(unfinished))
+        batch = (unfinished[cursor:] + unfinished[:cursor])[:8]
+        GALLERY_PROGRESS_CACHE["completion_cursor"] = (cursor + len(batch)) % max(1, len(unfinished))
+        for pid, created_at, regenerated in batch:
             if time.time() - created_at < 2:
                 continue
-            result = status(pid)
-            if result["state"] == "unknown" and time.time() - created_at > 30:
+            result = _status(pid, state)
+            if result["state"] in ("done", "error", "lost"):
+                hist_result(pid, result)
+            if regenerated and result["state"] == "unknown" and time.time() - created_at > 30:
                 hist_result(pid, {"state": "lost", "error": "대기열에서 작업을 찾지 못했습니다."})
         with PLOCK:
             value = (PROGRESS.get(running[0][1]) or {}).get("pct") if running else None

@@ -192,13 +192,41 @@ function tileHtml(item){
   const placeholder=item.thumbnail?"원본 사진 불러오는 중…":"원본 이미지 정보 없음";
   return `<div class="cover"><button type="button" class="cover-play" data-play="${item.id}" aria-label="${esc(time)} 영상 재생"><span class="placeholder">${placeholder}</span>${item.thumbnail?`<img src="${esc(item.thumbnail)}" alt="생성에 사용한 첫 번째 원본 이미지" loading="lazy" decoding="async">`:""}<span class="source-label">원본 사진 1</span><span class="play-symbol">▶</span></button><label class="pick"><input type="checkbox" data-pick="${item.id}" aria-label="함께 재생할 영상 선택"></label>${item.trashed?"":`<button type="button" class="favorite" data-favorite="${item.id}" aria-pressed="${item.favorite}" aria-label="${item.favorite?"즐겨찾기 해제":"즐겨찾기 추가"}">${item.favorite?"★":"☆"}</button>`}</div><div class="tile-body">${item.regenerated?`<span class="regenerated-badge">${G.focus===item.source_id?"방금 재생성 완료":"재생성 완료"}</span>`:""}<div class="tile-date">${esc(time)}</div><div class="tile-meta">${esc(meta)}</div><div class="tile-meta" title="${esc(base(item.model))}">${esc(base(item.model))}</div><div class="tile-actions"><button type="button" data-play="${item.id}">재생</button><a href="${videoUrl(item,true)}" download>다운로드</a><button type="button" class="danger" data-remove="${item.id}">${item.trashed?"복원":"삭제"}</button></div>${regenerationButton(item)}</div>`;
 }
+// Recover transient image failures without rebuilding cards or interrupting playback.
+const GALLERY_THUMBNAILS=new WeakMap();let thumbnailRetrySequence=0;
+function visibleGalleryThumbnail(image){const rect=image.getBoundingClientRect();return rect.bottom>=-200&&rect.top<=window.innerHeight+200;}
+function retryGalleryThumbnail(image,manual=false){
+  const state=GALLERY_THUMBNAILS.get(image);
+  if(!state||!state.failed||!image.isConnected||!G.active||document.hidden||!visibleGalleryThumbnail(image))return;
+  if(manual){state.attempts=0;state.nextAt=0;}
+  if(state.attempts>=3||Date.now()<state.nextAt)return;
+  state.attempts++;state.failed=false;image.hidden=false;image.style.visibility="";
+  if(state.placeholder){state.placeholder.hidden=false;state.placeholder.textContent="원본 사진 다시 불러오는 중…";}
+  image.src=state.url+(state.url.includes("?")?"&":"?")+"retry="+(++thumbnailRetrySequence);
+}
+function retryGalleryThumbnails(manual=false){for(const node of $("grid").children){const image=node.querySelector("img");if(image)retryGalleryThumbnail(image,manual);}}
+function bindGalleryThumbnail(node,url){
+  const image=node.querySelector("img");if(!image)return;
+  const state={url,attempts:0,failed:false,nextAt:0,placeholder:node.querySelector(".placeholder")};
+  GALLERY_THUMBNAILS.set(image,state);
+  image.onload=()=>{state.failed=false;image.hidden=false;image.style.visibility="";if(state.placeholder)state.placeholder.hidden=true;};
+  image.onerror=()=>{
+    state.failed=true;image.style.visibility="hidden";
+    if(state.placeholder){state.placeholder.hidden=false;state.placeholder.textContent=state.attempts>=3?"원본 사진을 불러오지 못했습니다 · ↻로 다시 시도":"원본 사진 연결 대기 · 자동 재시도";}
+    state.nextAt=Date.now()+[2000,5000,15000][Math.min(state.attempts,2)];
+    if(state.attempts<3)setTimeout(()=>retryGalleryThumbnail(image),Math.max(0,state.nextAt-Date.now()));
+  };
+  // The cached image may have loaded before handlers were attached.
+  if(image.complete&&image.naturalWidth>0)image.onload();
+  else if(image.complete&&image.naturalWidth===0)image.onerror();
+}
 function drawGallery(){
   const grid=$("grid"),old=new Map([...grid.children].map(node=>[node.dataset.id,node]));
   const anchor=window.scrollY>80?[...grid.children].find(node=>node.getBoundingClientRect().top>=0):null;
   const anchorY=anchor?.getBoundingClientRect().top;
   for(const [index,item] of G.items.entries()){
     let node=old.get(item.id);if(!node){node=document.createElement("article");node.className="tile";node.dataset.id=item.id;}
-    const signature=JSON.stringify([item,!!REGEN.target,G.focus===item.source_id]);if(node.dataset.signature!==signature){node.innerHTML=tileHtml(item);node.dataset.signature=signature;node.querySelector("img")?.addEventListener("error",event=>{event.target.hidden=true;const placeholder=event.target.parentElement.querySelector(".placeholder");if(placeholder)placeholder.textContent="원본 사진을 불러올 수 없음";});}
+    const signature=JSON.stringify([item,!!REGEN.target,G.focus===item.source_id]);if(node.dataset.signature!==signature){node.innerHTML=tileHtml(item);node.dataset.signature=signature;bindGalleryThumbnail(node,item.thumbnail);}
     node.classList.toggle("regenerate-target",item.id===REGEN.target?.id);
     node.classList.toggle("completed-focus",!!G.focus&&item.source_id===G.focus);
     old.delete(item.id);if(grid.children[index]!==node)grid.insertBefore(node,grid.children[index]||null);
@@ -235,7 +263,7 @@ async function fetchGallery(more=false,quiet=false){
       else G.items=incoming;
       G.revision=changedDuringPaging?"":first.revision;if(changedDuringPaging)G.again=true;drawGallery();
     }
-    refreshPlayerLoras();updateViewerNavigation();setStatus(`${G.total}개 · 자동 갱신 중`);
+    retryGalleryThumbnails();refreshPlayerLoras();updateViewerNavigation();setStatus(`${G.total}개 · 자동 갱신 중`);
     showCompletedRegeneration();
   }catch(error){setStatus("불러오지 못했습니다. 새로고침해 주세요.",true);}
   finally{G.loading=false;$("loading").hidden=true;if(G.again){G.again=false;loadGallery(false,true);}else schedule();}
@@ -404,7 +432,7 @@ $("grid").onclick=event=>{
 document.querySelectorAll("[data-mode]").forEach(button=>button.onclick=()=>{G.mode=button.dataset.mode;changeView();});
 $("order").onchange=()=>{G.order=$("order").value;changeView();};
 $("search").oninput=()=>{clearTimeout(G.searchTimer);G.searchTimer=setTimeout(()=>{G.query=$("search").value;changeView();},300);};
-$("refresh").onclick=()=>{G.revision="";loadGallery();};$("playSelected").onclick=()=>openViewer();
+$("refresh").onclick=()=>{G.revision="";retryGalleryThumbnails(true);loadGallery();};$("playSelected").onclick=()=>openViewer();
 $("clearSelected").onclick=()=>{G.selected.clear();selection();};$("trashSelected").onclick=()=>requestDelete([...G.selected]);
 $("cancelDelete").onclick=()=>$("deleteDialog").close();$("confirmDelete").onclick=()=>{const ids=G.deleteIds;G.deleteIds=[];$("deleteDialog").close();updateItems(ids,"trash");};
 $("closeViewer").onclick=closeViewer;$("replay").onclick=replay;$("pause").onclick=pause;$("audio").onchange=audio;
@@ -451,6 +479,7 @@ function onGalleryScroll(){
 function acknowledgeGalleryNavigation(hidden){if(typeof hidden!=="boolean")return;GALLERY_NAV.hidden=hidden;resetGalleryScroll();}
 // End gallery navigation.
 window.addEventListener("scroll",onGalleryScroll,{passive:true});
+window.addEventListener("scroll",()=>retryGalleryThumbnails(),{passive:true});
 window.addEventListener("resize",resetGalleryScroll,{passive:true});
 document.addEventListener("visibilitychange",()=>{if(document.hidden){clearTimeout(G.timer);clearTimeout(ACTIVITY.timer);pause();}else{loadGallery(false,true);pollActivity();}});
 window.addEventListener("message",event=>{if(event.origin!==location.origin||event.source!==parent)return;if(event.data?.type==="gallery-navigation-state")acknowledgeGalleryNavigation(event.data.hidden);if(event.data?.type==="gallery-active"){G.active=!!event.data.active;GALLERY_NAV.hidden=false;resetGalleryScroll();if(G.active){loadGallery(false,true);pollActivity();}else{clearTimeout(G.timer);clearTimeout(ACTIVITY.timer);closeViewer();}}if(event.data?.type==="lora-overlay-toggle")setLoras(event.data.enabled);});

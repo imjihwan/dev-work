@@ -112,7 +112,13 @@ class VideoGallery:
                     flags["regenerated"] = True
                     changed = True
             if changed:
-                self._save_state()
+                try:
+                    self._save_state()
+                except OSError:
+                    # Reload persisted state on retry; otherwise the in-memory
+                    # mutation would make the failed write look already saved.
+                    self.state = None
+                    raise
 
     def list(self, offset=0, limit=48, mode="all", order="newest", query="", known="", metadata=(), focus=None):
         if mode not in ("all", "favorites", "trash") or order not in ("newest", "oldest"):
@@ -190,7 +196,12 @@ class VideoGallery:
                 raise FileNotFoundError("원본 이미지 정보를 찾지 못했습니다.")
             path = self.home / "source_thumbnails" / (version + ".webp")
             if path.is_file():
-                return path.read_bytes()
+                cached = path.read_bytes()
+                if (len(cached) >= 12 and cached[:4] == b"RIFF" and cached[8:12] == b"WEBP"
+                        and int.from_bytes(cached[4:8], "little") == len(cached) - 8):
+                    return cached
+                # A partial/empty cache must not become a permanent blank tile.
+                path.unlink()
             if self.thumbnailer is None:
                 raise FileNotFoundError("원본 사진을 불러올 수 없습니다.")
         # 썸네일 만들기(ComfyUI 호출, 최대 수십 초)는 잠금 밖에서: 잠금을 쥔 채 기다리면 이력·상태 조회까지 멈춘다

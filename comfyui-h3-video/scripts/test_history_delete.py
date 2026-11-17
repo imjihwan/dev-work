@@ -3,13 +3,16 @@ import ast
 import copy
 import io
 import json
+import os
 from pathlib import Path
 import threading
 import unittest
 import urllib.error
+from unittest.mock import MagicMock
 
 ROOT = Path(__file__).resolve().parents[1]
-TREE = ast.parse((ROOT / "simple_ui/server.py").read_text(encoding="utf-8"))
+SOURCE = Path(os.environ.get("GALLERY_TEST_SOURCE", ROOT / "simple_ui"))
+TREE = ast.parse((SOURCE / "server.py").read_text(encoding="utf-8"))
 FUNCTION = next(node for node in TREE.body if isinstance(node,ast.FunctionDef) and node.name=="delete_history")
 
 
@@ -21,6 +24,7 @@ class HistoryDeleteTests(unittest.TestCase):
         self.calls=[];self.saved=[];self.fail=None;self.race=False;self.add_new=False
         self.env={"json":json,"HIST_DB":self.entries,"HIST":"unused","HLOCK":threading.Lock(),
             "QUEUE_EDIT_LOCK":threading.Lock(),"comfy":self.comfy,"_save_json":lambda _,data:self.saved.append(copy.deepcopy(data))}
+        self.gallery=MagicMock();self.env['GALLERY']=self.gallery
         exec(compile(ast.Module(body=[FUNCTION],type_ignores=[]),"history-delete","exec"),self.env)
 
     def comfy(self,path,data=None,headers=None):
@@ -73,6 +77,18 @@ class HistoryDeleteTests(unittest.TestCase):
         self.delete({"ids":["done"]})
         self.assertEqual(self.calls,[("/queue",None)])
         self.assertEqual(len(self.saved),1)
+
+    def test_completed_source_link_is_preserved_before_history_clear(self):
+        self.entries[2].update(video={'filename':'synthetic.mp4','subfolder':'video'},images=['simpleui_0123456789.jpg'],prompt='PRIVATE')
+        self.delete({'ids':['done']})
+        link=self.gallery.remember.call_args.args[0][0]
+        self.assertEqual(link['images'],['simpleui_0123456789.jpg']);self.assertNotIn('PRIVATE',json.dumps(link))
+
+    def test_failed_link_persistence_does_not_discard_history(self):
+        self.entries[2].update(video={'filename':'synthetic.mp4'},images=['simpleui_0123456789.jpg'])
+        self.gallery.remember.side_effect=OSError('Synthetic write failure')
+        with self.assertRaises(OSError):self.delete({'ids':['done']})
+        self.assertEqual(len(self.entries),3);self.assertEqual(self.calls,[])
 
     def test_queue_or_interrupt_failure_keeps_history_for_retry(self):
         for failure in ("/queue","/interrupt"):

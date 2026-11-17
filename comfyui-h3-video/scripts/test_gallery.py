@@ -211,6 +211,30 @@ class GalleryTests(unittest.TestCase):
         self.video()
         self.assertIsNotNone(self.gallery.list()["items"][0]["thumbnail"])
 
+    def test_failed_association_write_is_retried_instead_of_kept_only_in_memory(self):
+        metadata=[{'video':{'filename':'synthetic.mp4','subfolder':'video'},'images':['simpleui_0123456789.png']}]
+        with patch.object(self.gallery,'_save_state',side_effect=OSError('Synthetic failure')):
+            with self.assertRaises(OSError):self.gallery.remember(metadata)
+        self.assertIsNone(self.gallery.state)
+        self.gallery.remember(metadata)
+        self.assertTrue((self.home/'state.json').is_file())
+        restarted=MODULE.VideoGallery(self.output,self.home);restarted._load_state()
+        self.assertEqual(restarted.state,self.gallery.state)
+
+    def test_empty_or_truncated_thumbnail_cache_is_regenerated(self):
+        self.video();item=self.gallery.list()['items'][0];name='simpleui_0123456789.png'
+        self.gallery.remember([{'video':item['video'],'images':[name]}])
+        output=io.BytesIO()
+        with Image.new('RGB',(24,32),'blue') as image:image.save(output,'WEBP')
+        data=output.getvalue();calls=[]
+        self.gallery.thumbnailer=lambda source:(calls.append(source),data)[1]
+        version=self.gallery._source_version(name);path=self.home/'source_thumbnails'/(version+'.webp');path.parent.mkdir(parents=True)
+        for corrupt in (b'',data[:12]):
+            path.write_bytes(corrupt)
+            self.assertEqual(self.gallery.thumbnail(item['id'],version),data)
+            self.assertEqual(path.read_bytes(),data)
+        self.assertEqual(len(calls),2)
+
 
 class GalleryRouteTests(unittest.TestCase):
     def setUp(self):
