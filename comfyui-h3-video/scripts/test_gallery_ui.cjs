@@ -250,11 +250,39 @@ async function swipe(video,x1,y1,x2,y2){
   const mainHtml=fs.readFileSync(process.argv[3]||path.join(__dirname,'../simple_ui/index.html'),'utf8'),mainScript=mainHtml.match(/<script>([\s\S]*)<\/script>/)[1];
   const tabElements=new Map(),messages=[],previewTabStates=[];
   const tabGet=id=>{if(!tabElements.has(id)){const element=new Element(id);element.hidden=true;element.getAttribute=name=>element.attrs[name];element.contentWindow={postMessage:message=>messages.push({id,message})};tabElements.set(id,element);}return tabElements.get(id);};
-  const tabContext=vm.createContext({$:tabGet,window:{innerHeight:800,addEventListener(){}},location:{origin:'http://synthetic.local'},hideHistoryDetails(){},closeVideoComparison(){},syncHistoryPreviews(){previewTabStates.push(tabGet('singleApp').hidden);},isLoraOverlayEnabled:()=>true});
+  const tabContext=vm.createContext({$:tabGet,document:{body:new Element('tab-body')},window:{innerHeight:800,addEventListener(){}},location:{origin:'http://synthetic.local'},hideHistoryDetails(){},closeVideoComparison(){},syncHistoryPreviews(){previewTabStates.push(tabGet('singleApp').hidden);},isLoraOverlayEnabled:()=>true});
   vm.runInContext(mainScript.slice(mainScript.indexOf('function sizeGalleryFrame('),mainScript.indexOf('window.addEventListener("message",event=>')),tabContext);
   tabGet('galleryTab').onclick();assert(!tabGet('galleryFrame').hidden);assert(tabGet('singleApp').hidden&&tabGet('storyFrame').hidden);assert.equal(tabGet('galleryFrame').src,'/gallery');assert.equal(tabGet('galleryFrame').style.height,'792px');
   tabGet('galleryFrame').onload();assert(messages.some(({message})=>message.type==='lora-overlay-toggle'&&message.enabled));
+  tabContext.setGalleryNavHidden(true);assert(tabContext.document.body.classList.contains('gallery-nav-hidden'));
+  tabGet('galleryFrame').onload();assert(!tabContext.document.body.classList.contains('gallery-nav-hidden'),'Reloading the gallery must restore navigation');
+  tabContext.setGalleryNavHidden(true);
   tabGet('singleTab').onclick();assert(!tabGet('singleApp').hidden);assert(tabGet('galleryFrame').hidden);assert.equal(messages.at(-1).message.active,false);
+  assert(!tabContext.document.body.classList.contains('gallery-nav-hidden'),'Leaving the gallery must restore the main navigation');
   assert.deepEqual(previewTabStates,[true,false],'Tab switches must update the main-page preview resource lifecycle');
-  console.log('Gallery UI checks passed: target/source regeneration, confirmation, retry deduplication, existing swipe/playback/filter flows and mobile/iPad sizing.');
+  // Metadata may arrive after playback opens. Refresh only the displayed LoRA info.
+  context.closeViewer();
+  const infoItems=entries.slice(0,3).map((item,index)=>({...item,id:'synthetic-lora-info-'+index,loras:index===2?loras:[]}));
+  context.infoItems=infoItems;
+  run('G.active=true;G.items=infoItems;G.total=3;G.revision="lora-before";G.selected=new Set(infoItems.map(item=>item.id));');
+  context.openViewer();await settle();
+  const infoPlayers=[...get('players').players];infoPlayers.forEach((player,index)=>{player.currentTime=1.25+index;player.volume=.3;});
+  const playerState=infoPlayers.map(player=>({time:player.currentTime,loads:player.loads,plays:player.playCount,paused:player.paused,volume:player.volume,src:player.src,muted:player.muted}));
+  const beforeInfoDialogs=[get('viewer').showCalls,get('viewer').closeCalls];
+  const freshInfo=infoItems.map((item,index)=>{
+    const next={...item};if(index===0)next.loras=loras;else if(index===1)delete next.loras;else next.loras=[];return next;
+  }).reverse();
+  context.fetch=async()=>({ok:true,json:async()=>({items:freshInfo,total:3,counts:{all:3},revision:'lora-after'})});
+  await context.loadGallery(false,true);
+  assert(infoPlayers[0].card.querySelector('.lora-info').innerHTML.includes('synthetic_9_full_suffix'),'A stale empty LoRA list must update when metadata arrives');
+  assert.equal((infoPlayers[0].card.querySelector('.lora-info').innerHTML.match(/class="lora-row"/g)||[]).length,10);
+  assert.equal(infoPlayers[1].card.querySelector('.lora-info').innerHTML,'LoRA 기록 없음','Missing records must not become an empty LoRA list');
+  assert.equal(infoPlayers[2].card.querySelector('.lora-info').innerHTML,'LoRA 없음','An explicitly empty list must clear the old displayed LoRAs');
+  infoPlayers.forEach((player,index)=>{
+    assert.equal(get('players').players[index],player);
+    assert.deepEqual({time:player.currentTime,loads:player.loads,plays:player.playCount,paused:player.paused,volume:player.volume,src:player.src,muted:player.muted},playerState[index],'Refreshing information must preserve playback, audio and Safari permission');
+  });
+  assert.deepEqual([get('viewer').showCalls,get('viewer').closeCalls],beforeInfoDialogs);
+  context.closeViewer();
+  console.log('Gallery UI checks passed: regeneration, swipe/playback/filter flows, mobile/iPad sizing and live LoRA metadata refresh without interrupting playback.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

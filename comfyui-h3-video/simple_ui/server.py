@@ -14,6 +14,7 @@ from functools import lru_cache
 
 from PIL import Image, ImageOps
 from prompt_helper import PromptHelper
+from local_translate import LocalTranslator, TranslationBusy
 from story import StoryProjects
 from gallery import VideoGallery
 
@@ -24,6 +25,10 @@ TEMPLATE = os.path.join(HERE, "template_api.json")
 INDEX = os.path.join(HERE, os.environ.get("SIMPLEUI_INDEX", "index.html"))
 PORT = int(os.environ.get("SIMPLEUI_PORT", "8190"))
 PROMPT_HELPER = PromptHelper()
+def prompt_helper_busy():
+    with PROMPT_HELPER.lock:
+        return bool(PROMPT_HELPER.job and PROMPT_HELPER.job.get("state") in ("starting", "generating", "enriching", "reviewing"))
+TRANSLATOR = LocalTranslator(busy=prompt_helper_busy)
 CARDS = os.path.join(HERE, "cards.json")
 PRESETS = os.path.join(HERE, "presets.json")
 OUTPUT = os.path.join(ROOT, "output")
@@ -239,6 +244,34 @@ def save_settings(name, data):
         settings[name] = {"data": data, "saved_at": time.time()}
         _save_json(SETTINGS, settings)
     return {"ok": True, "name": name}
+
+
+def rename_settings(name, new_name):
+    name = str(name or '').strip()
+    new_name = str(new_name or '').strip()
+    if not new_name or len(new_name) > 60:
+        raise ValueError('새 설정 이름은 1~60자로 입력해 주세요.')
+    with SETTINGS_LOCK:
+        settings = _load_json(SETTINGS, {})
+        if name not in settings:
+            raise ValueError('저장된 설정을 찾지 못했습니다.')
+        if name != new_name:
+            if new_name in settings:
+                raise ValueError('같은 이름의 설정 묶음이 있습니다. 다른 이름을 입력해 주세요.')
+            settings[new_name] = settings.pop(name)
+            _save_json(SETTINGS, settings)
+    return {'ok': True, 'name': new_name}
+
+
+def delete_settings(name):
+    name = str(name or '').strip()
+    with SETTINGS_LOCK:
+        settings = _load_json(SETTINGS, {})
+        if name not in settings:
+            raise ValueError('저장된 설정을 찾지 못했습니다.')
+        del settings[name]
+        _save_json(SETTINGS, settings)
+    return {'ok': True, 'name': name}
 
 
 def _seed(path):
@@ -591,7 +624,7 @@ def catalog():
            "samplers": object_options("KSamplerSelect", "sampler_name"),
            "schedulers": object_options("BasicScheduler", "scheduler"),
            "presets": _load_json(PRESETS, {}), "default": template_defaults(),
-           "capabilities": {"queue_edit": True, "bulk_edit": True, "bulk_edit_all": True, "photo_sequence": True, "saved_settings": True, "restart_running": True}}
+           "capabilities": {"queue_edit": True, "bulk_edit": True, "bulk_edit_all": True, "photo_sequence": True, "saved_settings": True, "restart_running": True, "priority_queue": True}}
     # 작은 LoRA 는 처음 보면 Civitai 정보를 자동으로 가져온다(큰 본체 모델은 버튼으로)
     for c in out["loras"]:
         if "civitai" not in c and c["fetch"]["state"] == "idle" and (c["auto"].get("size_gb") or 99) < 4:
@@ -742,13 +775,17 @@ def regenerate_gallery(req):
         return build_and_queue(values, reference=reference, queue_first=True)
 
 
-def queue_prompt_first(prompt):
+def queue_prompt_first(prompt, slots=1, number=None):
     """Add a new job before pending work without changing or interrupting any job."""
     with QUEUE_EDIT_LOCK:
-        state = json.load(comfy("/queue"))
-        number = min([0] + [item[0] for item in state["queue_running"] + state["queue_pending"]]) - 1
-        return json.load(comfy("/prompt", json.dumps({"number": number, "prompt": prompt, "client_id": CLIENT_ID}).encode(),
-                               {"Content-Type": "application/json"}))
+        if number is None:
+            state = json.load(comfy("/queue"))
+            # Reserve consecutive priorities so repeats retain their seed/order.
+            number = min([0] + [item[0] for item in state["queue_running"] + state["queue_pending"]]) - slots
+        result = json.load(comfy("/prompt", json.dumps({"number": number, "prompt": prompt, "client_id": CLIENT_ID}).encode(),
+                                {"Content-Type": "application/json"}))
+        result["number"] = number
+        return result
 
 
 def judge_face_side(raw):
@@ -774,8 +811,8 @@ def input_bytes(name):
 def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
     edit_id = req.get("edit_id")
     sequence = req.get("photo_sequence") is True
-    if queue_first and (edit_id or sequence or int(req.get("count") or 1) != 1):
-        raise ValueError("우선 재생성은 새 영상 한 편씩 등록해 주세요.")
+    if queue_first and (edit_id or sequence or prepare_only):
+        raise ValueError("1순위 우선추가는 새 작업 등록에서만 사용할 수 있습니다.")
     if sequence and (edit_id or req.get("mode", "REF2VA") != "REF2VA"):
         raise ValueError("사진 순차 추가는 참조 사진 방식의 새 작업에서 사용할 수 있습니다.")
     if edit_id and int(req.get("count") or 1) != 1:
@@ -946,6 +983,7 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
                "aspect": aspect, "resolution": resolution, "duration": duration, "width": j["width"], "height": j["height"],
                "count": count, "anchor": anchor, "prompt": text, "images": j["images"], "face_side": j.get("face_side"),
                "sequence_index": j["sequence_index"], "ui": req.get("ui")} for j in done]
+    priority_number = None
     try:
         for index, s in enumerate(seeds):
             job_names = names[index:] + names[:index] if sequence else names
@@ -964,8 +1002,14 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
                 if count != 1 or edit_id:
                     raise ValueError("별도 워크플로 준비는 한 편씩 진행합니다.")
                 return {"prompt":p,"images":list(names),"width":w,"height":h,"seed":s}
-            r = replace_queued_prompt(edit_id, p) if edit_id else queue_prompt_first(p) if queue_first else json.load(comfy("/prompt", json.dumps({"prompt": p, "client_id": CLIENT_ID}).encode(),
-                                {"Content-Type": "application/json"}))
+            if edit_id:
+                r = replace_queued_prompt(edit_id, p)
+            elif queue_first:
+                r = queue_prompt_first(p, slots=count, number=priority_number)
+                priority_number = r["number"] + 1
+            else:
+                r = json.load(comfy("/prompt", json.dumps({"prompt": p, "client_id": CLIENT_ID}).encode(),
+                                   {"Content-Type": "application/json"}))
             if r.get("node_errors") and not edit_id:
                 raise ValueError(json.dumps(r["node_errors"], ensure_ascii=False)[:500])
             with PLOCK:
@@ -1259,6 +1303,8 @@ class H(BaseHTTPRequestHandler):
                 self.send_header("Cache-Control", "private, max-age=31536000, immutable")
                 self.end_headers()
                 self.wfile.write(b)
+            elif u.path == "/api/translation/status":
+                self._json({"ready": TRANSLATOR.ready(), "cpu_only": True})
             elif u.path == "/api/prompt-helper/status":
                 self._json(PROMPT_HELPER.status(q.get("id")))
             elif u.path == "/api/story/project":
@@ -1346,7 +1392,15 @@ class H(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(n) or b"{}")
             if self.path == "/api/generate":
                 self._json(build_and_queue(body))
+            elif self.path == "/api/generate/priority":
+                self._json(build_and_queue(body, queue_first=True))
+            elif self.path == "/api/translate":
+                try:
+                    self._json(TRANSLATOR.translate(body.get("text"), body.get("engine", "quality")))
+                except TranslationBusy as error:
+                    self._json({"error": str(error), "busy": True}, 409)
             elif self.path == "/api/prompt-helper/start":
+                TRANSLATOR.pause()
                 self._json(PROMPT_HELPER.start(body))
             elif self.path == "/api/prompt-helper/cancel":
                 self._json(PROMPT_HELPER.cancel(body.get("id")))
@@ -1366,6 +1420,10 @@ class H(BaseHTTPRequestHandler):
                 self._json(restart_running_prompt(body.get("id")))
             elif self.path == "/api/settings/save":
                 self._json(save_settings(body.get("name"), body.get("data")))
+            elif self.path == "/api/settings/rename":
+                self._json(rename_settings(body.get("name"), body.get("new_name")))
+            elif self.path == "/api/settings/delete":
+                self._json(delete_settings(body.get("name")))
             elif self.path == "/api/ui-state":
                 result = ui_state_save(body)
                 self._json(result, 409 if result.get("conflict") else 200)

@@ -159,5 +159,100 @@
       "size": 310169280,
       "sha256": "6f90eb51502e6eaad0e86c608c752fa8b379af559d24fe6acecc40e0f542f146"
     }
-  ]
+  ],
+  "local_translation": {
+    "name": "QuickMT English to Korean (fast mode)",
+    "model_dir": "quickmt-en-ko",
+    "repo": "quickmt/quickmt-en-ko",
+    "revision": "a32fa395ebc7b722a0c021e213ca5fec4065c5df",
+    "license": "CC-BY-4.0",
+    "files": [
+      {
+        "path": "README.md",
+        "url": "https://huggingface.co/quickmt/quickmt-en-ko/resolve/a32fa395ebc7b722a0c021e213ca5fec4065c5df/README.md?download=true",
+        "size": 4370,
+        "sha256": "8a1d8ee1d743f418263ba3b0db70c9274badc5e458952f0b76d057c18af9dbbc"
+      },
+      {
+        "path": "config.json",
+        "url": "https://huggingface.co/quickmt/quickmt-en-ko/resolve/a32fa395ebc7b722a0c021e213ca5fec4065c5df/config.json?download=true",
+        "size": 223,
+        "sha256": "66edc5d58ceb812a41b4b784497001f815c35400884f40984b19de29e1bc3d69"
+      },
+      {
+        "path": "model.bin",
+        "url": "https://huggingface.co/quickmt/quickmt-en-ko/resolve/a32fa395ebc7b722a0c021e213ca5fec4065c5df/model.bin?download=true",
+        "size": 360796810,
+        "sha256": "bb5463eeffda398b93efb809168410a194b94d05628ee976a7ab0b50430c1c79"
+      },
+      {
+        "path": "source_vocabulary.json",
+        "url": "https://huggingface.co/quickmt/quickmt-en-ko/resolve/a32fa395ebc7b722a0c021e213ca5fec4065c5df/source_vocabulary.json?download=true",
+        "size": 332886,
+        "sha256": "23a27f7d11e6c0086ffc298962c0dbbf8a3e0082d70db37a5dbb3e7e83d64b1b"
+      },
+      {
+        "path": "src.spm.model",
+        "url": "https://huggingface.co/quickmt/quickmt-en-ko/resolve/a32fa395ebc7b722a0c021e213ca5fec4065c5df/src.spm.model?download=true",
+        "size": 583195,
+        "sha256": "ec0fe572b92a529c3fcd8d411f39667ae3cb83ad1a4e41c75f4ad48ea99f5925"
+      },
+      {
+        "path": "target_vocabulary.json",
+        "url": "https://huggingface.co/quickmt/quickmt-en-ko/resolve/a32fa395ebc7b722a0c021e213ca5fec4065c5df/target_vocabulary.json?download=true",
+        "size": 410879,
+        "sha256": "221124bae5c4ff8fbfc38ff190cc7bf933fc3e52090f34954e75851194a508c7"
+      },
+      {
+        "path": "tgt.spm.model",
+        "url": "https://huggingface.co/quickmt/quickmt-en-ko/resolve/a32fa395ebc7b722a0c021e213ca5fec4065c5df/tgt.spm.model?download=true",
+        "size": 570981,
+        "sha256": "70eb68076fe5c8ae7d8b7370aee0a8e713d3dd280d0359a4cfae3890313502dd"
+      }
+    ],
+    "runtime": [
+      "ctranslate2==4.9.0",
+      "sentencepiece==0.2.1",
+      "numpy==2.5.5",
+      "PyYAML==6.0.3"
+    ],
+    "device": "cpu",
+    "threads": 2,
+    "source": "https://huggingface.co/quickmt/quickmt-en-ko",
+    "default_engine": "quality",
+    "quality": {
+      "name": "TranslateGemma 4B Q4_K_M",
+      "model_dir": "translategemma-4b-it",
+      "repo": "Menterium/translategemma-4b-it-GGUF",
+      "revision": "d1709f49e90452b9189e0144cc6826d199616921",
+      "license": "gemma",
+      "source": "https://huggingface.co/google/translategemma-4b-it",
+      "files": [
+        {
+          "path": "GEMMA_TERMS_OF_USE.txt",
+          "url": "https://huggingface.co/Menterium/translategemma-4b-it-GGUF/resolve/d1709f49e90452b9189e0144cc6826d199616921/GEMMA_TERMS_OF_USE.txt?download=true",
+          "size": 13425,
+          "sha256": "fec9c1d325e002a1baa5fb6c181ab32b06f956e21c7e260a8a46706c1ad4ca7d"
+        },
+        {
+          "path": "NOTICE",
+          "url": "https://huggingface.co/Menterium/translategemma-4b-it-GGUF/resolve/d1709f49e90452b9189e0144cc6826d199616921/NOTICE?download=true",
+          "size": 97,
+          "sha256": "66f856d7da72797f528fca46b7c80634ab481f917bfe020960e123d84b19f75f"
+        },
+        {
+          "path": "README.md",
+          "url": "https://huggingface.co/Menterium/translategemma-4b-it-GGUF/resolve/d1709f49e90452b9189e0144cc6826d199616921/README.md?download=true",
+          "size": 3328,
+          "sha256": "3553e80c477007efad4f1984070a2867789e5898a8a0b0b004b2a4b53908c86e"
+        },
+        {
+          "path": "translategemma-4b-it-Q4_K_M.gguf",
+          "url": "https://huggingface.co/Menterium/translategemma-4b-it-GGUF/resolve/d1709f49e90452b9189e0144cc6826d199616921/translategemma-4b-it-Q4_K_M.gguf?download=true",
+          "size": 2489909312,
+          "sha256": "e7d9523174272fca61264b339f06d10c6115426267bb0f752b0124084e487b8e"
+        }
+      ]
+    }
+  }
 }

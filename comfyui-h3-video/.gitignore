@@ -17,6 +17,8 @@ simple_ui/*.tmp
 *.mp4
 __pycache__/
 local-prompt-helper/
+local-translator/
+*.argosmodel
 
 # 설치본·다운로드·현장 점검 자료는 소스 저장소와 분리
 /ComfyUI/

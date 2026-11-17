@@ -22,7 +22,7 @@ from PIL import Image, ImageOps
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = Path(os.environ.get("REFERENCE_TEST_SOURCE", ROOT / "simple_ui"))
 TREE = ast.parse((SOURCE / "server.py").read_text(encoding="utf-8"))
-NAMES = {"_load_json", "_save_json", "save_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "bulk_edit_queue", "bulk_queue_context", "judge_face_side"}
+NAMES = {"_load_json", "_save_json", "save_settings", "rename_settings", "delete_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "bulk_edit_queue", "bulk_queue_context", "judge_face_side"}
 
 
 class FeatureTests(unittest.TestCase):
@@ -298,6 +298,37 @@ class FeatureTests(unittest.TestCase):
         stored=self.env["_load_json"](self.env["SETTINGS"],{})
         self.assertEqual(stored["saved"]["data"],data)
         with self.assertRaises(ValueError): self.env["save_settings"]("bad",dict(data,images=['data:image/png;base64,\" onerror=bad']))
+
+    def test_settings_rename_preserves_data_timestamp_and_other_entries(self):
+        data={'f':{'summary':'synthetic'},'model':{'loras':{}},'images':self.photos}
+        self.env['save_settings']('original',data);self.env['save_settings']('other',data)
+        before=self.env['_load_json'](self.env['SETTINGS'],{})
+        self.env['rename_settings']('original',' renamed ')
+        after=self.env['_load_json'](self.env['SETTINGS'],{})
+        self.assertNotIn('original',after)
+        self.assertEqual(after['renamed'],before['original'])
+        self.assertEqual(after['other'],before['other'])
+        self.assertEqual(self.sent,[]);self.assertEqual(self.uploaded,[])
+
+    def test_settings_rename_rejects_duplicates_missing_and_invalid_names_without_writes(self):
+        data={'f':{},'model':{},'images':[]}
+        self.env['save_settings']('first',data);self.env['save_settings']('second',data)
+        before=Path(self.env['SETTINGS']).read_bytes()
+        for old,new in [('first','second'),('missing','new'),('first','  '),('first','x'*61)]:
+            with self.subTest(old=old,new=new),self.assertRaises(ValueError):self.env['rename_settings'](old,new)
+            self.assertEqual(Path(self.env['SETTINGS']).read_bytes(),before)
+        self.env['rename_settings']('first','first')
+        self.assertEqual(Path(self.env['SETTINGS']).read_bytes(),before)
+
+    def test_settings_delete_removes_only_named_entry_and_handles_last_entry(self):
+        data={'f':{},'model':{},'images':self.photos}
+        self.env['save_settings']('first',data);self.env['save_settings']('second',data)
+        self.env['delete_settings']('first')
+        self.assertEqual(list(self.env['_load_json'](self.env['SETTINGS'],{})),['second'])
+        with self.assertRaises(ValueError):self.env['delete_settings']('missing')
+        self.env['delete_settings']('second')
+        self.assertEqual(self.env['_load_json'](self.env['SETTINGS'],{}),{})
+        self.assertEqual(self.sent,[]);self.assertEqual(self.uploaded,[])
 
 
     def raw_of(self, index): return base64.b64decode(self.photos[index].split(",",1)[1])

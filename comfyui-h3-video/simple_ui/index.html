@@ -19,6 +19,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,"Mal
 .wrap[hidden],.story-frame[hidden],.gallery-frame[hidden]{display:none}
 .story-frame{width:100%;height:1100px;border:0;display:block;margin-top:14px}
 .gallery-frame{width:100%;height:calc(100dvh - 120px);min-height:320px;border:0;display:block;margin-top:8px}
+body.gallery-nav-hidden .app-top{display:none}body.gallery-nav-hidden .gallery-frame{margin-top:0}
 @media(max-width:600px){.app-top{padding:0 10px}.app-tabs{gap:5px;flex:1 1 100%}.app-tabs button{flex:1;padding:7px 5px;font-size:12px}}
 @media (max-width:900px){.wrap{grid-template-columns:1fr}}
 h1{font-size:20px;margin:0 0 4px;grid-column:1/-1}
@@ -31,6 +32,7 @@ h1{font-size:20px;margin:0 0 4px;grid-column:1/-1}
 .action-bar{grid-column:1/-1;position:sticky;top:0;z-index:30;background:var(--card);border:1px solid var(--line);border-radius:0 0 12px 12px;padding:10px 14px;box-shadow:0 6px 18px rgba(0,0,0,.10)}
 .action-main{display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap}
 .action-main .go{flex:0 0 240px;width:auto}
+.priority-go{min-height:44px;white-space:nowrap}
 .action-info{flex:1 1 280px;min-width:0}
 .action-info .status{margin-top:2px;font-size:13px;min-height:0}
 .action-info .bar{margin-top:6px;height:6px}
@@ -50,6 +52,12 @@ h1{font-size:20px;margin:0 0 4px;grid-column:1/-1}
 .bar-menu-list .textbtn:disabled{color:var(--faint);cursor:default}
 .bar-menu-list .hint{margin:-4px 0 6px 6px}
 .bar-menu-list .del{border-top:1px solid var(--line);color:var(--warn)}
+.folder-photos{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+.folder-photos>summary{cursor:pointer;font-size:14px;min-height:32px}
+.folder-photo-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.folder-photo-tools button{min-height:44px;max-width:100%;white-space:normal}
+.folder-photo-drop{margin-top:8px;padding:12px;border:1px dashed var(--line);border-radius:8px;color:var(--mute);font-size:13px}
+.folder-photo-drop.drag{border-color:var(--acc);background:var(--acc-soft)}
 .run-menu:not(:has(.bar-menu-list button:not([hidden])))>summary{display:none}
 .mobile-views{display:none;grid-column:1/-1;gap:6px}
 .mobile-views button{flex:1;min-height:44px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;font-size:14px;cursor:pointer}
@@ -66,8 +74,9 @@ h1{font-size:20px;margin:0 0 4px;grid-column:1/-1}
   .add-menu{grid-column:2;grid-row:1}
   .run-menu{grid-column:3;grid-row:1}
   .add-menu>summary{padding:4px 8px;font-size:12px}
-  #stopPhotoBatch{grid-column:1/-1;grid-row:3}
-  .action-info{grid-column:1/-1;grid-row:2}
+  .priority-go{grid-column:1/-1;grid-row:2}
+  #stopPhotoBatch{grid-column:1/-1;grid-row:4}
+  .action-info{grid-column:1/-1;grid-row:3}
   .action-info .hint,.action-info .status{font-size:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .action-info:has(.status:not(:empty)) .hint{display:none}
 }
@@ -86,6 +95,7 @@ label{display:block;font-weight:600;font-size:13px;margin:12px 0 4px}
 label small{font-weight:400;color:var(--mute)}
 input[type=text],input[type=number],textarea,select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
 textarea{resize:vertical;min-height:58px}
+#contentCard textarea{min-height:112px;padding:10px 12px;font-size:16px;line-height:1.55}#contentCard #subject,#contentCard #style{min-height:136px}#contentCard #keep{min-height:112px}#contentCard #summary,#contentCard #sound,#contentCard #music{min-height:72px}#contentCard #helperPreview{min-height:200px}#contentCard .shot{grid-template-columns:76px minmax(0,1fr) 30px}@media(max-width:600px){#contentCard .shot{grid-template-columns:52px minmax(0,1fr) 30px}}
 .drop{border:2px dashed var(--line);border-radius:10px;padding:16px;text-align:center;color:var(--mute);cursor:pointer}
 .drop.over{border-color:var(--acc);color:var(--acc)}
 .thumbs{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
@@ -147,6 +157,10 @@ a{color:var(--acc)}
 .pchip.add{border-style:dashed;color:var(--mute)}
 .pick{width:100%;text-align:left;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:10px 12px;cursor:pointer;font:inherit;display:flex;justify-content:space-between;align-items:center;gap:10px}
 .pick:hover{border-color:var(--acc)}
+.settings-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px;align-items:center;padding:6px}
+.settings-row .pick{min-width:0;overflow-wrap:anywhere;min-height:44px}
+.settings-row .settings-manage{min-height:44px;white-space:nowrap;font-size:12px}
+.translation-option{display:flex;gap:7px;align-items:center;font-size:13px;font-weight:400;margin:0 0 4px}.translation-preview{grid-column:1/-1;min-width:0;margin:7px 0 12px;border:1px solid var(--line);border-radius:8px;background:var(--soft);padding:7px 10px}.translation-preview summary{cursor:pointer;font-size:12px;color:var(--mute);overflow-wrap:anywhere}.translation-preview-body{white-space:pre-wrap;overflow-wrap:anywhere;max-height:min(260px,40dvh);overflow:auto;overscroll-behavior:contain;font-size:13px;line-height:1.65;padding-top:7px;user-select:text}.translation-preview-tools{display:flex;gap:8px;align-items:center;margin-top:6px;font-size:11px;color:var(--mute)}.translation-preview-tools button{min-height:36px;padding:4px 8px;font-size:12px;flex-shrink:0}
 .pick .nm{font-weight:600}
 .meta{font-size:12px;color:var(--mute)}
 .fname{font-size:11px;color:var(--faint);word-break:break-all}
@@ -248,9 +262,11 @@ a{color:var(--acc)}
   <div class="action-bar" id="actionBar">
     <div class="action-main">
       <button class="go" id="go">영상 만들기</button>
+      <button type="button" class="ghost priority-go" id="priorityGo" disabled title="현재 입력으로 대기열 맨 앞에 추가합니다. 실행 중인 작업은 계속 진행됩니다.">1순위 우선추가</button>
       <details class="bar-menu add-menu" id="addMenu"><summary class="ghost">사진별로 추가 ▾</summary><div class="bar-menu-list">
         <button class="textbtn" id="sequenceGo" disabled>올린 사진을 번갈아 사진 1로</button><div class="hint" id="sequenceHint"></div>
         <button class="textbtn" id="photoBatchGo" disabled>사진을 골라 한 장당 하나씩</button><div class="hint">고른 사진마다 현재 설정으로 한 작업씩 추가합니다.</div>
+        <button class="textbtn" id="photoFolderOpen" disabled>폴더·하위 폴더 사진 모아서 추가</button>
       </div></details>
       <input type="file" id="photoBatchFiles" accept="image/*" multiple hidden>
       <div class="action-info">
@@ -289,6 +305,15 @@ a{color:var(--acc)}
       <input type="file" id="file" accept="image/*" multiple hidden>
       <div class="thumbs" id="thumbs"></div>
       <div class="hint" id="photoHint"></div>
+      <details class="folder-photos" id="photoFolderSection">
+        <summary>폴더 사진 일괄 추가</summary>
+        <input type="file" id="photoFolderFiles" accept="image/*" webkitdirectory multiple hidden>
+        <div class="folder-photo-tools"><button type="button" class="ghost" id="photoFolderChoose">폴더 추가</button><button type="button" class="ghost" id="photoFolderClear" disabled>목록 비우기</button><button type="button" class="ghost" id="photoFolderSubmit" disabled>모은 사진 개별 대기열 추가 (0)</button></div>
+        <div class="folder-photo-drop" id="photoFolderDrop">PC에서는 여러 폴더를 동시에 여기로 끌어놓을 수 있습니다.</div>
+        <div class="hint" id="photoFolderStatus" role="status" aria-live="polite">하위 폴더까지 포함합니다. 폴더를 여러 번 추가한 뒤 한 번에 등록하세요.</div>
+        <div class="hint" id="photoFolderAvailability" role="status" aria-live="polite"></div>
+        <div class="hint">사진 한 장당 현재 설정으로 작업 하나를 추가합니다. 참조 사진 9장 묶음과 별개이며 장수 제한이 없습니다. 모은 목록은 새로고침하면 비워집니다.</div>
+      </details>
       <label id="anchorBox" style="display:flex;gap:8px;align-items:flex-start;font-weight:400;margin-top:10px">
         <input type="checkbox" id="anchor" style="margin-top:3px">
         <span><b>사진 1 을 첫 장면으로 고정</b> <small style="color:var(--mute)">(실험)</small><br>
@@ -302,8 +327,11 @@ a{color:var(--acc)}
       </fieldset>
     </div>
 
-    <div class="card">
+    <div class="card" id="contentCard">
       <h2>2. 내용</h2>
+      <label class="translation-option"><input type="checkbox" id="translationToggle"> 영문 → 한국어 미리보기 · 로컬 CPU</label>
+      <label class="translation-option">번역 방식 <select id="translationEngine" aria-label="번역 방식"><option value="quality">정밀 (기본)</option><option value="fast">빠르게</option></select></label>
+      <div class="hint" id="translationHint" style="margin-bottom:10px" role="status">켜고 입력 칸을 누르면 원문 아래에 번역을 표시합니다. 원문은 바꾸지 않습니다.</div>
       <details class="prompt-helper">
         <summary>프롬프트 작성 도우미 · 로컬 CPU</summary>
         <label for="helperIdea">어떤 영상을 만들까요?</label>
@@ -326,10 +354,10 @@ a{color:var(--acc)}
         <div class="hint">&lt;Picture 1&gt;을 넣으면 기본 문장을 대체합니다(그때는 "얼굴·머리·옷·배경은 사진 그대로"도 적기). 보이는 옷·머리를 바꾸는 용도는 아닙니다.</div>
       </div>
       <label>사진에서 그대로 유지할 것</label>
-      <input type="text" id="keep" value="Keep the face and outfit exactly as in <Picture 1> throughout the video.">
+      <textarea id="keep" rows="3">Keep the face and outfit exactly as in &lt;Picture 1&gt; throughout the video.</textarea>
 
       <label>한 줄 요약</label>
-      <input type="text" id="summary" placeholder="예: The mug slowly rotates.">
+      <textarea id="summary" rows="2" placeholder="예: The mug slowly rotates."></textarea>
 
       <div class="shots-head"><label>장면별 동작 <small>— 시작 시각(초)과 동작</small></label><label class="dur-inline">영상 길이 <input type="number" id="duration" value="5" min="1" max="15" step="1"> 초</label></div>
       <div id="shots"></div>
@@ -345,8 +373,8 @@ a{color:var(--acc)}
       <textarea id="style">Photorealistic live-action footage, soft natural light, real skin and fabric detail, no CGI. Static camera, medium shot.</textarea>
 
       <div class="row">
-        <div style="grid-column:span 2"><label>소리</label><input type="text" id="sound" placeholder="예: Quiet room tone."></div>
-        <div style="grid-column:span 2"><label>배경음악</label><input type="text" id="music" placeholder="없음(N/A)"></div>
+        <div style="grid-column:span 2"><label>소리</label><textarea id="sound" rows="2" placeholder="예: Quiet room tone."></textarea></div>
+        <div style="grid-column:span 2"><label>배경음악</label><textarea id="music" rows="2" placeholder="없음(N/A)"></textarea></div>
       </div>
     </div>
 
@@ -508,7 +536,7 @@ async function restoreImgs(){
 let photoImportQueue=Promise.resolve();
 function addFiles(files){
   if (bulkEditingIds.length) return Promise.resolve();
-  const selected=Array.from(files).filter(file=>file.type.startsWith("image/"));
+  const selected=Array.from(files||[]).filter(file=>!!photoFileType(file));
   // FileReader completion order must never decide which photo becomes Picture 1.
   photoImportQueue=photoImportQueue.then(async()=>{
     for(const file of selected){
@@ -671,6 +699,7 @@ function render(){
   refreshFaceReferenceAction();
   drawGoInfo();
   save();
+  if(typeof refreshTranslationPreview==="function")refreshTranslationPreview();
 }
 function updatePromptFromFields(){
   manualFinal=false;$("resetFinal").hidden=true;$("finalHint").textContent="2번 내용·장면별 동작을 반영한 자동 프롬프트입니다.";render();
@@ -963,6 +992,116 @@ async function loadCatalog(manual){
   }
 }
 
+// Local translation preview (read-only): current focused field only, memory cache only.
+const TRANSLATION={enabled:false,engine:"quality",target:null,sourceText:null,timer:null,epoch:0,controller:null,panels:new Map(),cache:new Map()};
+const TRANSLATION_KEY="h3simple.translationPreview.v1";
+const TRANSLATION_ENGINE_KEY="h3simple.translationEngine.v1";
+const TRANSLATION_IDS=new Set(["subject","keep","summary","style","sound","music","final","helperIdea","helperPreview"]);
+function translationField(node){return !!node&&(TRANSLATION_IDS.has(node.id)||(node.tagName==="TEXTAREA"&&!!node.closest?.(".shot")));}
+function translationChunks(text,limit=900){
+  const fragments=text.split(/(<(?:Picture|Subject|Video|Audio)\s+\d+>|\{\{[A-Za-z0-9_]+\}\})/g);
+  const tokens=fragments.flatMap((part,index)=>index%2?[part]:(part.match(/[^\s]+|\s+/g)||[])),chunks=[];let pending="";
+  const add=token=>{
+    while(pending&&pending.length+token.length>limit){
+      const stops=[...pending.matchAll(/[.!?]["')\]]*\s+|\n+/g)],last=stops.at(-1);
+      const end=last&&last.index+last[0].length>=pending.length/3?last.index+last[0].length:pending.length;
+      chunks.push(pending.slice(0,end));pending=pending.slice(end);
+    }
+    pending+=token;
+  };
+  for(const token of tokens){
+    if(token.length<=limit)add(token);
+    else{let piece="";for(const character of token){if(piece.length+character.length>limit){add(piece);piece="";}piece+=character;}if(piece)add(piece);}
+    if(/\r?\n[ \t]*\r?\n/.test(token)&&pending){chunks.push(pending);pending="";}
+  }
+  if(pending)chunks.push(pending);return chunks;
+}
+function currentTranslationChunks(text){return translationChunks(text,TRANSLATION.engine==="quality"?480:900);}
+function translationCacheSet(source,value){
+  TRANSLATION.cache.delete(source);TRANSLATION.cache.set(source,value);
+  while(TRANSLATION.cache.size>128)TRANSLATION.cache.delete(TRANSLATION.cache.keys().next().value);
+}
+function translationPanel(target){
+  for(const [field,panel] of TRANSLATION.panels){if(!field.isConnected){panel.box.remove();TRANSLATION.panels.delete(field);}else panel.box.open=field===target;}
+  if(TRANSLATION.panels.has(target)){const panel=TRANSLATION.panels.get(target);panel.box.hidden=false;panel.box.open=true;return panel;}
+  const box=document.createElement("details"),summary=document.createElement("summary"),body=document.createElement("div"),tools=document.createElement("div"),retry=document.createElement("button"),notice=document.createElement("span");
+  box.className="translation-preview";box.open=true;summary.textContent="한국어 미리보기";body.className="translation-preview-body";tools.className="translation-preview-tools";
+  retry.type="button";retry.textContent="다시 번역";notice.textContent="참고 번역 · 영상 생성에는 입력 원문을 사용합니다.";
+  tools.append(retry,notice);box.append(summary,body,tools);
+  const shot=target.closest?.(".shot");if(shot)shot.append(box);else target.insertAdjacentElement("afterend",box);
+  const panel={box,summary,body,retry};TRANSLATION.panels.set(target,panel);
+  retry.onclick=()=>{for(const part of currentTranslationChunks(translationSource(target).text))TRANSLATION.cache.delete(part);scheduleTranslation(target,0);};
+  return panel;
+}
+function translationSource(target){
+  const selected=Number.isInteger(target.selectionStart)&&target.selectionEnd>target.selectionStart;
+  return {text:selected?target.value.slice(target.selectionStart,target.selectionEnd):target.value,selected};
+}
+function cancelTranslation(){clearTimeout(TRANSLATION.timer);TRANSLATION.timer=null;TRANSLATION.epoch++;TRANSLATION.controller?.abort();TRANSLATION.controller=null;}
+function setTranslationEnabled(enabled){
+  cancelTranslation();TRANSLATION.enabled=!!enabled;$("translationToggle").checked=!!enabled;
+  try{localStorage.setItem(TRANSLATION_KEY,enabled?"1":"0");}catch{}
+  for(const panel of TRANSLATION.panels.values())panel.box.hidden=!enabled;
+  $("translationHint").textContent=enabled?(TRANSLATION.engine==="quality"?"정밀: 문맥과 촬영 용어를 고려해 번역합니다. 긴 글은 시간이 걸리며 일부를 선택해 확인할 수도 있습니다.":"빠르게: 긴 글을 빠르게 확인합니다. 의미가 어색하면 정밀로 바꿔 확인하세요."):"켜고 입력 칸을 누르면 원문 아래에 번역을 표시합니다. 원문은 바꾸지 않습니다.";
+  if(enabled&&translationField(document.activeElement))scheduleTranslation(document.activeElement,0);
+}
+function setTranslationEngine(engine){
+  cancelTranslation();TRANSLATION.engine=engine==="fast"?"fast":"quality";$("translationEngine").value=TRANSLATION.engine;
+  TRANSLATION.cache.clear();try{localStorage.setItem(TRANSLATION_ENGINE_KEY,TRANSLATION.engine);}catch{}
+  for(const panel of TRANSLATION.panels.values()){panel.summary.textContent="한국어 미리보기 · 다시 번역 대기";panel.body.textContent="번역 방식을 바꿨습니다. 입력 칸을 누르면 다시 번역합니다.";}
+  const target=TRANSLATION.target;
+  setTranslationEnabled(TRANSLATION.enabled);
+  if(TRANSLATION.enabled&&target?.isConnected&&!translationField(document.activeElement))scheduleTranslation(target,0);
+}
+function scheduleTranslation(target,delay=800){
+  if(!TRANSLATION.enabled||!translationField(target))return;
+  cancelTranslation();TRANSLATION.target=target;TRANSLATION.sourceText=translationSource(target).text;const panel=translationPanel(target),epoch=TRANSLATION.epoch;
+  panel.summary.textContent="한국어 미리보기 · 입력 대기";
+  TRANSLATION.timer=setTimeout(()=>{TRANSLATION.timer=null;translateField(target,panel,epoch);},delay);
+}
+function refreshTranslationPreview(){const target=TRANSLATION.target;if(TRANSLATION.enabled&&target?.isConnected&&translationSource(target).text!==TRANSLATION.sourceText)scheduleTranslation(target);}
+async function translateField(target,panel,epoch){
+  const source=translationSource(target),text=source.text;
+  const current=()=>TRANSLATION.enabled&&TRANSLATION.epoch===epoch&&target.isConnected&&!document.hidden&&translationSource(target).text===text;
+  if(!current())return;
+  if(!text.trim()){panel.body.textContent="번역할 내용을 입력하세요.";panel.summary.textContent="한국어 미리보기";return;}
+  if(text.length>64000){panel.summary.textContent="한국어 미리보기 · 선택 번역 필요";panel.body.textContent="64,000자를 넘는 글은 확인할 부분을 선택해 주세요. 선택한 부분만 번역할 수 있습니다.";return;}
+  const visible=text.replace(/<(?:Picture|Subject|Video|Audio)\s+\d+>|\{\{[A-Za-z0-9_]+\}\}/g,"");
+  if(!/[A-Za-z]/.test(visible)||(visible.match(/[가-힣]/g)||[]).length>(visible.match(/[A-Za-z]/g)||[]).length){panel.summary.textContent="한국어 미리보기 · 영문 입력용";panel.body.textContent="영문 입력을 한국어로 확인하는 기능입니다. 현재 내용은 그대로 사용하세요.";return;}
+  const chunks=currentTranslationChunks(text),engine=TRANSLATION.engine,results=chunks.map(part=>!/[A-Za-z]/.test(part)?part:TRANSLATION.cache.get(part));
+  let fallback=0;
+  const draw=label=>{panel.summary.textContent=`한국어 미리보기${source.selected?" · 선택 부분":""} · ${results.filter(value=>value!==undefined).length}/${chunks.length}${fallback?" · "+fallback+"구간 원문 유지":""}${label?" · "+label:""}`;panel.body.textContent=results.map(value=>value===undefined?" … ":value).join("");};
+  draw();let busy=0;
+  try{
+    for(let i=0;i<chunks.length;i++){
+      if(!current())return;
+      if(results[i]!==undefined)continue;
+      TRANSLATION.controller=new AbortController();
+      const response=await fetch("/api/translate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:chunks[i],engine}),signal:TRANSLATION.controller.signal});
+      const data=await response.json();
+      if(!current())return;
+      if(response.status===409&&data.busy){
+        draw(data.error||"CPU 번역 대기");
+        if(++busy>12)throw new Error("번역이 잠시 대기 중입니다. 입력을 고치거나 ‘다시 번역’을 눌러 주세요.");
+        await new Promise(resolve=>setTimeout(resolve,2000));i--;continue;
+      }
+      if(!response.ok||typeof data.text!=="string")throw new Error(data.error||"번역하지 못했습니다.");
+      results[i]=data.text;if(data.warning)fallback++;else translationCacheSet(chunks[i],data.text);draw();busy=0;
+    }
+  }catch(error){if(current()&&error.name!=="AbortError")draw(error.message||"로컬 번역 연결을 확인해 주세요.");}
+  finally{if(TRANSLATION.epoch===epoch)TRANSLATION.controller=null;}
+}
+function initTranslationPreview(){
+  $("translationToggle").onchange=()=>setTranslationEnabled($("translationToggle").checked);
+  $("translationEngine").onchange=()=>setTranslationEngine($("translationEngine").value);
+  document.addEventListener("focusin",event=>{if(translationField(event.target))scheduleTranslation(event.target,150);});
+  document.addEventListener("input",event=>{if(translationField(event.target))scheduleTranslation(event.target);});
+  document.addEventListener("select",event=>{if(translationField(event.target))scheduleTranslation(event.target,350);});
+  document.addEventListener("visibilitychange",()=>{if(document.hidden)cancelTranslation();else if(TRANSLATION.enabled&&TRANSLATION.target?.isConnected)scheduleTranslation(TRANSLATION.target);});
+  let enabled=false,engine="quality";try{enabled=localStorage.getItem(TRANSLATION_KEY)==="1";engine=localStorage.getItem(TRANSLATION_ENGINE_KEY)==="fast"?"fast":"quality";}catch{}
+  TRANSLATION.engine=engine;$("translationEngine").value=engine;setTranslationEnabled(enabled);
+}
+// End local translation preview.
 // ---------- 입력값 기억(사진 제외) ----------
 // 따봉 영상 예시 — 성별·생김새·옷·배경을 특정하지 않는다(외모는 사진에서 가져감)
 const EXAMPLE = {
@@ -1364,19 +1503,43 @@ $("settingsSave").onclick = async () => {
   } catch (error) { setStatus(error.message,"err"); }
   finally { $("settingsSave").disabled = false; }
 };
+function renderSettingsList(items){
+  $("settingsList").innerHTML = items.length ? items.map(e => `<div class="settings-row"><button type="button" class="pick" data-setting="${esc(e.name)}">${esc(e.name)}</button><button type="button" class="ghost settings-manage" data-setting="${esc(e.name)}" data-setting-action="rename" aria-label="${esc(e.name)} 이름 변경">이름 변경</button><button type="button" class="ghost settings-manage" data-setting="${esc(e.name)}" data-setting-action="delete" aria-label="${esc(e.name)} 삭제" style="color:var(--warn)">삭제</button></div>`).join("") : `<div class="empty" style="padding:10px">저장된 설정이 없습니다.</div>`;
+}
+async function refreshSettingsList(){
+  const r = await fetch("/api/settings"), data = await r.json();
+  if (!r.ok) throw new Error(data.error || "설정 목록을 불러오지 못했습니다.");
+  renderSettingsList(data.items);
+  $("settingsList").hidden = false;
+}
 $("settingsLoad").onclick = async () => {
   if (!$("settingsList").hidden) { $("settingsList").hidden = true; return; }
   try {
-    const r = await fetch("/api/settings"), data = await r.json();
-    if (!r.ok) throw new Error(data.error || "설정을 불러오지 못했습니다.");
-    $("settingsList").innerHTML = data.items.length ? data.items.map(e => `<button class="pick" data-setting="${esc(e.name)}">${esc(e.name)}</button>`).join("") : `<div class="empty" style="padding:10px">저장된 설정이 없습니다.</div>`;
-    $("settingsList").hidden = false;
+    await refreshSettingsList();
   } catch (error) { setStatus(error.message,"err"); }
 };
 $("settingsList").onclick = async ev => {
   const button = ev.target.closest("[data-setting]"); if (!button) return;
+  if (button.disabled) return;
   button.disabled = true;
   try {
+    const name = button.dataset.setting, action = button.dataset.settingAction;
+    if (action === "rename" || action === "delete") {
+      const body = {name};
+      if (action === "rename") {
+        const entered = prompt("새 설정 묶음 이름을 입력하세요.", name);
+        if (entered === null) return;
+        body.new_name = entered.trim();
+        if (!body.new_name || body.new_name.length > 60) throw new Error("새 설정 이름은 1~60자로 입력해 주세요.");
+        if (body.new_name === name) return;
+      } else if (!confirm(`‘${name}’ 설정 묶음을 삭제할까요?`)) return;
+      const r = await fetch(`/api/settings/${action}`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      const result = await r.json();
+      if (!r.ok) throw new Error(result.error || "설정 묶음을 변경하지 못했습니다.");
+      await refreshSettingsList();
+      setStatus(action === "rename" ? `설정 묶음 이름을 ‘${result.name}’(으)로 변경했습니다.` : `‘${name}’ 설정 묶음을 삭제했습니다.`, "ok");
+      return;
+    }
     const r = await fetch("/api/settings?name=" + encodeURIComponent(button.dataset.setting)), stored = await r.json();
     if (!r.ok) throw new Error(stored.error || "설정을 불러오지 못했습니다.");
     const snapshot = stored.data;
@@ -1401,8 +1564,11 @@ function drawGoInfo(){
 }
 $("seed").addEventListener("input", () => { drawGoInfo(); save(); });
 function updateSequenceButton(){
+  $("priorityGo").hidden = !!editingJobId || !!bulkEditingIds.length;
+  $("priorityGo").disabled = queueSubmitting || !!editingJobId || !!bulkEditingIds.length || !CAT?.capabilities?.priority_queue;
   $("sequenceGo").disabled = queueSubmitting || !!editingJobId || !!bulkEditingIds.length || !isRef() || !images.length || !CAT?.capabilities?.photo_sequence;
   $("photoBatchGo").disabled = queueSubmitting || !!editingJobId || !!bulkEditingIds.length || !isRef() || !CAT;
+  if(typeof updateFolderPhotoControls==="function")updateFolderPhotoControls();
   $("sequenceHint").textContent = !isRef() ? "참조 사진 방식에서 쓸 수 있습니다." : !images.length ? "1번 칸에 사진을 먼저 올리세요." : `올린 사진 ${images.length}장을 번갈아 사진 1로 써서 ${images.length}건을 추가합니다${S.faceBoost && images.length > 1 ? "(나머지는 얼굴 크롭)" : ""}.`;
 }
 function updateGoLabel(){ $("go").textContent = bulkAllEditing ? "전체 대기항목 수정 저장" : bulkEditingIds.length ? "일괄수정 저장" : editingJobId ? "수정 저장" : currentJobs.some(j => !finished(j)) ? "대기열에 추가" : "영상 만들기"; }
@@ -1454,9 +1620,10 @@ function refreshVideoLoraOverlays(){
     const html=loraOverlayHtml(entry.loras);if(info.innerHTML!==html)info.innerHTML=html;
   });
 }
-async function submitJobs(sequence=false){
+async function submitJobs(sequence=false, priority=false){
   if (queueSubmitting) return;
   const editId = editingJobId, bulkIds = [...bulkEditingIds], allPending=bulkAllEditing;
+  if (priority && (sequence || editId || bulkIds.length)) return setStatus("1순위 우선추가는 새 작업 등록에서만 사용할 수 있습니다.","err");
   if (!images.length && !bulkIds.length) return setStatus("사진을 1장 이상 넣어 주세요.", "err");
   if (sequence && (!isRef() || editId || bulkIds.length)) return setStatus("사진 순차 추가는 참조 사진 방식의 새 작업에서 사용할 수 있습니다.","err");
   const bulkFields = [...$("bulkFields").querySelectorAll("input:checked")].map(x => x.value);
@@ -1473,7 +1640,7 @@ async function submitJobs(sequence=false){
     }
     if(!manualFinal)render();
     const snapshot = captureSettings();
-    const r = await fetch(bulkIds.length ? "/api/queue/bulk-edit" : "/api/generate", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({
+    const r = await fetch(bulkIds.length ? "/api/queue/bulk-edit" : priority ? "/api/generate/priority" : "/api/generate", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({
       images:bulkIds.length ? [] : images, prompt: $("final").value, aspect: $("aspect").value, resolution: $("resolution").value, edit_id: editId,
       prompt_by_count: bulkIds.length && isRef() ? Object.fromEntries(Array.from({length:9},(_,i)=>[i+1,withFaceReferenceRules($("final").value,i+1)])) : undefined,
       edit_ids:allPending ? [] : bulkIds, all_pending:allPending, bulk_fields:bulkFields, photo_sequence:sequence,
@@ -1495,32 +1662,45 @@ async function submitJobs(sequence=false){
       setQueueEdit(null);
       if (add.length) poll(updated, pollT0 || Date.now(), null);
     }
+    else if (priority && currentJobs.some(x => !finished(x))) poll(currentJobs.filter(x => x.state === "running").concat(add, currentJobs.filter(x => x.state !== "running")), pollT0, null);
     else if (currentJobs.some(x => !finished(x))) poll(currentJobs.concat(add), pollT0, null);
     else poll(add, Date.now(), jobs.length > 1 ? info : `${info}, 시드 ${jobs[0].seed}`);
     if (j.failed?.length) { $("queueFeedback").textContent = `${add.length}개 수정 완료, ${j.failed.length}개 미적용: ${j.failed[0].error}`; $("queueFeedback").hidden = false; }
     else if(allPending){$("queueFeedback").textContent=add.length?`전체 대기항목 ${add.length}개 수정 완료 · 실행 중인 작업은 제외했습니다.`:"저장 시점에 수정할 대기항목이 없어 적용하지 않았습니다.";$("queueFeedback").hidden=false;}
     else if(j.face_crops?.unavailable){$("queueFeedback").textContent=`${sequence?"순차 ":""}${add.length}건 등록 · 얼굴인식강화를 쓰지 못해 원본 사진으로 등록했습니다: ${j.face_crops.unavailable}`;$("queueFeedback").hidden=false;}
     else if(j.face_crops){$("queueFeedback").textContent=`${sequence?"순차 ":""}${add.length}건 등록 · 얼굴인식강화: 얼굴 크롭 ${j.face_crops.cropped}장, 얼굴을 못 찾아 원본 유지 ${j.face_crops.original}장. 사진 1은 원본입니다.`;$("queueFeedback").hidden=false;}
+    if(priority){const extra=$("queueFeedback").hidden?"":"\n"+$("queueFeedback").textContent;$("queueFeedback").textContent=`${add.length}건을 대기열 맨 앞에 추가했습니다. 실행 중인 작업이 끝나면 먼저 시작합니다.`+extra;$("queueFeedback").hidden=false;}
     $("go").disabled = false;
     loadHist(false, true);
   } catch (e) { setStatus("실패: " + e.message, "err"); $("go").disabled = false; }
   finally { queueSubmitting = false; $("cancelEdit").disabled = false; updateSequenceButton(); }
 }
 $("go").onclick = () => submitJobs();
+$("priorityGo").onclick = () => submitJobs(false, true);
 $("sequenceGo").onclick = () => submitJobs(true);
 let photoBatchStop=false;
+function photoFileType(file){
+  const mime=String(file.type||"").toLowerCase();
+  if(mime.startsWith("image/"))return mime;
+  const extension=String(file.name||"").split(".").pop().toLowerCase();
+  return ({jpg:"image/jpeg",jpeg:"image/jpeg",jpe:"image/jpeg",jfif:"image/jpeg",pjpeg:"image/jpeg",pjp:"image/jpeg",png:"image/png",webp:"image/webp",gif:"image/gif",bmp:"image/bmp",tif:"image/tiff",tiff:"image/tiff",avif:"image/avif",heic:"image/heic",heif:"image/heif"})[extension]||"";
+}
 function readPhotoDataUrl(file){
-  return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error("사진을 읽지 못했습니다."));reader.readAsDataURL(file);});
+  return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>{
+    let data=reader.result;const mime=photoFileType(file);
+    if(mime&&typeof data==="string"&&/^data:[^,]*;base64,/i.test(data))data=data.replace(/^data:[^,]*;base64,/i,`data:${mime};base64,`);
+    resolve(data);
+  };reader.onerror=()=>reject(new Error("사진을 읽지 못했습니다."));reader.readAsDataURL(file);});
 }
 async function submitIndividualPhotos(selectedFiles){
   if(queueSubmitting)return;
   const files=Array.from(selectedFiles||[]);
   if(!files.length)return;
   if(!isRef() || editingJobId || bulkEditingIds.length)return setStatus("참조 사진 방식에서 대기 항목 수정 모드를 끝낸 뒤 개별 추가해 주세요.","err");
-  if(files.some(file=>file.type && !file.type.startsWith("image/")))return setStatus("이미지 파일만 선택해 주세요.","err");
+  if(files.some(file=>!photoFileType(file)))return setStatus("이미지 파일만 선택해 주세요.","err");
   queueSubmitting=true;photoBatchStop=false;$("go").disabled=true;$("cancelEdit").disabled=true;updateSequenceButton();
   $("stopPhotoBatch").hidden=false;$("stopPhotoBatch").disabled=false;
-  const added=[];let processed=0,failed=0,lastError="",uncertain=false;
+  const added=[],confirmedFiles=[];let processed=0,failed=0,lastError="",uncertain=false,uncertainFile=null;
   try{
     if(!manualFinal)render();const snapshot=captureSettings(),m=snapshot.model;
     const prompt=withFaceReferenceRules(manualFinal?$("final").value:build(1),1);
@@ -1535,13 +1715,13 @@ async function submitIndividualPhotos(selectedFiles){
       if(photoBatchStop)break;
       let response,result;
       try{response=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...request,images:[image]})});result=await response.json();}
-      catch{uncertain=true;lastError=`${index+1}번 요청의 응답을 확인하지 못해 추가를 중단했습니다. 중복 방지를 위해 자동 재시도하지 않습니다.`;break;}
+      catch{uncertain=true;uncertainFile=files[index];lastError=`${index+1}번 요청의 응답을 확인하지 못해 추가를 중단했습니다. 중복 방지를 위해 자동 재시도하지 않습니다.`;break;}
       if(!response.ok){failed++;processed++;lastError=`${index+1}번 사진: ${result.error||"추가 실패"}`;if(response.status>=500)break;continue;}
       const jobs=result.jobs||(result.id?[result]:[]);
-      if(jobs.length!==1 || !jobs[0].id){uncertain=true;lastError="등록 응답을 확인하지 못해 중복 요청 없이 중단했습니다.";break;}
+      if(jobs.length!==1 || !jobs[0].id){uncertain=true;uncertainFile=files[index];lastError="등록 응답을 확인하지 못해 중복 요청 없이 중단했습니다.";break;}
       const job=jobs[0];added.push({...job,state:"queued",loras:loras.map(item=>({...item})),
         info:`${job.width||result.width}×${job.height||result.height}, ${histModelName(job.model||m.model)} ${job.steps||m.steps}스텝, 시드 ${job.seed}`});
-      processed++;if(added.length===1 || added.length%10===0)loadHist(false,true);
+      confirmedFiles.push(files[index]);processed++;if(added.length===1 || added.length%10===0)loadHist(false,true);
     }
   }catch(error){lastError=error.message;}
   finally{
@@ -1550,10 +1730,114 @@ async function submitIndividualPhotos(selectedFiles){
     const remaining=files.length-processed;
     $("photoBatchStatus").textContent=`사진 ${files.length}장 중 ${added.length}개 개별 등록${failed?` · ${failed}개 실패`:""}${remaining?` · ${remaining}개 ${uncertain?"응답 미확인 또는 미처리":"미처리"}`:""}${photoBatchStop?" · 추가 중단":""}${lastError?"\n"+lastError:""}`;
   }
+  return {confirmedFiles,uncertainFile,error:lastError,failed,cancelled:photoBatchStop};
 }
 $("photoBatchGo").onclick=()=>$("photoBatchFiles").click();
 $("photoBatchFiles").onchange=event=>{const files=Array.from(event.target.files||[]);event.target.value="";submitIndividualPhotos(files);};
 $("stopPhotoBatch").onclick=()=>{photoBatchStop=true;$("stopPhotoBatch").disabled=true;$("photoBatchStatus").textContent="현재 요청을 마친 뒤 추가를 중단합니다. 이미 등록한 작업은 유지됩니다.";};
+// Folder photo batch: collect File handles only; decode/upload only on explicit submission.
+const FOLDER_PHOTOS={items:new Map(),scanning:false,epoch:0};
+function folderPhotosBlocked(){return queueSubmitting||!!editingJobId||!!bulkEditingIds.length||!isRef()||!CAT;}
+function folderPhotoBlockReason(){
+  if(queueSubmitting)return "사진을 대기열에 등록 중입니다. 완료하거나 추가 중단 후 다시 등록할 수 있습니다.";
+  if(editingJobId||bulkEditingIds.length)return "대기 항목 수정 중입니다. 수정 저장 또는 수정 취소 후 새로 등록할 수 있습니다.";
+  if(!isRef())return "등록하려면 위의 ‘참조 사진으로 만들기’ 방식을 선택해 주세요.";
+  if(!CAT)return "모델 목록을 준비한 뒤 등록할 수 있습니다. 3번 모델 영역의 연결 상태를 확인해 주세요.";
+  if(FOLDER_PHOTOS.scanning)return "하위 폴더 확인이 끝나면 등록할 수 있습니다.";
+  return "";
+}
+function folderPickerSupported(){return "webkitdirectory" in $("photoFolderFiles");}
+function updateFolderPhotoControls(){
+  const blocked=folderPhotosBlocked(),collectBusy=queueSubmitting||FOLDER_PHOTOS.scanning,count=FOLDER_PHOTOS.items.size;
+  $("photoFolderOpen").disabled=collectBusy;
+  $("photoFolderChoose").disabled=collectBusy||!folderPickerSupported();
+  $("photoFolderSubmit").disabled=blocked||FOLDER_PHOTOS.scanning||!count;
+  $("photoFolderSubmit").textContent=`모은 사진 개별 대기열 추가 (${count.toLocaleString()})`;
+  $("photoFolderClear").disabled=queueSubmitting||(!count&&!FOLDER_PHOTOS.scanning);
+  $("photoFolderAvailability").textContent=folderPhotoBlockReason()||(count?"사진 수집 완료 · 위의 ‘모은 사진 개별 대기열 추가’를 눌러 등록하세요.":"폴더를 추가하면 모은 사진 수가 표시됩니다.");
+}
+function folderImageFile(file){return !!photoFileType(file);}
+function folderPhotoKey(file,path){return JSON.stringify([path,file.size,file.lastModified]);}
+function clearFolderPhotos(){
+  if(queueSubmitting)return;
+  FOLDER_PHOTOS.epoch++;FOLDER_PHOTOS.scanning=false;FOLDER_PHOTOS.items.clear();
+  $("photoFolderStatus").textContent="폴더 목록을 비웠습니다. 이미 등록한 작업은 유지됩니다.";updateFolderPhotoControls();
+}
+async function collectFolderPhotos(load){
+  if(queueSubmitting||FOLDER_PHOTOS.scanning){$("photoFolderAvailability").textContent=folderPhotoBlockReason();return;}
+  const epoch=++FOLDER_PHOTOS.epoch,pending=[];let scanned=0,skipped=0,duplicates=0;
+  const current=()=>epoch===FOLDER_PHOTOS.epoch;
+  FOLDER_PHOTOS.scanning=true;updateFolderPhotoControls();$("photoFolderStatus").textContent="하위 폴더의 사진을 확인하는 중…";
+  try{
+    await load(async(file,path)=>{
+      if(!current())return false;
+      scanned++;
+      if(folderImageFile(file))pending.push({file,path:String(path||file.webkitRelativePath||file.name).replace(/\\/g,"/")});else skipped++;
+      if(scanned%250===0){$("photoFolderStatus").textContent=`파일 ${scanned.toLocaleString()}개 확인 · 사진 ${pending.length.toLocaleString()}장`;await new Promise(resolve=>setTimeout(resolve,0));}
+      return current();
+    },current);
+    if(!current())return;
+    pending.sort((a,b)=>a.path.localeCompare(b.path,"ko",{numeric:true}));
+    for(const item of pending){const key=folderPhotoKey(item.file,item.path);if(FOLDER_PHOTOS.items.has(key))duplicates++;else FOLDER_PHOTOS.items.set(key,item);}
+    $("photoFolderStatus").textContent=`모은 사진 ${FOLDER_PHOTOS.items.size.toLocaleString()}장 · 하위 폴더 포함${skipped?` · 이미지 외 ${skipped.toLocaleString()}개 제외`:""}${duplicates?` · 중복 선택 ${duplicates.toLocaleString()}장 제외`:""}. 폴더를 더 추가하거나 대기열에 등록하세요.${!pending.length?" 사진이 보이지 않으면 ‘폴더 추가’로 다시 선택해 주세요.":""}`;
+  }catch{
+    if(current())$("photoFolderStatus").textContent="폴더를 읽지 못해 이번 선택은 추가하지 않았습니다. 기존 목록은 유지됩니다. ‘폴더 추가’로 다시 선택해 주세요.";
+  }finally{if(current()){FOLDER_PHOTOS.scanning=false;updateFolderPhotoControls();}}
+}
+function collectPickedFolder(files){
+  return collectFolderPhotos(async(add,current)=>{for(const file of files){if(!current()||!await add(file,file.webkitRelativePath||file.name))break;}});
+}
+async function walkFolderEntry(entry,path,add,current){
+  if(!current())return;
+  if(entry.isFile){const file=await new Promise((resolve,reject)=>entry.file(resolve,reject));if(current())await add(file,path);return;}
+  if(!entry.isDirectory)throw new Error("Unsupported entry");
+  const reader=entry.createReader();
+  while(current()){
+    const batch=await new Promise((resolve,reject)=>reader.readEntries(resolve,reject));
+    if(!batch.length)break;
+    for(const child of batch){if(!current())return;await walkFolderEntry(child,path+"/"+child.name,add,current);}
+  }
+}
+function collectDroppedFolders(transfer){
+  // Capture entries synchronously inside drop; browsers clear drag data after the event.
+  const files=Array.from(transfer.files||[]),items=Array.from(transfer.items||[]).filter(item=>item.kind==="file");
+  let captured;
+  try{captured=items.map(item=>({entry:(item.getAsEntry||item.webkitGetAsEntry)?.call(item),file:item.getAsFile?.()}));}
+  catch{$("photoFolderStatus").textContent="끌어놓은 폴더에 접근하지 못했습니다. ‘폴더 추가’로 다시 선택해 주세요.";return Promise.resolve();}
+  return collectFolderPhotos(async(add,current)=>{
+    if(!captured.length){for(const file of files){if(!current()||!await add(file,file.webkitRelativePath||file.name))break;}return;}
+    for(const item of captured){
+      if(!current())return;
+      if(item.entry)await walkFolderEntry(item.entry,item.entry.name,add,current);
+      else if(item.file)await add(item.file,item.file.webkitRelativePath||item.file.name);
+      else throw new Error("Folder access unavailable");
+    }
+  });
+}
+async function submitFolderPhotos(){
+  if(folderPhotosBlocked()||FOLDER_PHOTOS.scanning){$("photoFolderAvailability").textContent=folderPhotoBlockReason();return;}
+  if(!FOLDER_PHOTOS.items.size){$("photoFolderStatus").textContent="모은 사진이 없습니다. 먼저 ‘폴더 추가’로 사진을 모아 주세요.";return;}
+  const snapshot=Array.from(FOLDER_PHOTOS.items.entries());
+  let result;
+  try{result=await submitIndividualPhotos(snapshot.map(([,item])=>item.file));}
+  catch{$("photoFolderStatus").textContent="등록 처리를 완료하지 못했습니다. 이미 등록한 작업은 유지됩니다. 중복 방지를 위해 자동 재시도하지 않습니다.";return;}
+  if(!result){$("photoFolderStatus").textContent="등록을 시작하지 못했습니다. 방식·수정 모드와 위의 진행 안내를 확인해 주세요.";return;}
+  const remove=new Set(result.confirmedFiles);if(result.uncertainFile)remove.add(result.uncertainFile);
+  for(const [key,item] of snapshot)if(remove.has(item.file)&&FOLDER_PHOTOS.items.get(key)===item)FOLDER_PHOTOS.items.delete(key);
+  $("photoFolderStatus").textContent=`${result.confirmedFiles.length.toLocaleString()}장 등록 확인 · 남은 사진 ${FOLDER_PHOTOS.items.size.toLocaleString()}장.${result.cancelled?" 추가를 중단했습니다.":""}${result.uncertainFile?" 응답 미확인 1장은 중복 방지를 위해 목록에서 제외했습니다. 작업 이력을 확인해 주세요.":""}${result.error?" 등록 안내: "+result.error:""}`;
+  updateFolderPhotoControls();
+}
+$("photoFolderOpen").onclick=()=>{if(queueSubmitting||FOLDER_PHOTOS.scanning)return;$("addMenu").open=false;$("photoFolderSection").open=true;$("photoFolderSection").scrollIntoView({block:"nearest"});if(folderPickerSupported())$("photoFolderFiles").click();};
+$("photoFolderChoose").onclick=()=>{if(!queueSubmitting&&!FOLDER_PHOTOS.scanning&&folderPickerSupported())$("photoFolderFiles").click();};
+$("photoFolderFiles").onchange=event=>{const files=Array.from(event.target.files||[]);event.target.value="";collectPickedFolder(files);};
+$("photoFolderClear").onclick=clearFolderPhotos;
+$("photoFolderSubmit").onclick=submitFolderPhotos;
+$("photoFolderDrop").ondragover=event=>{event.preventDefault();event.stopPropagation();if(!queueSubmitting&&!FOLDER_PHOTOS.scanning)$("photoFolderDrop").classList.add("drag");};
+$("photoFolderDrop").ondragleave=()=>$("photoFolderDrop").classList.remove("drag");
+$("photoFolderDrop").ondrop=event=>{event.preventDefault();event.stopPropagation();$("photoFolderDrop").classList.remove("drag");collectDroppedFolders(event.dataTransfer);};
+if(!folderPickerSupported())$("photoFolderStatus").textContent="이 브라우저는 폴더 선택을 지원하지 않습니다. PC에서 폴더를 끌어놓거나 기존 사진 선택을 이용해 주세요.";
+updateFolderPhotoControls();
+// End folder photo batch.
 let currentJobs = [], pollT0 = 0;
 const finished = j => j.state === "done" || j.state === "error";
 let restartingJob = false;
@@ -2116,9 +2400,19 @@ async function loadFromHist(e){
 $("openFolder").onclick = () => fetch("/api/open-folder", {method:"POST", body:"{}"});
 function storyModelSettings(){return {model:S.model,steps:S.steps,sampler:S.sampler,scheduler:S.scheduler,shift_video:S.shift_video,shift_audio:S.shift_audio,loras:Object.entries(S.loras).map(([name,strength])=>({name,strength}))};}
 function sizeGalleryFrame(){if(!$("galleryFrame").hidden)$("galleryFrame").style.height=Math.max(320,(window.visualViewport?.height||window.innerHeight)-$("galleryFrame").getBoundingClientRect().top-8)+"px";}
+function setGalleryNavHidden(hidden){
+  const frame=$("galleryFrame"),collapse=!!hidden&&!frame.hidden;
+  if(document.body.classList.contains("gallery-nav-hidden")!==collapse){document.body.classList.toggle("gallery-nav-hidden",collapse);sizeGalleryFrame();}
+  if(location.origin!=="null")frame.contentWindow?.postMessage({type:"gallery-navigation-state",hidden:collapse},location.origin);
+}
+function onGalleryNavigationMessage(event){
+  if(event.origin!==location.origin||event.source!==$("galleryFrame").contentWindow||$("galleryFrame").hidden||event.data?.type!=="gallery-navigation"||typeof event.data.hidden!=="boolean")return;
+  setGalleryNavHidden(event.data.hidden);
+}
 function selectAppTab(view){
   if(view!=="single"){hideHistoryDetails();closeVideoComparison();}
   $("singleApp").hidden=view!=="single";$("storyFrame").hidden=view!=="story";$("galleryFrame").hidden=view!=="gallery";
+  setGalleryNavHidden(false);
   syncHistoryPreviews();
   for(const [name,id] of [["single","singleTab"],["story","storyTab"],["gallery","galleryTab"]])$(id).setAttribute("aria-selected",String(view===name));
   if(view==="story"&&!$("storyFrame").getAttribute("src"))$("storyFrame").src="/story";
@@ -2127,10 +2421,12 @@ function selectAppTab(view){
   sizeGalleryFrame();
 }
 $("singleTab").onclick=()=>selectAppTab("single");$("storyTab").onclick=()=>selectAppTab("story");$("galleryTab").onclick=()=>selectAppTab("gallery");
-$("galleryFrame").onload=()=>{if(location.origin!=="null"){$("galleryFrame").contentWindow?.postMessage({type:"gallery-active",active:!$("galleryFrame").hidden},location.origin);$("galleryFrame").contentWindow?.postMessage({type:"lora-overlay-toggle",enabled:isLoraOverlayEnabled()},location.origin);}};
+$("galleryFrame").onload=()=>{setGalleryNavHidden(false);if(location.origin!=="null"){$("galleryFrame").contentWindow?.postMessage({type:"gallery-active",active:!$("galleryFrame").hidden},location.origin);$("galleryFrame").contentWindow?.postMessage({type:"lora-overlay-toggle",enabled:isLoraOverlayEnabled()},location.origin);}};
 window.addEventListener("resize",sizeGalleryFrame);window.visualViewport?.addEventListener("resize",sizeGalleryFrame);
+window.addEventListener("message",onGalleryNavigationMessage);
 window.addEventListener("message",event=>{if(event.origin===location.origin&&event.source===$("storyFrame").contentWindow&&event.data?.type==="story-resize"&&Number.isFinite(event.data.height))$("storyFrame").style.height=Math.max(800,Math.min(60000,event.data.height))+"px";});
 initLoraOverlay();
+initTranslationPreview();
 load(); setMode(S.mode || "REF2VA"); render(); loadCatalog().then(() => loadHist()); restoreImgs().then(initSync); restoreJobs();
 // 파일로 직접 열면(file://) 서버 API 를 못 부르므로 서버 주소로 보낸다
 if (location.protocol === "file:") {

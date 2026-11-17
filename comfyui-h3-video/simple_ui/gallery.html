@@ -8,10 +8,11 @@
 :root{color-scheme:light dark;--bg:#f6f6f4;--card:#fff;--ink:#1d1d1b;--mute:#6b6b66;--line:#e4e3de;--soft:#efeeea;--acc:#2f6fe4;--accent-bg:#e9effc;--danger:#b5462f}
 @media(prefers-color-scheme:dark){:root{--bg:#161615;--card:#1f1f1d;--ink:#ecebe6;--mute:#a09f98;--line:#34332f;--soft:#292925;--acc:#87adf7;--accent-bg:#22304a;--danger:#ff9a85}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,"Malgun Gothic",sans-serif}button,input,select{font:inherit;color:inherit}button,a,input,select{-webkit-tap-highlight-color:transparent}button{min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:9px;background:var(--card);cursor:pointer;touch-action:manipulation}button:disabled{opacity:.45;cursor:default}button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:3px}button.primary{background:var(--acc);border-color:var(--acc);color:#fff}button.danger{color:var(--danger)}[hidden]{display:none!important}
-main{max-width:1680px;margin:auto;padding:0 18px 40px}.toolbar{position:sticky;top:0;z-index:5;padding:12px 0 10px;background:var(--bg);border-bottom:1px solid var(--line)}.toolbar-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.filters{display:flex;gap:5px}.filters button{white-space:nowrap}.filters button[aria-pressed=true]{border-color:var(--acc);color:var(--acc);background:var(--accent-bg)}.filters small{font-size:11px;margin-left:4px}.search{flex:1;min-width:150px;display:flex;gap:8px}.search input{min-width:0;width:100%;min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:16px}.toolbar select{min-height:44px;border:1px solid var(--line);border-radius:9px;background:var(--card);padding:8px}.selection{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}.hint,.status{font-size:12px;color:var(--mute)}.hint{margin:8px 0 0}.status{margin-left:auto}.status.error{color:var(--danger)}
+main{max-width:1680px;margin:auto;padding:0 18px 40px}.toolbar{position:sticky;top:0;z-index:5;padding:12px 0 10px;background:var(--bg);border-bottom:1px solid var(--line)}.toolbar-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.filters{display:flex;gap:5px}.filters button{white-space:nowrap}.filters button[aria-pressed=true]{border-color:var(--acc);color:var(--acc);background:var(--accent-bg)}.filters small{font-size:11px;margin-left:4px}.search{flex:1;min-width:150px;display:flex;gap:8px}.search input{min-width:0;width:100%;min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:16px}.selection{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}.hint,.status{font-size:12px;color:var(--mute)}.hint{margin:8px 0 0}.status{margin-left:auto}.status.error{color:var(--danger)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px;padding-top:16px}.tile{min-width:0;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}.tile.selected{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}.cover{position:relative;aspect-ratio:4/3;background:var(--soft)}.cover-play{position:absolute;inset:0;display:block;width:100%;height:100%;padding:0;border:0;border-radius:0;background:transparent;overflow:hidden}.cover img{width:100%;height:100%;display:block;object-fit:contain}.source-label{position:absolute;bottom:7px;left:7px;padding:3px 6px;border-radius:4px;background:#0009;color:#fff;font-size:11px;pointer-events:none}.placeholder{display:grid;place-items:center;position:absolute;inset:0;font-size:12px;color:var(--mute)}.play-symbol{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;place-items:center;width:42px;height:42px;border-radius:50%;background:#0008;color:#fff;pointer-events:none}.pick{position:absolute;top:0;left:0;display:grid;place-items:center;width:48px;height:48px;cursor:pointer}.pick input{width:23px;height:23px;margin:0;accent-color:var(--acc);cursor:pointer}.favorite{position:absolute;top:4px;right:4px;border:0;background:#0009;color:#fff;width:44px;height:44px;padding:0;font-size:25px}.favorite[aria-pressed=true]{color:#ffdc72}.tile-body{padding:10px}.tile-date{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}.tile-meta{font-size:11px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:17px}.tile-actions{display:flex;gap:5px;margin-top:8px;align-items:center}.tile-actions button,.tile-actions a{flex:1;min-width:0;min-height:40px;font-size:12px;padding:8px 5px;text-align:center}.tile-actions a{display:block;color:var(--acc);text-decoration:none;border:1px solid var(--line);border-radius:9px}.empty{padding:60px 12px;text-align:center;color:var(--mute)}.sentinel{height:2px}.loading{text-align:center;color:var(--mute);font-size:13px;padding:18px}
 .viewer{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);padding:8px;width:min(var(--viewer-width,1000px),calc(100vw - 16px));max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow:auto;overscroll-behavior:contain}.viewer::backdrop{background:#000b}.viewer-close{position:absolute;right:12px;top:12px;z-index:2;min-height:36px;width:36px;padding:0;border:0;background:#0009;color:#fff;font-size:22px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.players{display:grid;gap:8px;align-items:start}.player{min-width:0}.stage{position:relative;aspect-ratio:var(--aspect,16/9);background:#111;border-radius:7px;overflow:hidden}.stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block}.lora-info{display:none;margin-top:7px;padding:7px;border-radius:6px;background:var(--soft);font-size:11px}.show-loras .lora-info{display:block}.lora-row{display:flex;gap:10px;justify-content:space-between}.lora-row span:first-child{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lora-row span:last-child{flex-shrink:0}.viewer-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}.viewer-tools select{min-height:44px;max-width:150px;padding:7px;border:1px solid var(--line);border-radius:7px;background:var(--card)}.viewer-status{font-size:12px;color:var(--mute);margin:5px 0 0}.confirm{max-width:min(400px,calc(100vw - 28px));border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);padding:20px}.confirm::backdrop{background:#0009}.confirm p{margin:0 0 16px}.confirm div{display:flex;justify-content:flex-end;gap:10px}
 .grid{overflow-anchor:none}
+.toolbar{padding:8px 0 6px}.toolbar .work-progress{margin-bottom:0}.work-progress-line .hint{margin:0}.gallery-tools{padding:10px 0;border-bottom:1px solid var(--line)}.gallery-tools select{min-height:44px;border:1px solid var(--line);border-radius:9px;background:var(--card);padding:8px}
 .work-progress{margin-bottom:10px;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--card)}.work-progress-line{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:13px}.work-progress-line strong{font-variant-numeric:tabular-nums}.work-progress progress{display:block;width:100%;height:8px;margin-top:7px;accent-color:var(--acc)}.completion-notice{margin:8px 0 0;color:var(--acc);font-size:13px}.regenerated-badge{display:inline-block;padding:2px 6px;margin-bottom:5px;border-radius:5px;background:var(--accent-bg);color:var(--acc);font-size:11px;font-weight:600}.tile.completed-focus{outline:2px solid var(--acc);outline-offset:2px}
 .regenerate{width:100%;margin-top:8px;min-height:44px;color:var(--acc);font-size:12px}.tile.regenerate-target{outline:2px dashed var(--acc);outline-offset:2px}.regeneration-bar{display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:10px;padding:10px;border-radius:9px;background:var(--accent-bg);font-size:13px}.regeneration-bar button{flex-shrink:0}.regeneration-dialog{width:min(480px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;border:1px solid var(--line);border-radius:12px;padding:16px;background:var(--card);color:var(--ink)}.regeneration-dialog::backdrop{background:#000b}.regeneration-dialog h2{font-size:17px;margin:0 0 12px}.regeneration-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}.regeneration-pair figure{margin:0;min-width:0}.regeneration-pair img{display:block;width:100%;height:140px;object-fit:contain;background:var(--soft);border-radius:7px}.regeneration-pair figcaption{font-size:12px;margin:5px 0}.regeneration-buttons{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:12px}.regeneration-error{font-size:13px;color:var(--danger)}
 .viewer-nav{display:flex;align-items:center;gap:8px;margin-top:8px}.viewer-nav button{width:44px;flex-shrink:0;font-size:24px;padding:0}.viewer-nav span{flex:1;text-align:center;font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums}
@@ -27,6 +28,8 @@ main{max-width:1680px;margin:auto;padding:0 18px 40px}.toolbar{position:sticky;t
       <div class="work-progress-line"><strong id="workProgressText">진행률 확인 중…</strong><span class="hint" id="workPending"></span></div>
       <progress id="workProgress" max="100" aria-label="현재 실행 중인 작업 진행률"></progress>
     </div>
+  </header>
+  <section class="gallery-tools" aria-label="갤러리 필터와 작업 도구">
     <p class="completion-notice" id="completionNotice" role="status" hidden></p>
     <div class="toolbar-row">
       <div class="filters" role="group" aria-label="영상 분류">
@@ -46,7 +49,7 @@ main{max-width:1680px;margin:auto;padding:0 18px 40px}.toolbar{position:sticky;t
     </div>
     <p class="hint" id="hint">썸네일을 누르면 바로 재생 · 체크한 영상은 최대 3개 함께 재생 · 새 결과 자동 갱신</p>
     <div class="regeneration-bar" id="regenerationBar" hidden><span><strong>가져올 설정을 선택하세요</strong><br>다른 영상의 ‘이 영상 설정 가져오기’를 누르세요. 프롬프트·모델·LoRA·스텝을 복사합니다.</span><button type="button" id="cancelRegeneration">취소</button></div>
-  </header>
+  </section>
   <div class="grid" id="grid" aria-label="결과 영상 목록"></div>
   <div class="empty" id="empty" hidden>아직 완료된 영상이 없습니다.</div>
   <div class="loading" id="loading" hidden>더 불러오는 중…</div>
@@ -202,7 +205,7 @@ function drawGallery(){
   }
   old.forEach(node=>node.remove());selection();
   $("empty").hidden=!!G.items.length;$("empty").textContent=G.query?"검색 결과가 없습니다.":G.mode==="favorites"?"즐겨찾기한 영상이 없습니다.":G.mode==="trash"?"휴지통이 비어 있습니다.":"아직 완료된 영상이 없습니다.";
-  if(anchor?.isConnected&&anchorY!=null){const delta=anchor.getBoundingClientRect().top-anchorY;if(Math.abs(delta)>1)window.scrollBy(0,delta);}
+  if(anchor?.isConnected&&anchorY!=null){const delta=anchor.getBoundingClientRect().top-anchorY;if(Math.abs(delta)>1){window.scrollBy(0,delta);resetGalleryScroll();}}
 }
 function schedule(){clearTimeout(G.timer);if(G.active&&!document.hidden)G.timer=setTimeout(()=>loadGallery(false,true),7000);}
 function loadGallery(more=false,quiet=false){
@@ -232,7 +235,7 @@ async function fetchGallery(more=false,quiet=false){
       else G.items=incoming;
       G.revision=changedDuringPaging?"":first.revision;if(changedDuringPaging)G.again=true;drawGallery();
     }
-    updateViewerNavigation();setStatus(`${G.total}개 · 자동 갱신 중`);
+    refreshPlayerLoras();updateViewerNavigation();setStatus(`${G.total}개 · 자동 갱신 중`);
     showCompletedRegeneration();
   }catch(error){setStatus("불러오지 못했습니다. 새로고침해 주세요.",true);}
   finally{G.loading=false;$("loading").hidden=true;if(G.again){G.again=false;loadGallery(false,true);}else schedule();}
@@ -265,6 +268,18 @@ function loraHtml(item){
   return `LoRA ${item.loras.length}개`+item.loras.map(lora=>`<div class="lora-row"><span>${esc(base(lora.name).replace(/\.(safetensors|gguf)$/i,""))}</span><span>${esc(lora.strength??"?")}</span></div>`).join("");
 }
 function setLoras(enabled){document.body.classList.toggle("show-loras",!!enabled);if(PLAYER.entries.length)layoutViewer();}
+function refreshPlayerLoras(){
+  if(!$("viewer").open||!PLAYER.entries.length)return;
+  const latest=new Map(G.items.map(item=>[item.id,item])),players=[...$("players").querySelectorAll("video")];let changed=false;
+  PLAYER.entries=PLAYER.entries.map((entry,index)=>{
+    const item=latest.get(entry.id);
+    if(!item||JSON.stringify(item.loras)===JSON.stringify(entry.loras))return entry;
+    const next={...entry,loras:item.loras},info=players[index]?.closest(".player")?.querySelector(".lora-info");
+    if(info)info.innerHTML=loraHtml(next);
+    changed=true;return next;
+  });
+  if(changed)layoutViewer();
+}
 function layoutViewer(){
   const width=window.visualViewport?.width||window.innerWidth,height=window.visualViewport?.height||window.innerHeight;
   const entries=PLAYER.entries;if(!entries.length)return;
@@ -410,8 +425,35 @@ $("cancelRegeneration").onclick=cancelRegeneration;$("confirmRegeneration").oncl
 $("changeRegenerationSource").onclick=()=>{if(!REGEN.busy){REGEN.source=null;REGEN.requestId=null;$("regenerationDialog").close();}};
 $("regenerationDialog").addEventListener("cancel",event=>{event.preventDefault();if(!REGEN.busy){REGEN.source=null;REGEN.requestId=null;$("regenerationDialog").close();}});
 window.addEventListener("resize",layoutViewer);window.visualViewport?.addEventListener("resize",layoutViewer);
+// Gallery menu follows scroll direction. No gallery items or media are inspected.
+const GALLERY_NAV={lastY:0,travel:0,direction:0,hidden:false,suppressUntil:0};
+function galleryScrollY(){
+  const y=Math.max(0,window.scrollY||0),height=document.documentElement?.scrollHeight;
+  return Number.isFinite(height)?Math.min(y,Math.max(0,height-window.innerHeight)):y;
+}
+function resetGalleryScroll(){GALLERY_NAV.lastY=galleryScrollY();GALLERY_NAV.travel=0;GALLERY_NAV.direction=0;GALLERY_NAV.suppressUntil=Date.now()+150;}
+function requestGalleryNavigation(hidden){
+  if(hidden===GALLERY_NAV.hidden||parent===window||location.origin==="null"||typeof parent.postMessage!=="function")return;
+  GALLERY_NAV.hidden=hidden;GALLERY_NAV.suppressUntil=Date.now()+150;
+  parent.postMessage({type:"gallery-navigation",hidden},location.origin);
+}
+function onGalleryScroll(){
+  if(!G.active||document.hidden||$("viewer").open||$("regenerationDialog").open){resetGalleryScroll();return;}
+  const y=galleryScrollY(),delta=y-GALLERY_NAV.lastY;GALLERY_NAV.lastY=y;
+  if(y<=4){GALLERY_NAV.travel=0;GALLERY_NAV.direction=0;requestGalleryNavigation(false);return;}
+  if(Date.now()<GALLERY_NAV.suppressUntil||!delta)return;
+  const direction=Math.sign(delta);
+  if(direction!==GALLERY_NAV.direction){GALLERY_NAV.direction=direction;GALLERY_NAV.travel=0;}
+  GALLERY_NAV.travel+=delta;
+  if(direction>0&&y>40&&GALLERY_NAV.travel>=14)requestGalleryNavigation(true);
+  else if(direction<0&&GALLERY_NAV.travel<=-10)requestGalleryNavigation(false);
+}
+function acknowledgeGalleryNavigation(hidden){if(typeof hidden!=="boolean")return;GALLERY_NAV.hidden=hidden;resetGalleryScroll();}
+// End gallery navigation.
+window.addEventListener("scroll",onGalleryScroll,{passive:true});
+window.addEventListener("resize",resetGalleryScroll,{passive:true});
 document.addEventListener("visibilitychange",()=>{if(document.hidden){clearTimeout(G.timer);clearTimeout(ACTIVITY.timer);pause();}else{loadGallery(false,true);pollActivity();}});
-window.addEventListener("message",event=>{if(event.origin!==location.origin||event.source!==parent)return;if(event.data?.type==="gallery-active"){G.active=!!event.data.active;if(G.active){loadGallery(false,true);pollActivity();}else{clearTimeout(G.timer);clearTimeout(ACTIVITY.timer);closeViewer();}}if(event.data?.type==="lora-overlay-toggle")setLoras(event.data.enabled);});
+window.addEventListener("message",event=>{if(event.origin!==location.origin||event.source!==parent)return;if(event.data?.type==="gallery-navigation-state")acknowledgeGalleryNavigation(event.data.hidden);if(event.data?.type==="gallery-active"){G.active=!!event.data.active;GALLERY_NAV.hidden=false;resetGalleryScroll();if(G.active){loadGallery(false,true);pollActivity();}else{clearTimeout(G.timer);clearTimeout(ACTIVITY.timer);closeViewer();}}if(event.data?.type==="lora-overlay-toggle")setLoras(event.data.enabled);});
 window.addEventListener("storage",event=>{if(event.key===LORA_KEY)setLoras(event.newValue==="1");});
 // Bootstrap only requests gallery/progress metadata and cached images; playback requires a click.
 try{setLoras(localStorage.getItem(LORA_KEY)==="1");}catch{}

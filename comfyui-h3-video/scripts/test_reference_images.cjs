@@ -10,7 +10,7 @@ const context=vm.createContext({$:get,console,images:[],bulkEditingIds:[],maxImg
 vm.runInContext(section('function pics(', '// 영상 길이'),context);
 vm.runInContext(section('const FACE_REFERENCE_RETENTION=', 'function build('),context);
 vm.runInContext(section('let photoImportQueue=', 'function photoLabel('),context);
-vm.runInContext(section('function readPhotoDataUrl(', 'async function submitIndividualPhotos('),context);
+vm.runInContext(section('function photoFileType(', 'async function submitIndividualPhotos('),context);
 const raw='subject_definitions: Custom person from <Picture 1>.  \n\nsummary: Keep this exact summary.\n\nretention_analysis: Preserve custom accessories.  \n\ndetailed_description: Original waist instruction.\nAt 2.000 seconds, a synthetic gesture.\n\noverall_soundscape: Unchanged sound.\n\nnon_diegetic_music: N/A\n';
 for(let count=2;count<=9;count++){
   const updated=context.withFaceReferenceRules(raw,count);
@@ -42,7 +42,8 @@ const settle=()=>new Promise(setImmediate),file=(id,fail=false)=>({id,type:'imag
   const failure=context.addFiles([file(10,true),file(11)]);await settle();waiting.shift()();await failure;
   assert.equal(errors.length,1);assert.equal(context.images.length,0);assert.deepEqual(started,[10],'A failed primary photo must not silently promote a later photo');
   const recovery=context.addFiles([file(12)]);await settle();waiting.shift()();await recovery;assert.deepEqual([...context.images],['synthetic-data-12']);
+  const unknown=context.addFiles([{id:14,name:'camera.JFIF',type:'application/octet-stream'}]);await settle();waiting.shift()();await unknown;assert(context.images.includes('synthetic-data-14'),'Known photo extensions must work without an image MIME type');
   const edit=context.addFiles([file(13)]);await settle();context.bulkEditingIds.push('synthetic-edit');waiting.shift()();await edit;
-  assert.deepEqual([...context.images],['synthetic-data-12'],'An in-flight read cannot alter photos during bulk editing');
+  assert.deepEqual([...context.images],['synthetic-data-12','synthetic-data-14'],'An in-flight read cannot alter photos during bulk editing');
   console.log('Reference-image checks passed: 2–9 roles, scoped/idempotent manual updates, original text preservation and ordered bounded file reads.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

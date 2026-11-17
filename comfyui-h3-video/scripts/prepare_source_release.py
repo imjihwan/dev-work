@@ -13,24 +13,24 @@ ROOT_FILES = (
 )
 UI_FILES = (
     "server.py", "index.html", "start.bat", "template_api.json",
-    "cards.seed.json", "presets.seed.json", "prompt_helper.py",
+    "cards.seed.json", "presets.seed.json", "prompt_helper.py", "local_translate.py", "translation_worker.py",
     "story.py", "story_workflow.py", "story.html", "gallery.py", "gallery.html", "face_references.py",
 )
 DOC_FILES = (
     "MODELS.md", "PROMPT_HELPER.md", "STORY.md", "UI.md",
-    "ARCHITECTURE.md", "TESTING.md", "SOURCE_RELEASE.md", "FACE_REFERENCES.md",
+    "ARCHITECTURE.md", "TESTING.md", "SOURCE_RELEASE.md", "FACE_REFERENCES.md", "LOCAL_TRANSLATION.md",
 )
 SCRIPT_FILES = (
     "setup.ps1", "start_comfyui.bat", "get_models.py", "download-ranges.py",
-    "install_prompt_helper.py", "install_face_detector.py", "test_face_references.py", "prepare_ui_restart.py", "prepare_source_release.py",
+    "install_prompt_helper.py", "install_face_detector.py", "install_local_translator.py", "test_face_references.py", "prepare_ui_restart.py", "prepare_source_release.py",
     "apply_queued_style.py", "add_queued_opening_pose.py", "restore_anchored_reference.py",
     "test_gallery.py", "test_apply_queued_style.py", "test_add_queued_opening_pose.py",
-    "test_prompt_helper.py", "test_photo_batch_ui.cjs", "test_opening_pose.cjs",
+    "test_prompt_helper.py", "test_local_translate.py", "test_translation_preview.cjs", "test_photo_batch_ui.cjs", "test_folder_photos.cjs", "test_opening_pose.cjs",
     "test_input_thumbnail.py", "test_history_ui.cjs", "test_history_media.cjs",
-    "test_history_delete.py", "test_gallery_ui.cjs", "test_gallery_regenerate.py",
+    "test_history_delete.py", "test_gallery_ui.cjs", "test_gallery_navigation.cjs", "test_gallery_regenerate.py",
     "test_gallery_progress.py", "test_settings_sequence_bulk.py",
     "test_restore_anchored_reference.py", "test_restart_running.py",
-    "test_reference_restore.cjs", "test_queue_edit.py", "test_prompt_sync.cjs",
+    "test_reference_restore.cjs", "test_queue_edit.py", "test_prompt_sync.cjs", "test_priority_queue.py",
     "test_ui_features.cjs", "test_story_ui.cjs", "test_story_routes.py", "test_story.py", "test_reference_images.cjs",
 )
 PUBLIC_FILES = tuple(ROOT_FILES) + tuple("simple_ui/"+name for name in UI_FILES) + tuple(
