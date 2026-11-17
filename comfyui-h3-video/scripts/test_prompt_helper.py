@@ -28,6 +28,9 @@ class PromptHelperTests(unittest.TestCase):
         args=helper.command(12345,'dutchit')
         self.assertEqual(args[args.index('-m')+1],str(helper.dutchit_model));self.assertEqual(helper.model,original)
         for flag,value in (('-ngl','0'),('-t','2'),('-tb','2'),('-c','8192'),('--host','127.0.0.1')):self.assertEqual(args[args.index(flag)+1],value)
+        for flag,value in (('-ctk','q8_0'),('-ctv','q8_0'),('-fa','on')):self.assertEqual(args[args.index(flag)+1],value)
+        self.assertIn('--no-repack',args)
+        for flag in ('-ctk','-ctv','-fa','--no-repack'):self.assertNotIn(flag,helper.command(12345))
 
     def test_dutchit_insufficient_ram_never_falls_back_or_spawns(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -355,6 +358,30 @@ class PromptHelperTests(unittest.TestCase):
         self.assertEqual(complete.call_args_list[0].args[2]['fixed'],body['fixed'])
         self.assertTrue(complete.call_args_list[0].args[2]['anchor']);self.assertTrue(complete.call_args_list[0].args[2]['one_take'])
         self.assertTrue(set(HELPER.FIXED_FIELDS).isdisjoint(job['draft']['f']))
+
+    def test_dutchit_new_draft_grammar_excludes_end_or_later_phase_starts(self):
+        for duration in (1,5,15):
+            output={'summary':'The block moves.','sound':'Quiet room tone.','music':'N/A','shots':[{'time':0,'text':'The block moves slowly.'}]}
+            job,complete=self.run_fake_model({'idea':'Move the block.','engine':'dutchit','duration':duration},[output,{'status':'ok','summary':'문제 없음','issues':[]}])
+            self.assertEqual(job['state'],'done')
+            times=complete.call_args_list[0].args[3]['properties']['shots']['items']['properties']['time']['enum']
+            self.assertIn(0,times);self.assertIn(.3,times)
+            self.assertTrue(all(0<=value<duration for value in times))
+        self.assertNotIn('enum',HELPER.SCHEMA['properties']['shots']['items']['properties']['time'])
+
+    def test_dutchit_camera_copy_is_repaired_once_without_rewriting_fixed_fields(self):
+        body={'idea':'The block slides and stops.','engine':'dutchit','duration':5,'one_take':True,'fixed':{'style':'An axial push-in, then hold.','keep':'Exact original block.'}}
+        bad={'summary':'The block slides.','sound':'Quiet room.','music':'N/A','shots':[{'time':0,'text':'At 0.3 seconds, the camera holds the initial frame. The camera smoothly pushes in. The block slides.'}]}
+        good={**bad,'shots':[{'time':0,'text':'The block slides a short distance, slows, and stops.'}]}
+        report={'status':'ok','summary':'문제 없음','issues':[]}
+        job,complete=self.run_fake_model(body,[bad,good,report])
+        self.assertEqual(job['state'],'done');self.assertEqual(complete.call_count,3)
+        self.assertNotIn('camera',job['draft']['shots'][0][1])
+        self.assertEqual(complete.call_args_list[1].args[2]['fixed'],body['fixed'])
+        self.assertIn('candidate_to_correct',complete.call_args_list[1].args[2])
+        job,complete=self.run_fake_model(body,[bad,bad])
+        self.assertEqual(job['state'],'error');self.assertEqual(complete.call_count,2)
+        self.assertNotIn('draft',job)
 
 
 if __name__=="__main__": unittest.main()

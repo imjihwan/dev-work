@@ -31,6 +31,10 @@
       "context": 8192,
       "start_free_ram_gib": 8,
       "min_free_ram_gib": 2.5,
+      "cache_type_k": "q8_0",
+      "cache_type_v": "q8_0",
+      "cpu_flash_attention": true,
+      "weight_repack": false,
       "text_only": true
     }
   },

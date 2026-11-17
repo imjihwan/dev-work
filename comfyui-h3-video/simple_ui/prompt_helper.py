@@ -19,7 +19,7 @@ REFERENCE_APPEARANCE = "Keep the subject's appearance exactly as in <Picture 1> 
 # Adapted from DutchIT/minimax-prompt-enhancer Modelfile.ref (Apache-2.0).
 # Pinned upstream and modification notes: third_party/dutchit/NOTICE.md.
 DUTCHIT_MODEL = "Huihui-Qwen3-VL-8B-Instruct-abliterated.Q4_K_M.gguf"
-DUTCHIT_POLICY = "dutchit-ref-adapter-v1"
+DUTCHIT_POLICY = "dutchit-ref-adapter-v2"
 DUTCHIT_SYSTEM = """You are the DutchIT MiniMax H3 reference-prompt adapter for an existing editor.
 H3 produces video and audio together. Make the requested action, its physical sound,
 and the passage of time agree, with concrete preparation, contact, travel and outcome.
@@ -634,7 +634,7 @@ def enforce_dutchit_constraints(draft, request):
         texts = [change["after"] for change in draft.get("changes", []) if change["target"] in ("summary", "shot_text", "prompt")]
     else:
         texts = [draft["f"].get("summary", ""), *[text for _, text in draft.get("shots", [])]]
-    camera = re.compile(r"\b(?:the\s+)?camera\s+(?:remains|stays|moves|pushes|pulls|pans|tilts|zooms|tracks|orbits|arcs|rolls|rises|lowers|is\s+(?:fixed|static|locked|stationary))\b|\b(?:zoom\s*(?:in|out)|pan\s+(?:left|right)|close-up\s+shot|wide\s+shot|medium\s+shot)\b", re.I)
+    camera = re.compile(r"\bcamera\s+(?:(?:\w+ly|then|now|still|always|already|never|not|can|must|should|will|does|do|is|be|kept)\s+){0,5}(?:remains?|stays?|holds?|moves?|push(?:es)?|pulls?|pans?|tilts?|zooms?|tracks?|orbits?|arcs?|rolls?|rises?|lowers?|fixed|static|locked|stationary)\b|\bcamera\s+(?:movement|position|angle|height|framing|motion|viewpoint|path|focal\s+length)\b|\b(?:zoom\s*(?:in|out)|pan\s+(?:left|right)|close-up\s+shot|wide\s+shot|medium\s+shot)\b", re.I)
     cuts = re.compile(r"\b(?:camera|shot)\s+(?:cuts|transitions|switches|changes)\s+to\b|\bcut\s+to\b|\bfade\s+(?:in|out)\b|\bdissolve\s+to\b", re.I)
     for text in texts:
         action = re.sub(r"<d>.*?</d>", "", text, flags=re.I|re.S)
@@ -694,11 +694,17 @@ class PromptHelper:
 
     def command(self, port, engine="legacy"):
         model = self.dutchit_model if engine == "dutchit" else self.model
-        return [str(self.exe), "-m", str(model), "--host", "127.0.0.1", "--port", str(port),
+        args = [str(self.exe), "-m", str(model), "--host", "127.0.0.1", "--port", str(port),
                 "--alias", "h3-prompt-helper", "-ngl", "0", "-t", "2", "-tb", "2",
                 "-c", "8192", "-np", "1", "-b", "128", "-ub", "128", "--cache-ram", "0",
                 "--prio", "-1", "--poll", "0", "--poll-batch", "0", "--threads-http", "2",
                 "--jinja", "--reasoning", "off", "--no-webui", "--no-slots", "--log-disable"]
+        if engine == "dutchit":
+            # Keep the full context but halve the persistent KV cache versus f16.
+            # Flash attention is provided by the CPU-only runtime, not the GPU.
+            # CPU repacking can allocate another model-sized buffer at startup.
+            args += ["-ctk", "q8_0", "-ctv", "q8_0", "-fa", "on", "--no-repack"]
+        return args
 
     def _complete(self, base, system, content, schema, tokens, temperature):
         if self.active_engine == "dutchit":
@@ -768,12 +774,19 @@ class PromptHelper:
                 model_request=dict(request)
                 if editing and "manual_prompt" in model_request: model_request.pop("existing")
                 schema=json.loads(json.dumps(EDIT_SCHEMA if editing else SCHEMA))
+                if self.active_engine == "dutchit" and not editing:
+                    # A finite grammar enum is enforced for decimal numbers too;
+                    # some runtime schema converters ignore numeric min/max bounds.
+                    schema["properties"]["shots"]["items"]["properties"]["time"]["enum"] = [
+                        round(tick / 10, 1) for tick in range(math.ceil(request["duration"] * 10))
+                        if tick / 10 < request["duration"]]
                 if editing:
                     schema["properties"]["edits"]["items"]["properties"]["target"]["enum"] = ["prompt"] if "manual_prompt" in request else [*FIELDS,"shot_text","shot_time"]
                 system=(EDIT_SYSTEM if editing else SYSTEM)+(STORY_SYSTEM if "story_context" in request else "")
                 if self.active_engine == "dutchit":
                     system=DUTCHIT_SYSTEM+"\n"+system.replace("about 60-150 English words", "about 80-240 English words, scaled to the requested action without padding")
                     system=system.replace("Start the requested movement at time 0, rather than\nspending the first phase standing still.", "Respect an opening hold or delayed movement already specified in fixed fields.\nOtherwise start the requested movement at time 0.")
+                    system += "\nFINAL OUTPUT RULE: The editor inserts fixed.style separately. In summary and shots describe ONLY the subject/object action. Do not repeat even matching camera instructions from fixed.style. The camera must never be the actor of an output sentence."
                 output=self._complete(base,system,model_request,schema,1600 if editing else 1900,.1 if editing else .2 if self.active_engine == "dutchit" else .25)
                 draft=apply_edits(output,request) if editing else validate_draft(output,request["duration"])
                 # 상세 보강은 분량을 늘리며 외모·소품을 지어내는 주원인이라 자동으로 하지 않는다(detail=true 일 때만)
@@ -796,7 +809,19 @@ class PromptHelper:
                         # A failed optional expansion must not discard an otherwise usable draft.
                         pass
             if self.cancel_event.is_set(): raise RuntimeError("작성을 취소했습니다.")
-            enforce_dutchit_constraints(draft, request)
+            try:
+                enforce_dutchit_constraints(draft, request)
+            except ValueError:
+                if self.active_engine != "dutchit" or editing or request.get("review_only"):
+                    raise
+                # Repair an unapplied new draft once. Existing user text and edits
+                # are never rewritten by this path; a second violation is rejected.
+                repair_request=dict(model_request)
+                repair_request["candidate_to_correct"]={**draft["f"],"shots":[{"time":when,"text":text} for when,text in draft["shots"]]}
+                repair_request["correction_required"]="The candidate violates the host contract. Rewrite summary and action phases without ANY camera/framing instructions, cuts or nonexistent reference pictures. Describe the subject/object movement only. The unchanged fixed style is inserted elsewhere. Keep the requested action, duration, sound and music."
+                corrected=self._complete(base,system,repair_request,schema,1900,.1)
+                draft=validate_draft(corrected,request["duration"])
+                enforce_dutchit_constraints(draft,request)
             notes=[]
             if not request.get("review_only"):
                 notes=flag_edit_terms(draft,request) if editing else ground_draft(draft,request)
