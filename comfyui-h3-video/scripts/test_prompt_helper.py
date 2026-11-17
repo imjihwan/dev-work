@@ -14,6 +14,48 @@ SPEC.loader.exec_module(HELPER)
 
 
 class PromptHelperTests(unittest.TestCase):
+    def test_dutchit_keeps_existing_contract_and_rejects_unsupported_choices(self):
+        fixed={'subject':'  Synthetic identity.\n','style':'Initial continuous zoom, then hold.  ','keep':'Same face and outfit.\n'}
+        request=HELPER.validate_request({'idea':'Slide a block.','engine':'dutchit','duration':5,'one_take':True,'anchor':True,'reference_count':3,'fixed':fixed,'images':['PRIVATE'],'history':'PRIVATE'})
+        self.assertEqual(request['fixed'],fixed);self.assertTrue(request['one_take']);self.assertTrue(request['anchor'])
+        self.assertEqual(request['reference_count'],3);self.assertNotIn('PRIVATE',json.dumps(request))
+        self.assertEqual(HELPER.validate_request({'idea':'Synthetic action.'})['engine'],'legacy','Old clients retain their original engine without data migration')
+        for extra in ({'engine':'unknown'},{'reference_count':10},{'reference_count':True},{'anchor':'yes'}):
+            with self.assertRaises(ValueError):HELPER.validate_request({'idea':'Synthetic action.',**extra})
+
+    def test_dutchit_cpu_model_is_explicit_and_does_not_replace_legacy_model(self):
+        helper=HELPER.PromptHelper(ROOT/'local-prompt-helper');original=helper.model
+        args=helper.command(12345,'dutchit')
+        self.assertEqual(args[args.index('-m')+1],str(helper.dutchit_model));self.assertEqual(helper.model,original)
+        for flag,value in (('-ngl','0'),('-t','2'),('-tb','2'),('-c','8192'),('--host','127.0.0.1')):self.assertEqual(args[args.index(flag)+1],value)
+
+    def test_dutchit_insufficient_ram_never_falls_back_or_spawns(self):
+        with tempfile.TemporaryDirectory() as temp:
+            helper=HELPER.PromptHelper(temp);helper.exe.parent.mkdir();helper.exe.touch();helper.dutchit_model.touch();helper.model.touch()
+            with patch.object(HELPER,'available_memory',return_value=7*1024**3),patch.object(HELPER.subprocess,'Popen') as spawn:
+                with self.assertRaisesRegex(ValueError,'8GB'):helper.start({'idea':'Synthetic action.','engine':'dutchit'})
+                spawn.assert_not_called()
+
+    def test_dutchit_rejects_new_camera_cuts_and_invalid_references(self):
+        request=HELPER.validate_request({'idea':'Move a block.','engine':'dutchit','one_take':True,'reference_count':1})
+        for text in ('The camera cuts to another view.','The camera zooms out.','A medium shot shows the block.','Follow <Picture 2>.'):
+            with self.assertRaises(ValueError):HELPER.enforce_dutchit_constraints({'f':{'summary':'Move.'},'shots':[[0,text]]},request)
+        HELPER.enforce_dutchit_constraints({'f':{'summary':'The block moves.'},'shots':[[0,'The subject looks toward the camera and waves.']]},request)
+
+    def test_dutchit_partial_edit_does_not_revalidate_or_migrate_unchanged_text(self):
+        request=HELPER.validate_request({'idea':'Change only the music.','engine':'dutchit','one_take':True,'context':{'summary':'Old summary.','music':'N/A','shots':[['0.00','Existing camera instruction remains byte-for-byte.']]}})
+        result=HELPER.apply_edits({'edits':[{'target':'music','index':0,'before':'N/A','after':'Gentle piano.'}]},request)
+        HELPER.enforce_dutchit_constraints(result,request)
+        self.assertEqual(result['f'],{'music':'Gentle piano.'});self.assertNotIn('shots',result)
+
+    def test_dutchit_context_limit_rejects_before_generation(self):
+        import io
+        helper=HELPER.PromptHelper();helper.active_engine='dutchit'
+        responses=[io.BytesIO(json.dumps({'prompt':'SYNTHETIC'}).encode()),io.BytesIO(json.dumps({'tokens':[1]*7000}).encode())]
+        with patch.object(HELPER.urllib.request,'urlopen',side_effect=responses) as send:
+            with self.assertRaisesRegex(ValueError,'문맥 한도'):helper._complete('http://127.0.0.1:12345','Synthetic system',{'idea':'Synthetic'},HELPER.SCHEMA,1900,.2)
+        self.assertEqual(send.call_count,2,'No completion request may truncate the fixed constraints')
+
     def test_multilingual_requested_objects_are_preserved_with_uncertainty_notes(self):
         for idea in ("컵을 들고 미소 지어 주세요.", "컵을 hold하고 smile해 주세요.", "本を持って微笑んでください。"):
             with self.subTest(idea=idea):
@@ -302,6 +344,17 @@ class PromptHelperTests(unittest.TestCase):
         result=HELPER.validate_review(verdict,content)
         self.assertEqual(result["status"],"revise")
         self.assertEqual(result["issues"][0]["evidence"],"performs twenty full jumps")
+
+
+    def test_dutchit_real_pipeline_uses_adapter_and_preserves_fixed_text(self):
+        body={'idea':'A block moves slowly, then stops.','engine':'dutchit','duration':5,'one_take':True,'anchor':True,'fixed':{'subject':'  Original subject.  ','style':'A continuous initial zoom, then hold.','keep':'Original retention.'}}
+        output={'summary':'The block moves and stops.','sound':'Quiet room tone.','music':'N/A','shots':[{'time':0,'text':'The block begins moving slowly, decelerates and settles.'}]}
+        job,complete=self.run_fake_model(body,[output,{'status':'ok','summary':'문제 없음','issues':[]}])
+        self.assertEqual(job['state'],'done');self.assertEqual(job['draft']['engine'],'dutchit')
+        self.assertIn('DutchIT MiniMax H3',complete.call_args_list[0].args[1])
+        self.assertEqual(complete.call_args_list[0].args[2]['fixed'],body['fixed'])
+        self.assertTrue(complete.call_args_list[0].args[2]['anchor']);self.assertTrue(complete.call_args_list[0].args[2]['one_take'])
+        self.assertTrue(set(HELPER.FIXED_FIELDS).isdisjoint(job['draft']['f']))
 
 
 if __name__=="__main__": unittest.main()

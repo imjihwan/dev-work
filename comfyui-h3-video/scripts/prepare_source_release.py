@@ -16,6 +16,7 @@ UI_FILES = (
     "cards.seed.json", "presets.seed.json", "prompt_helper.py", "local_translate.py", "translation_worker.py",
     "story.py", "story_workflow.py", "story.html", "gallery.py", "gallery.html", "face_references.py",
 )
+THIRD_PARTY_FILES = ("third_party/dutchit/NOTICE.md", "third_party/dutchit/LICENSE.txt", "third_party/dutchit/Modelfile.ref.txt")
 DOC_FILES = (
     "MODELS.md", "PROMPT_HELPER.md", "STORY.md", "UI.md",
     "ARCHITECTURE.md", "TESTING.md", "SOURCE_RELEASE.md", "FACE_REFERENCES.md", "LOCAL_TRANSLATION.md",
@@ -33,7 +34,7 @@ SCRIPT_FILES = (
     "test_reference_restore.cjs", "test_queue_edit.py", "test_prompt_sync.cjs", "test_priority_queue.py",
     "test_ui_features.cjs", "test_story_ui.cjs", "test_story_routes.py", "test_story.py", "test_reference_images.cjs",
 )
-PUBLIC_FILES = tuple(ROOT_FILES) + tuple("simple_ui/"+name for name in UI_FILES) + tuple(
+PUBLIC_FILES = tuple(ROOT_FILES) + THIRD_PARTY_FILES + tuple("simple_ui/"+name for name in UI_FILES) + tuple(
     "docs/"+name for name in DOC_FILES) + tuple("scripts/"+name for name in SCRIPT_FILES)
 ALLOWED_SUFFIXES = {".md", ".py", ".cjs", ".html", ".ps1", ".bat", ".json", ".txt"}
 SECRET = re.compile(r"(?:gh[pousr]_[A-Za-z0-9_]{30,}|github_pat_[A-Za-z0-9_]{40,}|-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----)")

@@ -16,6 +16,38 @@ import uuid
 FIELDS = ("summary", "sound", "music")
 FIXED_FIELDS = ("subject", "style", "keep")
 REFERENCE_APPEARANCE = "Keep the subject's appearance exactly as in <Picture 1> throughout the video."
+# Adapted from DutchIT/minimax-prompt-enhancer Modelfile.ref (Apache-2.0).
+# Pinned upstream and modification notes: third_party/dutchit/NOTICE.md.
+DUTCHIT_MODEL = "Huihui-Qwen3-VL-8B-Instruct-abliterated.Q4_K_M.gguf"
+DUTCHIT_POLICY = "dutchit-ref-adapter-v1"
+DUTCHIT_SYSTEM = """You are the DutchIT MiniMax H3 reference-prompt adapter for an existing editor.
+H3 produces video and audio together. Make the requested action, its physical sound,
+and the passage of time agree, with concrete preparation, contact, travel and outcome.
+The host assembles six H3 sections. Its subject_definitions and retention_analysis are
+already supplied as fixed.subject and fixed.keep; the style/camera prefix of
+detailed_description is fixed.style. Copying, paraphrasing, replacing or overriding
+those fields is forbidden. Return only the editable JSON fields requested by the host.
+Use an existing <Subject N> label only if the supplied text defines it. Never infer
+what any unseen reference image contains. This adapter receives TEXT ONLY, no images.
+Picture 1 is the primary reference; Pictures 2 through reference_count are alternate
+views of that same identity, never new characters, locations, styles or storyboards.
+The anchor flag is owned by the host: when true the first frame is fixed by the
+workflow. Begin feasible movement from that frame; never promise a different opening.
+When anchor is false, references still define identity; do not toggle frame anchoring.
+Use the supplied duration exactly, without an 8/10-second default. Phase times describe
+continuous action, not separate camera shots. For one_take=true do not introduce cuts,
+fades, viewpoint resets or time jumps. Use only the camera path already in fixed.style.
+Do not put camera, framing, lighting or location instructions in generated action text.
+The unchanged fixed camera prefix supplies them, including any initial zoom then hold.
+Do not guess age, ethnicity, clothing, accessories or anatomy; all appearance belongs
+to the reference and fixed fields. Do not add speech, objects or music without a request.
+If dialogue is requested, preserve its exact words and language inside <d> tags; add a
+speaker ID only to someone who actually speaks. Never put a speaker ID on a silent actor.
+For partial editing, make only exact requested substring edits; unchanged words,
+whitespace, time values, phase order and all fixed constraints remain byte-for-byte.
+The host may use the same adapter for first/end-frame mode and a four-clip story; obey
+that mode and story_context instead of forcing reference-mode defaults.
+"""
 SYSTEM = """You write detailed, executable MiniMax H3 video prompts from a user's idea.
 Return JSON only, with summary, sound, music, shots.
 All descriptions must be English; preserve the original language of spoken dialogue.
@@ -464,6 +496,9 @@ def available_memory():
 
 
 def validate_request(body):
+    engine = body.get("engine", "legacy")
+    if engine not in ("legacy", "dutchit"):
+        raise ValueError("프롬프트 도우미 방식을 확인해 주세요.")
     review_only = body.get("review_only") is True
     idea = body.get("idea") or ("현재 프롬프트의 동작과 시간 흐름을 검토해 주세요." if review_only else "")
     if not isinstance(idea, str) or not idea.strip():
@@ -474,7 +509,14 @@ def validate_request(body):
     if not math.isfinite(duration) or not 1 <= duration <= 15:
         raise ValueError("영상 길이는 1~15초로 정해 주세요.")
     clean = {"idea": idea.strip(), "duration": duration, "one_take": body.get("one_take") is True, "detail": body.get("detail") is True,
-             "mode": "REF2VA" if body.get("mode") == "REF2VA" else "I2VA/FL2VA"}
+             "mode": "REF2VA" if body.get("mode") == "REF2VA" else "I2VA/FL2VA", "engine": engine}
+    count = body.get("reference_count", 1)
+    if type(count) is not int or not 1 <= count <= 9:
+        raise ValueError("참조 사진 수는 1~9장이어야 합니다.")
+    clean["reference_count"] = count
+    if "anchor" in body:
+        if not isinstance(body["anchor"], bool): raise ValueError("첫 장면 고정 상태를 확인해 주세요.")
+        clean["anchor"] = body["anchor"]
     fixed = body.get("fixed")
     if isinstance(fixed, dict):
         clean["fixed"] = {key: value for key, value in fixed.items() if key in FIXED_FIELDS and isinstance(value, str)}
@@ -584,26 +626,55 @@ def validate_review(output, content):
     return {"status":status,"summary":summary,"issues":issues[:4]}
 
 
+def enforce_dutchit_constraints(draft, request):
+    """Reject new conflicting action instructions; never migrate or rewrite stored text."""
+    if request.get("engine") != "dutchit" or draft.get("review_only"):
+        return
+    if draft.get("edit"):
+        texts = [change["after"] for change in draft.get("changes", []) if change["target"] in ("summary", "shot_text", "prompt")]
+    else:
+        texts = [draft["f"].get("summary", ""), *[text for _, text in draft.get("shots", [])]]
+    camera = re.compile(r"\b(?:the\s+)?camera\s+(?:remains|stays|moves|pushes|pulls|pans|tilts|zooms|tracks|orbits|arcs|rolls|rises|lowers|is\s+(?:fixed|static|locked|stationary))\b|\b(?:zoom\s*(?:in|out)|pan\s+(?:left|right)|close-up\s+shot|wide\s+shot|medium\s+shot)\b", re.I)
+    cuts = re.compile(r"\b(?:camera|shot)\s+(?:cuts|transitions|switches|changes)\s+to\b|\bcut\s+to\b|\bfade\s+(?:in|out)\b|\bdissolve\s+to\b", re.I)
+    for text in texts:
+        action = re.sub(r"<d>.*?</d>", "", text, flags=re.I|re.S)
+        if request.get("one_take") and cuts.search(action):
+            raise ValueError("원테이크와 충돌하는 컷 전환이 포함되어 적용하지 않았습니다. 동작만 다시 작성해 주세요.")
+        if camera.search(action):
+            raise ValueError("고정 카메라와 충돌할 수 있는 새 촬영 지시가 포함되어 적용하지 않았습니다. 동작만 다시 작성해 주세요.")
+        if any(int(value) > request["reference_count"] for value in re.findall(r"<Picture\s+(\d+)>", action, flags=re.I)):
+            raise ValueError("등록한 사진 수를 벗어난 참조가 포함되어 적용하지 않았습니다.")
+    if draft.get("edit") and "shots" in draft:
+        times = [float(shot[0]) for shot in draft["shots"]]
+        if any(a >= b for a,b in zip(times,times[1:])):
+            raise ValueError("수정한 장면 시각의 순서가 맞지 않아 원문을 유지했습니다.")
+
+
 class PromptHelper:
     def __init__(self, home=None):
         self.home = Path(home) if home else Path(__file__).resolve().parents[2] / "local-prompt-helper"
         self.exe = self.home / "runtime" / "llama-server.exe"
         self.model = self.home / "Qwen3.5-2B-Q4_K_M.gguf"
+        self.dutchit_model = self.home / DUTCHIT_MODEL
+        self.active_engine = "legacy"
         self.lock = threading.Lock()
         self.job = None
         self.cancel_event = threading.Event()
 
     def start(self, body):
         request = validate_request(body)
-        if not self.exe.is_file() or not self.model.is_file():
+        engine = request["engine"]
+        model = self.dutchit_model if engine == "dutchit" else self.model
+        if not self.exe.is_file() or not model.is_file():
             raise ValueError("도우미 모델 준비가 아직 끝나지 않았습니다.")
-        if available_memory() < 4 * 1024**3:
-            raise ValueError("영상 작업에 메모리를 남기기 위해 도우미를 시작하지 않았습니다. RAM 여유가 4GB 이상일 때 다시 시도해 주세요.")
+        minimum = 8 if engine == "dutchit" else 4
+        if available_memory() < minimum * 1024**3:
+            raise ValueError(f"영상 작업에 메모리를 남기기 위해 도우미를 시작하지 않았습니다. {'DutchIT 8B는' if engine == 'dutchit' else '기존 도우미는'} RAM 여유가 {minimum}GB 이상일 때 실행할 수 있습니다.")
         with self.lock:
             if self.job and self.job["state"] in ("starting", "generating", "enriching", "reviewing"):
                 raise ValueError("도우미가 작성 중입니다. 완료하거나 취소한 뒤 다시 요청해 주세요.")
             self.cancel_event = threading.Event()
-            self.job = {"id": uuid.uuid4().hex, "state": "starting", "created": time.time()}
+            self.job = {"id": uuid.uuid4().hex, "state": "starting", "created": time.time(), "engine":engine, "cpu_only":True}
             result = dict(self.job)
             threading.Thread(target=self._run, args=(request,), daemon=True).start()
         return result
@@ -621,19 +692,29 @@ class PromptHelper:
             self.cancel_event.set()
         return {"ok": True}
 
-    def command(self, port):
-        return [str(self.exe), "-m", str(self.model), "--host", "127.0.0.1", "--port", str(port),
+    def command(self, port, engine="legacy"):
+        model = self.dutchit_model if engine == "dutchit" else self.model
+        return [str(self.exe), "-m", str(model), "--host", "127.0.0.1", "--port", str(port),
                 "--alias", "h3-prompt-helper", "-ngl", "0", "-t", "2", "-tb", "2",
                 "-c", "8192", "-np", "1", "-b", "128", "-ub", "128", "--cache-ram", "0",
                 "--prio", "-1", "--poll", "0", "--poll-batch", "0", "--threads-http", "2",
                 "--jinja", "--reasoning", "off", "--no-webui", "--no-slots", "--log-disable"]
 
     def _complete(self, base, system, content, schema, tokens, temperature):
+        if self.active_engine == "dutchit":
+            # Count the actual chat template, including Korean and fixed constraints;
+            # reject excess input instead of letting llama.cpp discard its beginning.
+            template_request=urllib.request.Request(base+"/apply-template",json.dumps({"messages":[{"role":"system","content":system},{"role":"user","content":json.dumps(content,ensure_ascii=False)}],"add_generation_prompt":True}).encode(),{"Content-Type":"application/json"})
+            with urllib.request.urlopen(template_request,timeout=15) as response: formatted=json.load(response)["prompt"]
+            token_request=urllib.request.Request(base+"/tokenize",json.dumps({"content":formatted,"add_special":True}).encode(),{"Content-Type":"application/json"})
+            with urllib.request.urlopen(token_request,timeout=15) as response: count=len(json.load(response)["tokens"])
+            if count+tokens+64>8192: raise ValueError("고정 조건과 현재 내용이 DutchIT의 문맥 한도를 넘었습니다. 원문은 유지했으며 확인할 부분을 나눠 요청해 주세요.")
         payload = {"model":"h3-prompt-helper","messages":[{"role":"system","content":system},
             {"role":"user","content":json.dumps(content,ensure_ascii=False)}],"temperature":temperature,
             "max_tokens":tokens,"stream":False,"response_format":{"type":"json_object","schema":schema}}
+        if self.active_engine == "dutchit": payload.update(top_p=.8,top_k=20,cache_prompt=False)
         req=urllib.request.Request(base+"/v1/chat/completions",json.dumps(payload).encode(),{"Content-Type":"application/json"})
-        with urllib.request.urlopen(req,timeout=420) as response: output=json.load(response)
+        with urllib.request.urlopen(req,timeout=900 if self.active_engine == "dutchit" else 420) as response: output=json.load(response)
         if output["choices"][0].get("finish_reason")=="length":
             raise ValueError("응답 길이를 초과했습니다. 시나리오를 한 가지 핵심 동작으로 줄여 다시 요청해 주세요.")
         return json.loads(output["choices"][0]["message"]["content"])
@@ -644,16 +725,17 @@ class PromptHelper:
         reason = []
         final = {}
         try:
+            self.active_engine = request.get("engine", "legacy")
             with socket.socket() as sock:
                 sock.bind(("127.0.0.1", 0))
                 port = sock.getsockname()[1]
             env = dict(os.environ, CUDA_VISIBLE_DEVICES="-1", HIP_VISIBLE_DEVICES="-1", OMP_NUM_THREADS="2")
-            process = subprocess.Popen(self.command(port), cwd=self.exe.parent, env=env,
+            process = subprocess.Popen(self.command(port, self.active_engine), cwd=self.exe.parent, env=env,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 creationflags=subprocess.CREATE_NO_WINDOW | subprocess.IDLE_PRIORITY_CLASS)
 
             def monitor():
-                deadline = time.monotonic() + 420
+                deadline = time.monotonic() + (900 if self.active_engine == "dutchit" else 420)
                 while not stop_monitor.wait(1):
                     if self.cancel_event.is_set():
                         reason.append("작성을 취소했습니다.")
@@ -689,7 +771,10 @@ class PromptHelper:
                 if editing:
                     schema["properties"]["edits"]["items"]["properties"]["target"]["enum"] = ["prompt"] if "manual_prompt" in request else [*FIELDS,"shot_text","shot_time"]
                 system=(EDIT_SYSTEM if editing else SYSTEM)+(STORY_SYSTEM if "story_context" in request else "")
-                output=self._complete(base,system,model_request,schema,1600 if editing else 1900,.1 if editing else .25)
+                if self.active_engine == "dutchit":
+                    system=DUTCHIT_SYSTEM+"\n"+system.replace("about 60-150 English words", "about 80-240 English words, scaled to the requested action without padding")
+                    system=system.replace("Start the requested movement at time 0, rather than\nspending the first phase standing still.", "Respect an opening hold or delayed movement already specified in fixed fields.\nOtherwise start the requested movement at time 0.")
+                output=self._complete(base,system,model_request,schema,1600 if editing else 1900,.1 if editing else .2 if self.active_engine == "dutchit" else .25)
                 draft=apply_edits(output,request) if editing else validate_draft(output,request["duration"])
                 # 상세 보강은 분량을 늘리며 외모·소품을 지어내는 주원인이라 자동으로 하지 않는다(detail=true 일 때만)
                 if not editing and request.get("detail") and sum(len(text.split()) for _,text in draft["shots"])<180:
@@ -711,6 +796,7 @@ class PromptHelper:
                         # A failed optional expansion must not discard an otherwise usable draft.
                         pass
             if self.cancel_event.is_set(): raise RuntimeError("작성을 취소했습니다.")
+            enforce_dutchit_constraints(draft, request)
             notes=[]
             if not request.get("review_only"):
                 notes=flag_edit_terms(draft,request) if editing else ground_draft(draft,request)
@@ -731,6 +817,8 @@ class PromptHelper:
                 if reason or self.cancel_event.is_set(): raise RuntimeError("검토를 중지했습니다.")
                 draft["review"]={"status":"unavailable","summary":"동작·시간 검토를 완료하지 못했습니다. 현재 내용 검토 버튼으로 다시 요청해 주세요.","issues":unrequested_issues(notes)}
             if reason or self.cancel_event.is_set(): raise RuntimeError("검토를 중지했습니다.")
+            draft["engine"] = self.active_engine
+            if self.active_engine == "dutchit": draft["policy_version"] = DUTCHIT_POLICY
             final = {"state":"done","draft":draft}
         except (OSError, ValueError, KeyError, IndexError, TypeError, RuntimeError) as exc:
             message = reason[0] if reason else str(exc) if isinstance(exc, (ValueError, RuntimeError)) else "CPU 도우미가 응답하지 못했습니다. 다시 시도해 주세요."

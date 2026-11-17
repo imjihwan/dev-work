@@ -334,6 +334,8 @@ a{color:var(--acc)}
       <div class="hint" id="translationHint" style="margin-bottom:10px" role="status">켜고 입력 칸을 누르면 원문 아래에 번역을 표시합니다. 원문은 바꾸지 않습니다.</div>
       <details class="prompt-helper">
         <summary>프롬프트 작성 도우미 · 로컬 CPU</summary>
+        <label for="helperEngine">CPU 도우미</label><select id="helperEngine"><option value="dutchit" selected>DutchIT H3 · 상세 작성 (8B)</option><option value="legacy">기존 도우미 · 가볍게 (2B)</option></select>
+        <div class="hint">DutchIT는 RAM 여유 8GB가 필요하며 CPU에서 시간이 걸립니다. 유지 조건·카메라·원테이크는 그대로 두고 텍스트만 처리합니다.</div>
         <label for="helperIdea">어떤 영상을 만들까요?</label>
         <textarea id="helperIdea" maxlength="4000" placeholder="예: 카페에서 커피잔을 내려놓고 창밖을 보는 5초 영상. 카메라는 천천히 접근. 음악 없이 주변 소리만."></textarea>
         <label style="font-weight:400"><input type="checkbox" id="helperContext"> 현재 내용 칸도 함께 참고해 다듬기</label>
@@ -1262,9 +1264,12 @@ function helperCurrentText(){ return {
     shots:[...$("shots").children].map(d=>[d.querySelector("input").value,d.querySelector("textarea").value])},
   manual_prompt:manualFinal ? $("final").value : null}; }
 function helperVideoConfig(){ return {duration:Number($("duration").value)||5,mode:sendMode(),one_take:isRef() && S.oneTake !== false,
+  engine:$("helperEngine").value||"dutchit",anchor:isRef()&&!!S.anchor,reference_count:Math.max(1,images.length),
   fixed:Object.fromEntries(["subject","style","keep"].map(key=>[key,$(key).value]))}; }
 function helperMessage(text,error=false){ $("helperStatus").textContent=text; $("helperStatus").style.color=error ? "var(--warn)" : ""; }
-function helperBusy(busy){ $("helperStart").disabled=busy; $("helperReview").disabled=busy; $("helperCancel").hidden=!busy; $("helperCancel").disabled=false; }
+function helperBusy(busy){ $("helperStart").disabled=busy; $("helperReview").disabled=busy; $("helperEngine").disabled=busy; $("helperCancel").hidden=!busy; $("helperCancel").disabled=false; }
+try{$("helperEngine").value=localStorage.getItem("h3simple.promptHelperEngine.v1")==="legacy"?"legacy":"dutchit";}catch{$("helperEngine").value="dutchit";}
+$("helperEngine").onchange=()=>{try{localStorage.setItem("h3simple.promptHelperEngine.v1",$("helperEngine").value);}catch{}helperMessage("도우미를 바꿨습니다. 새 작성 결과를 확인한 뒤 적용하세요.");};
 function formatPromptReview(review){
   if(!review)return '';
   const labels={ok:'큰 충돌 미검출',caution:'주의 사항 있음',revise:'수정 권장',unavailable:'검토 미완료'};

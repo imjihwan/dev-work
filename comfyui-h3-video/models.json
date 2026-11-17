@@ -12,6 +12,26 @@
       "filename": "llama-b12374-bin-win-cpu-x64.zip",
       "size": 25117080,
       "sha256": "73629652b2ced9dd89d054e185f3b2beb5476f90bb1853834a89647fc558e70e"
+    },
+    "dutchit": {
+      "name": "DutchIT H3 reference adapter",
+      "upstream": "https://huggingface.co/DutchIT/minimax-prompt-enhancer",
+      "revision": "4c42ae0ac9a5310c6d9487fb060e728cf02b92fd",
+      "license": "Apache-2.0",
+      "model": {
+        "repo": "mradermacher/Huihui-Qwen3-VL-8B-Instruct-abliterated-GGUF",
+        "revision": "03f1e8f28be1177d430866b31e0bc9a939c669d6",
+        "filename": "Huihui-Qwen3-VL-8B-Instruct-abliterated.Q4_K_M.gguf",
+        "size": 5027785728,
+        "sha256": "c9592053aab8874021ecd3f80e45cc12dd167454bebfb215a36bdf690f22dc52",
+        "url": "https://huggingface.co/mradermacher/Huihui-Qwen3-VL-8B-Instruct-abliterated-GGUF/resolve/03f1e8f28be1177d430866b31e0bc9a939c669d6/Huihui-Qwen3-VL-8B-Instruct-abliterated.Q4_K_M.gguf?download=true"
+      },
+      "cpu_only": true,
+      "threads": 2,
+      "context": 8192,
+      "start_free_ram_gib": 8,
+      "min_free_ram_gib": 2.5,
+      "text_only": true
     }
   },
   "files": [

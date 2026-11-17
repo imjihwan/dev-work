@@ -119,11 +119,14 @@ vm.runInContext(section('function storyModelSettings()', 'function selectAppTab(
   const helperRequest=requests.findLast(r=>r.url==='/api/prompt-helper/start');
   assert(!('images' in helperRequest.body));assert(!('context' in helperRequest.body));
   assert.deepEqual(helperRequest.body.fixed,protectedFields);
+  assert.equal(helperRequest.body.engine,'dutchit');assert.equal(helperRequest.body.reference_count,5);assert.equal(helperRequest.body.anchor,false);
   assert.equal(lastApplied,previousApplied,'Drafts must not apply automatically');
   assert.equal($('helperDraft').hidden,false);
   $('helperApply').onclick();assert.deepEqual(Object.keys(lastApplied.f),['summary','sound','music']);assert.equal(lastApplied.f.summary,draft.f.summary);
   for (const [key,value] of Object.entries(protectedFields)) assert.equal($(key).value,value,'Helper must preserve '+key);
   assert.equal(JSON.stringify(context.currentJobs),beforeHelper);
+  $('helperEngine').value='legacy';const beforeEngineChange=lastApplied;$('helperApply').onclick();assert.equal(lastApplied,beforeEngineChange);
+  $('helperEngine').value='dutchit';
   $('duration').value='7';const appliedBeforeMismatch=lastApplied;$('helperApply').onclick();assert.equal(lastApplied,appliedBeforeMismatch);
   assert($('helperStatus').textContent.includes('다시 작성'));
   $('helperContext').checked=true;await $('helperStart').onclick();

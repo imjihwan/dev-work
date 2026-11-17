@@ -33,6 +33,11 @@ def download(spec):
                     if time.monotonic() - reported > 10:
                         print(f'{spec["filename"]}: {offset}/{spec["size"]}', flush=True)
                         reported = time.monotonic()
+        if partial.stat().st_size != spec["size"]:
+            raise ValueError(f"Unexpected download size: {partial.name}")
+        with partial.open("rb") as handle:
+            digest = hashlib.file_digest(handle, "sha256").hexdigest()
+        if digest != spec["sha256"]: raise ValueError(f"Download SHA256 mismatch: {partial.name}")
         partial.replace(path)
     if path.stat().st_size != spec["size"]:
         raise ValueError(f"Unexpected file size: {path.name}")
@@ -50,13 +55,20 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--comfy", type=Path, default=None, help="ComfyUI 폴더(기본: 저장소\\ComfyUI 또는 %%USERPROFILE%%\\ComfyUI)")
-    comfy = (parser.parse_args().comfy or default_comfy(ROOT)).resolve()
+    parser.add_argument("--engine", choices=("legacy", "dutchit", "all"), default="all", help="설치할 CPU 도우미(기본: 둘 다)")
+    args=parser.parse_args()
+    comfy = (args.comfy or default_comfy(ROOT)).resolve()
     DEST = comfy.parent / "local-prompt-helper"
     print(f"Install location: {DEST}", flush=True)
     DEST.mkdir(exist_ok=True)
     specs = json.loads((ROOT / "models.json").read_text(encoding="utf-8"))["prompt_helper"]
     runtime = download(specs["runtime"])
-    with zipfile.ZipFile(runtime) as archive:
-        archive.extractall(DEST / "runtime")
-    download(specs["model"])
+    if not (DEST / "runtime/llama-server.exe").is_file():
+        with zipfile.ZipFile(runtime) as archive:
+            destination=(DEST / "runtime").resolve()
+            if any(not (destination/item.filename).resolve().is_relative_to(destination) for item in archive.infolist()):
+                raise ValueError("Unsafe runtime archive path")
+            archive.extractall(destination)
+    if args.engine in ("legacy", "all"): download(specs["model"])
+    if args.engine in ("dutchit", "all"): download(specs["dutchit"]["model"])
     print("CPU prompt helper installation complete.", flush=True)
