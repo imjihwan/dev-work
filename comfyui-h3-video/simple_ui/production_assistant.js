@@ -5,6 +5,7 @@
   else api.mount(window);
 })(function(){
   'use strict';
+  const CHAT_STYLES='\n:root{--h3pa-width:clamp(360px,30vw,440px)}\n#h3ProductionToggle{position:fixed;right:16px;bottom:max(18px,env(safe-area-inset-bottom));z-index:100010;border:0;border-radius:24px;padding:12px 18px;background:var(--acc,#245edb);color:#fff;box-shadow:0 3px 16px #0003;font:600 14px system-ui;cursor:pointer}\n#h3ProductionPanel{--pa-bg:var(--card,#fff);--pa-ink:var(--ink,#222);--pa-line:var(--line,#ddd);--pa-soft:var(--soft,#f4f5f7);--pa-muted:var(--mute,#676b74);position:fixed;right:0;top:var(--h3pa-view-top,0px);width:var(--h3pa-width);height:100vh;height:var(--h3pa-view-height,100dvh);z-index:100011;box-sizing:border-box;background:var(--pa-bg);color:var(--pa-ink);border-left:1px solid var(--pa-line);display:flex;flex-direction:column;font:14px/1.65 system-ui,sans-serif;box-shadow:-8px 0 28px #00000008;isolation:isolate}\n#h3ProductionPanel *,#h3ProductionPanel *:before,#h3ProductionPanel *:after{box-sizing:border-box}\n#h3ProductionPanel[hidden],#h3ProductionToggle[hidden],#h3ProductionPanel [hidden]{display:none!important}\n#h3ProductionPanel header{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 16px;border-bottom:1px solid var(--pa-line)}\n#h3ProductionPanel .h3pa-heading{display:flex;align-items:center;gap:8px;min-width:0}#h3ProductionPanel .h3pa-badge{font-size:11px;font-weight:600;color:var(--acc,#245edb);background:var(--acc-soft,var(--pa-soft));border-radius:6px;padding:2px 6px}\n#h3ProductionPanel .h3pa-tools{display:flex;gap:4px;align-items:center}#h3ProductionPanel button{font:inherit;font-size:12px;line-height:1.4;padding:7px 9px;border:1px solid var(--pa-line);border-radius:8px;background:var(--pa-bg);color:var(--pa-ink);cursor:pointer;white-space:nowrap}#h3ProductionPanel button:hover{border-color:var(--acc,#245edb)}#h3ProductionPanel button:focus-visible,#h3ProductionPanel textarea:focus-visible{outline:2px solid var(--acc,#245edb);outline-offset:2px}#h3ProductionPanel button:disabled{opacity:.45;cursor:default}\n#h3ProductionLog{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:20px 16px;scroll-padding-block:16px;overflow-wrap:anywhere}\n#h3ProductionPanel .h3pa-welcome{padding:20px 2px 10px;color:var(--pa-muted)}#h3ProductionPanel .h3pa-welcome strong{display:block;font-size:21px;letter-spacing:-.6px;line-height:1.35;color:var(--pa-ink);margin-bottom:10px}#h3ProductionPanel .h3pa-welcome p{font-size:13px;margin:0 0 18px}#h3ProductionPanel .h3pa-suggestions{display:grid;gap:8px}#h3ProductionPanel .h3pa-suggestions button{text-align:left;white-space:normal;padding:11px 12px;background:var(--pa-soft);border-color:transparent;font-size:13px}\n#h3ProductionPanel .h3pa-message{display:flex;flex-direction:column;align-items:flex-start;margin:0 0 20px;gap:5px}#h3ProductionPanel .h3pa-message[data-role=user]{align-items:flex-end}#h3ProductionPanel .h3pa-author{font-size:11px;font-weight:600;color:var(--pa-muted)}#h3ProductionPanel .h3pa-message-body{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%;line-height:1.7}#h3ProductionPanel .h3pa-message[data-role=user] .h3pa-message-body{max-width:94%;background:var(--pa-soft);border-radius:13px 13px 3px 13px;padding:10px 13px}#h3ProductionPanel .h3pa-message[data-role=assistant] .h3pa-message-body{padding:2px 0}\n#h3ProductionPanel .h3pa-thinking{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--pa-muted);margin:8px 0 20px}#h3ProductionPanel .h3pa-thinking:before{content:"";height:12px;width:12px;border:2px solid var(--pa-line);border-top-color:var(--acc,#245edb);border-radius:50%;animation:h3pa-spin .8s linear infinite}@keyframes h3pa-spin{to{transform:rotate(360deg)}}\n#h3ProductionPanel .h3pa-plan{width:100%;margin-top:8px;border:1px solid var(--pa-line);border-radius:11px;padding:12px;background:var(--pa-bg)}#h3ProductionPanel .h3pa-plan-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:8px}#h3ProductionPanel .h3pa-plan-state{color:var(--pa-muted);font-size:11px}#h3ProductionPanel .h3pa-plan-step{font-size:13px;padding:7px 0;border-top:1px solid var(--pa-line);white-space:pre-wrap;overflow-wrap:anywhere}#h3ProductionPanel .h3pa-plan-step:first-child{border-top:0}#h3ProductionPanel details{margin:5px 0}#h3ProductionPanel summary{cursor:pointer;color:var(--pa-muted);font-size:12px}#h3ProductionPanel pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto;background:var(--pa-soft);border-radius:7px;padding:9px;font:12px/1.6 system-ui;margin:7px 0}#h3ProductionPanel .h3pa-plan-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:9px}\n#h3ProductionPanel .h3pa-composer{flex:none;border-top:1px solid var(--pa-line);padding:12px 14px max(12px,env(safe-area-inset-bottom));background:var(--pa-bg)}#h3ProductionPanel .h3pa-compose-box{border:1px solid var(--pa-line);border-radius:12px;padding:4px;background:var(--pa-bg)}#h3ProductionPanel .h3pa-compose-box:focus-within{border-color:var(--acc,#245edb)}#h3ProductionPanel textarea{box-sizing:border-box;display:block;width:100%;height:72px;min-height:64px;max-height:min(200px,28vh);border:0;outline:0!important;border-radius:9px;resize:none;background:transparent;color:var(--pa-ink);padding:8px;font:14px/1.6 system-ui;overflow:auto}#h3ProductionPanel .h3pa-send-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 4px 4px}#h3ProductionPanel .h3pa-keyhint,#h3ProductionPanel .h3pa-note{font-size:11px;color:var(--pa-muted)}#h3ProductionPanel .h3pa-controls{display:flex;gap:6px;align-items:center}#h3ProductionPanel .h3pa-auto{display:flex;gap:7px;align-items:center;margin:10px 0 0;font-size:11px;color:var(--pa-muted);font-weight:400}#h3ProductionPanel .h3pa-auto input{width:auto;min-height:0;padding:0;flex:none;margin:0;accent-color:var(--acc,#245edb)}#h3ProductionStatus{font-size:11px;color:var(--pa-muted);margin:7px 0 0;min-height:16px;overflow-wrap:anywhere}#h3ProductionSend,#h3ProductionExecute{background:var(--acc,#245edb)!important;color:#fff!important;border-color:var(--acc,#245edb)!important}#h3ProductionLatest{align-self:center;margin:0 0 8px!important;box-shadow:0 2px 10px #0001}\n@media(min-width:1280px){body.h3pa-open:not(.h3pa-full){padding-right:var(--h3pa-width)}body.h3pa-full #h3ProductionPanel{width:100%;border:0}body.h3pa-full #h3ProductionLog{padding:24px max(24px,calc((100vw - 850px)/2))}body.h3pa-full #h3ProductionPanel .h3pa-composer{padding-left:max(24px,calc((100vw - 850px)/2));padding-right:max(24px,calc((100vw - 850px)/2))}}\n@media(max-width:1279px){#h3ProductionPanel{width:100%;border:0}#h3ProductionExpand{display:none}#h3ProductionPanel textarea{font-size:16px}#h3ProductionPanel header{padding:11px 14px}#h3ProductionLog{padding:16px}#h3ProductionPanel .h3pa-keyhint{font-size:10px}}\n@media(prefers-reduced-motion:reduce){#h3ProductionPanel .h3pa-thinking:before{animation:none}}\n';
   const tidy=value=>String(value??'').replace(/\s+/g,' ').trim();
   function valueOf(node){return ['checkbox','radio'].includes(node.type)?String(!!node.checked):String(node.value??'');}
   function replaceOne(original,before,value){
@@ -109,27 +110,89 @@
   function mount(win){
     if(win.top!==win.self||win.document.getElementById('h3ProductionPanel'))return;
     const doc=win.document,style=doc.createElement('style');
-    style.textContent='#h3ProductionToggle{position:fixed;right:16px;bottom:18px;z-index:100010;border:0;border-radius:24px;padding:12px 18px;background:#245edb;color:#fff;box-shadow:0 3px 16px #0003;font:600 14px system-ui;cursor:pointer}#h3ProductionPanel{position:fixed;right:12px;bottom:12px;z-index:100011;width:min(440px,calc(100vw - 24px));max-height:82vh;max-height:82dvh;box-sizing:border-box;background:#fff;color:#222;border:1px solid #ddd;border-radius:14px;box-shadow:0 8px 40px #0003;display:flex;flex-direction:column;padding:12px;gap:10px;font:14px/1.5 system-ui}#h3ProductionPanel[hidden]{display:none}#h3ProductionPanel header{display:flex;align-items:center;justify-content:space-between;gap:10px}#h3ProductionPanel button{font:inherit;padding:7px 10px;border:1px solid #d8d8d8;border-radius:7px;background:#fff;color:#222;cursor:pointer}#h3ProductionPanel button:disabled{opacity:.5;cursor:default}#h3ProductionPanel textarea{box-sizing:border-box;width:100%;min-height:95px;max-height:28vh;resize:vertical;font:inherit;padding:9px;border:1px solid #ccc;border-radius:8px}#h3ProductionLog{overflow:auto;min-height:60px;max-height:38vh;white-space:pre-wrap;overflow-wrap:anywhere;padding:6px;background:#fafafa;border-radius:8px}#h3ProductionPanel .h3pa-row{display:flex;flex-wrap:wrap;gap:7px;align-items:center}#h3ProductionPanel .h3pa-note{font-size:12px;color:#666}#h3ProductionPlan{white-space:pre-wrap;overflow:auto;max-height:25vh;border:1px solid #e2e2e2;border-radius:7px;padding:8px;overflow-wrap:anywhere}#h3ProductionSend,#h3ProductionExecute{background:#245edb!important;color:white!important;border-color:#245edb!important}';
+    style.textContent=CHAT_STYLES;
     doc.head.appendChild(style);
     const toggle=doc.createElement('button');toggle.id='h3ProductionToggle';toggle.textContent='제작 도우미 · Grok';doc.body.appendChild(toggle);
     const panel=doc.createElement('section');panel.id='h3ProductionPanel';panel.hidden=true;panel.setAttribute('aria-label','Grok 영상 제작 도우미');
-    panel.innerHTML='<header><strong>영상 제작 도우미 · Grok</strong><button id="h3ProductionClose" aria-label="도우미 닫기">닫기</button></header><div class="h3pa-note">현재 입력·최종 프롬프트와 필요한 앱 정보를 참고합니다. 다른 대기 항목은 번호로 요청하세요.</div><div id="h3ProductionLog" role="log" aria-live="polite"></div><label for="h3ProductionInput">요청</label><textarea id="h3ProductionInput" maxlength="8000" placeholder="예: 현재 설정을 설명해줘 / 대기 2번 프롬프트와 비교해줘 / 길이를 5초로 바꾸고 1순위로 추가해줘"></textarea><div class="h3pa-row"><button id="h3ProductionSend">보내기</button><button id="h3ProductionCancel" hidden>요청 취소</button><button id="h3ProductionNew">새 대화</button></div><label class="h3pa-note"><input type="checkbox" id="h3ProductionAuto"> 명확하게 요청한 변경은 바로 실행</label><div class="h3pa-note" id="h3ProductionStatus" role="status"></div><div id="h3ProductionPlan" hidden></div><div class="h3pa-row"><button id="h3ProductionExecute" hidden>변경안 실행</button></div>';
+    panel.innerHTML='<header><div class="h3pa-heading"><strong>제작 도우미</strong><span class="h3pa-badge">Grok</span></div><div class="h3pa-tools"><button id="h3ProductionNew" title="입력과 작업은 유지하고 새 대화 시작">새 대화</button><button id="h3ProductionExpand" aria-label="대화 전체 화면" aria-pressed="false">넓게</button><button id="h3ProductionClose" aria-label="대화를 접고 작업 화면 보기">접기</button></div></header><div id="h3ProductionLog" role="log" aria-live="polite" aria-label="제작 도우미 대화"><div class="h3pa-welcome" id="h3ProductionWelcome"><strong>영상 작업을<br>대화로 이어가세요</strong><p>프롬프트를 다듬고, 설정과 대기열을 관리하세요. 질문부터 시작해도 됩니다.</p><div class="h3pa-suggestions"><button id="h3ProductionExample1">현재 프롬프트와 설정 설명해줘</button><button id="h3ProductionExample2">대기 항목과 비교하고 싶어</button><button id="h3ProductionExample3">동작과 시간 흐름을 검토해줘</button></div></div><div id="h3ProductionThinking" class="h3pa-thinking" hidden><span id="h3ProductionThinkingText">Grok이 확인하고 있어요</span></div></div><button id="h3ProductionLatest" hidden>최신 대화로 ↓</button><div id="h3ProductionPlanHome" hidden><div id="h3ProductionPlan" class="h3pa-plan" hidden><div class="h3pa-plan-head"><strong>변경안</strong><span id="h3ProductionPlanState" class="h3pa-plan-state">확인 대기</span></div><div id="h3ProductionPlanSteps"></div><div id="h3ProductionPlanActions" class="h3pa-plan-actions"><button id="h3ProductionExecute" hidden>변경안 실행</button></div></div></div><div class="h3pa-composer"><label for="h3ProductionInput" class="h3pa-note">이어 할 말이나 수정 요청</label><div class="h3pa-compose-box"><textarea id="h3ProductionInput" rows="3" maxlength="8000" placeholder="예: 마지막 동작만 더 천천히 바꿔줘"></textarea><div class="h3pa-send-row"><span class="h3pa-keyhint" id="h3ProductionKeyHint">Enter 전송 · Shift+Enter 줄바꿈</span><div class="h3pa-controls"><button id="h3ProductionCancel" hidden>응답 중지</button><button id="h3ProductionSend">보내기 ↑</button></div></div></div><label class="h3pa-auto"><input type="checkbox" id="h3ProductionAuto">명확하게 요청한 변경은 바로 실행</label><div id="h3ProductionStatus" role="status">입력·최종 프롬프트와 필요한 앱 정보를 참고합니다.</div></div>';
     doc.body.appendChild(panel);
     const $=id=>doc.getElementById(id),refs={map:new WeakMap(),next:0};
     let conversation=[],job=null,pending=null,busy=false,executing=false;
     const post=async(path,body)=>{const response=await win.fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const value=await response.json();if(!response.ok)throw Error(value.error||'앱 요청을 처리하지 못했습니다.');return value;};
+    let follow=true,full=false,activePlanView=null;
     const say=text=>{$('h3ProductionStatus').textContent=text;};
-    const log=(role,text)=>{const row=doc.createElement('div');row.textContent=(role==='user'?'나: ':'Grok: ')+text;row.style.marginBottom='12px';$('h3ProductionLog').appendChild(row);$('h3ProductionLog').scrollTop=$('h3ProductionLog').scrollHeight;conversation.push({role,text:String(text).slice(0,8000)});conversation=conversation.slice(-12);};
-    const setBusy=value=>{busy=value;for(const id of ['h3ProductionSend','h3ProductionNew','h3ProductionExecute'])$(id).disabled=value;$('h3ProductionCancel').hidden=!value||executing;};
+    function scrollChat(force=false){
+      if(force)follow=true;
+      if(follow){$('h3ProductionLog').scrollTop=$('h3ProductionLog').scrollHeight;$('h3ProductionLatest').hidden=true;}else $('h3ProductionLatest').hidden=false;
+    }
+    $('h3ProductionLog').addEventListener('scroll',()=>{const node=$('h3ProductionLog');follow=node.scrollHeight-node.scrollTop-node.clientHeight<64;if(follow)$('h3ProductionLatest').hidden=true;});
+    $('h3ProductionLatest').onclick=()=>scrollChat(true);
+    const log=(role,text)=>{
+      $('h3ProductionWelcome').hidden=true;
+      const row=doc.createElement('article');row.className='h3pa-message';row.setAttribute('data-role',role);
+      const author=doc.createElement('div');author.className='h3pa-author';author.textContent=role==='user'?'나':'Grok';row.appendChild(author);
+      const body=doc.createElement('div');body.className='h3pa-message-body';body.textContent=text;row.appendChild(body);
+      $('h3ProductionLog').appendChild(row);scrollChat(role==='user');conversation.push({role,text:String(text).slice(0,8000)});conversation=conversation.slice(-12);return row;
+    };
+    function planSteps(container,plan){
+      container.replaceChildren();
+      plan.actions.forEach((action,index)=>{
+        const step=doc.createElement('div');step.className='h3pa-plan-step';const label=doc.createElement('div');label.textContent=`${index+1}. ${action.label}`;step.appendChild(label);
+        let changes=action.kind==='set'?[{before:action.before,after:action.value}]:[];
+        if(action.kind==='api')try{const args=JSON.parse(action.args);if(Array.isArray(args.edits))changes=args.edits.filter(edit=>typeof edit.before==='string'&&typeof edit.after==='string');}catch{}
+        if(changes.length){const detail=doc.createElement('details'),summary=doc.createElement('summary');summary.textContent='변경 내용 보기';detail.appendChild(summary);const content=doc.createElement('pre');content.textContent=changes.map(change=>`기존: ${change.before||'(비어 있음)'}\n변경: ${change.after||'(삭제)'}`).join('\n\n');detail.appendChild(content);step.appendChild(detail);}
+        container.appendChild(step);
+      });
+    }
+    function archivePlan(replaced=false){
+      if(activePlanView){
+        const state=$('h3ProductionPlanState').textContent,card=doc.createElement('div');card.className='h3pa-plan';
+        const heading=doc.createElement('div');heading.className='h3pa-plan-head';heading.textContent=replaced&&state==='확인 대기'?'이전 변경안 · 새 요청으로 대체됨':`변경안 · ${state}`;card.appendChild(heading);
+        const steps=doc.createElement('div');planSteps(steps,activePlanView.plan);card.appendChild(steps);activePlanView.row.appendChild(card);
+      }
+      $('h3ProductionPlanHome').appendChild($('h3ProductionPlan'));$('h3ProductionPlan').hidden=true;$('h3ProductionExecute').hidden=true;activePlanView=null;
+    }
+    function showPlan(plan,row){
+      activePlanView={plan,row};$('h3ProductionPlanState').textContent='확인 대기';planSteps($('h3ProductionPlanSteps'),plan);
+      $('h3ProductionPlanActions').appendChild($('h3ProductionExecute'));row.appendChild($('h3ProductionPlan'));$('h3ProductionPlan').hidden=false;$('h3ProductionExecute').hidden=false;scrollChat();
+    }
+    const setBusy=value=>{
+      busy=value;for(const id of ['h3ProductionSend','h3ProductionNew','h3ProductionExecute'])$(id).disabled=value;
+      $('h3ProductionCancel').hidden=!value||executing;$('h3ProductionThinking').hidden=!value;
+      $('h3ProductionThinkingText').textContent=executing?'앱에 변경을 전달하고 있어요':'Grok이 확인하고 있어요';
+      if(value){$('h3ProductionLog').appendChild($('h3ProductionThinking'));scrollChat();}
+      toggle.textContent=value?'Grok · 처리 중':'제작 도우미 · Grok';
+    };
+    function resizeComposer(){const input=$('h3ProductionInput');input.style.height='auto';input.style.height=Math.max(64,Math.min(200,Number(input.scrollHeight)||64))+'px';}
+    $('h3ProductionInput').addEventListener('input',event=>{resizeComposer();event.stopImmediatePropagation?.();});
+    $('h3ProductionInput').addEventListener('change',event=>event.stopImmediatePropagation?.());
+    $('h3ProductionAuto').addEventListener('input',event=>event.stopImmediatePropagation?.());
+    panel.addEventListener('input',event=>event.stopPropagation?.());panel.addEventListener('change',event=>event.stopPropagation?.());
+    const coarse=()=>!!win.matchMedia?.('(pointer: coarse)').matches;
+    if(coarse())$('h3ProductionKeyHint').textContent='여러 줄 입력 · 보내기 버튼으로 전송';
+    function viewport(){
+      const view=win.visualViewport;
+      if(view){panel.style.setProperty?.('--h3pa-view-height',view.height+'px');panel.style.setProperty?.('--h3pa-view-top',view.offsetTop+'px');}
+    }
+    function openPanel(open,persist=true){
+      panel.hidden=!open;toggle.hidden=open;doc.body.classList?.toggle('h3pa-open',open);toggle.setAttribute('aria-expanded',String(open));
+      viewport();if(open)scrollChat();if(persist)try{win.localStorage.setItem('h3simple.productionAssistant.open.v1',String(open));}catch{}
+      win.dispatchEvent?.(new win.Event('resize'));
+    }
+    win.visualViewport?.addEventListener('resize',viewport);win.visualViewport?.addEventListener('scroll',viewport);win.addEventListener?.('resize',viewport);
     try{$('h3ProductionAuto').checked=win.localStorage.getItem('h3simple.productionAssistant.auto.v1')==='true';}catch{}
-    $('h3ProductionAuto').onchange=()=>{try{win.localStorage.setItem('h3simple.productionAssistant.auto.v1',String($('h3ProductionAuto').checked));}catch{}};
-    toggle.onclick=()=>{panel.hidden=false;toggle.hidden=true;};
-    $('h3ProductionClose').onclick=()=>{panel.hidden=true;toggle.hidden=false;};
-    $('h3ProductionNew').onclick=()=>{conversation=[];pending=null;$('h3ProductionLog').replaceChildren();$('h3ProductionPlan').hidden=true;$('h3ProductionExecute').hidden=true;say('새 대화를 시작합니다. 화면 입력과 대기열은 그대로입니다.');};
+    $('h3ProductionAuto').onchange=event=>{event?.stopImmediatePropagation?.();try{win.localStorage.setItem('h3simple.productionAssistant.auto.v1',String($('h3ProductionAuto').checked));}catch{}};
+    toggle.setAttribute('aria-controls','h3ProductionPanel');
+    toggle.onclick=()=>{openPanel(true);if(!coarse())$('h3ProductionInput').focus?.({preventScroll:true});};
+    $('h3ProductionClose').onclick=()=>openPanel(false);
+    $('h3ProductionExpand').onclick=()=>{full=!full;doc.body.classList?.toggle('h3pa-full',full);$('h3ProductionExpand').textContent=full?'분할 보기':'넓게';$('h3ProductionExpand').setAttribute('aria-pressed',String(full));win.dispatchEvent?.(new win.Event('resize'));scrollChat();};
+    let opened=Number(win.innerWidth||0)>=1280;try{const saved=win.localStorage.getItem('h3simple.productionAssistant.open.v1');if(saved==='true'||saved==='false')opened=saved==='true';}catch{}openPanel(opened,false);
+    for(const [id,message] of [['h3ProductionExample1','현재 최종 프롬프트와 설정을 설명해줘.'],['h3ProductionExample2','대기 1번의 최종 프롬프트를 가져와 현재 내용과 비교해줘. 변경하지 마.'],['h3ProductionExample3','현재 동작이 영상 길이 안에서 자연스럽게 가능한지 검토해줘.']])$(id).onclick=()=>{const input=$('h3ProductionInput');input.value=input.value.trim()?input.value+'\n'+message:message;resizeComposer();input.focus?.({preventScroll:true});};
+    $('h3ProductionNew').onclick=()=>{archivePlan();conversation=[];pending=null;$('h3ProductionLog').replaceChildren($('h3ProductionWelcome'),$('h3ProductionThinking'));$('h3ProductionWelcome').hidden=false;follow=true;$('h3ProductionLatest').hidden=true;say('새 대화를 시작합니다. 화면 입력과 대기열은 그대로입니다.');};
     $('h3ProductionCancel').onclick=async()=>{if(job){$('h3ProductionCancel').disabled=true;try{await post('/api/prompt-helper/cancel',{id:job});say('도우미 요청을 취소하고 있습니다.');}catch(error){say(error.message);}finally{$('h3ProductionCancel').disabled=false;}}};
     async function execute(){
       if(!pending||busy||executing)return;
-      const item=pending;pending=null;executing=true;setBusy(true);$('h3ProductionExecute').hidden=true;
+      const item=pending;pending=null;executing=true;$('h3ProductionPlanState').textContent='실행 중';setBusy(true);$('h3ProductionExecute').hidden=true;
       let completed=0;
       try{
         preflight(item.plan.actions,item.snapshot,item.guard);
@@ -155,8 +218,8 @@
           completed++;say(`${completed}/${item.plan.actions.length} 요청 전달`);
         }
         for(const entry of item.snapshot.bridges)entry.bridge.refresh?.();
-        log('assistant',`${completed}개 변경·실행 요청을 앱에 전달했습니다. 생성·재생·파일 선택은 화면의 진행 상태를 확인하세요.`);say('처리했습니다.');
-      }catch(error){say(`중단: ${error.message} 이미 전달된 요청은 앱 상태를 확인하세요.`);log('assistant',`실행 결과: ${error.message} 일부 요청이 이미 처리됐을 수 있으므로 자동 재시도하지 않습니다.`);}
+        $('h3ProductionPlanState').textContent='앱에 전달됨';log('assistant',`${completed}개 변경·실행 요청을 앱에 전달했습니다. 생성·재생·파일 선택은 화면의 진행 상태를 확인하세요.`);say('처리했습니다.');
+      }catch(error){$('h3ProductionPlanState').textContent='중단 · 상태 확인';say(`중단: ${error.message} 이미 전달된 요청은 앱 상태를 확인하세요.`);log('assistant',`실행 결과: ${error.message} 일부 요청이 이미 처리됐을 수 있으므로 자동 재시도하지 않습니다.`);}
       finally{executing=false;setBusy(false);}
     }
     $('h3ProductionExecute').onclick=execute;
@@ -164,16 +227,16 @@
       if(busy||executing)return;const message=$('h3ProductionInput').value.trim();if(!message)return say('요청을 적어 주세요.');
       let snapshot,guard;try{snapshot=collect(win,refs);guard=sourceGuard(snapshot);}catch(error){return say(error.message);}
       const previous=conversation.slice(),auto=$('h3ProductionAuto').checked;let proposal=null;if(pending){try{preflight(pending.plan.actions,pending.snapshot,pending.guard);proposal={actions:pending.plan.actions};}catch{}}
-      pending=null;$('h3ProductionPlan').hidden=true;$('h3ProductionExecute').hidden=true;
-      log('user',message);$('h3ProductionInput').value='';setBusy(true);say('현재 화면과 필요한 앱 정보를 확인하고 있습니다…');
+      archivePlan(true);pending=null;
+      log('user',message);$('h3ProductionInput').value='';resizeComposer();setBusy(true);say('현재 화면과 필요한 앱 정보를 확인하고 있습니다…');
       try{
         const started=await post('/api/production-assistant/start',{message,controls:snapshot.controls,contexts:snapshot.contexts,conversation:previous,...(proposal?{proposal}:{})});job=started.id;
         while(job){
           const response=await win.fetch('/api/production-assistant/status?id='+encodeURIComponent(job),{cache:'no-store'}),state=await response.json();
           if(!response.ok)throw Error(state.error||'도우미 상태를 확인하지 못했습니다.');
           if(state.state==='done'){
-            const plan=state.production;log('assistant',plan.reply);
-            if(plan.actions.length){pending={plan,snapshot,guard};$('h3ProductionPlan').textContent=plan.actions.map((action,index)=>`${index+1}. ${action.label}`).join('\n');$('h3ProductionPlan').hidden=false;$('h3ProductionExecute').hidden=false;}
+            const plan=state.production,row=log('assistant',plan.reply);
+            if(plan.actions.length){pending={plan,snapshot,guard};showPlan(plan,row);}
             say(plan.actions.length?'변경안을 확인하거나 실행하세요.':'답변을 받았습니다.');
             if(auto&&plan.auto_eligible&&plan.actions.length){setBusy(false);await execute();}
             break;
@@ -181,10 +244,10 @@
           if(['error','cancelled'].includes(state.state))throw Error(state.error||'도우미 요청이 중단됐습니다.');
           await new Promise(resolve=>win.setTimeout(resolve,1300));
         }
-      }catch(error){say(error.message);}
+      }catch(error){say(error.message);log('assistant',error.message);if(!$('h3ProductionInput').value.trim()){$('h3ProductionInput').value=message;resizeComposer();}}
       finally{job=null;setBusy(false);}
     };
-    $('h3ProductionInput').addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();$('h3ProductionSend').click();}});
+    $('h3ProductionInput').addEventListener('keydown',event=>{if(event.isComposing||event.keyCode===229||busy||event.key!=='Enter')return;if(event.ctrlKey||event.metaKey||!event.shiftKey&&!coarse()){event.preventDefault();event.stopPropagation?.();$('h3ProductionSend').click();}});
   }
-  return {valueOf,replaceOne,bindArgs,collect,sourceGuard,checkSources,preflight,setControl,clickControl,mount};
+  return {CHAT_STYLES,valueOf,replaceOne,bindArgs,collect,sourceGuard,checkSources,preflight,setControl,clickControl,mount};
 });
