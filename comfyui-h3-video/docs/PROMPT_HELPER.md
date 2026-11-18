@@ -4,7 +4,7 @@
 
 ## DutchIT H3 통합 (2026-11-17)
 
-일반 화면과 네 편 이어 만들기의 **CPU 프롬프트 도우미**에서 **DutchIT H3 · 상세 작성 (8B)** 또는 **기존 도우미 · 가볍게 (2B)**를 선택한다. 첫 기본 선택은 DutchIT이며 선택만 이 브라우저에 저장한다. 기존 API 요청이 엔진을 생략하면 2B를 사용해 이전 클라이언트와 호환한다. RAM 부족이나 오류 때 엔진을 몰래 바꾸지 않는다.
+일반 화면과 네 편 이어 만들기에서는 **Grok CLI** 또는 **DutchIT H3 · 상세 작성 (8B)**를 선택한다. 2B는 선택 목록에서 제거했으며 이전 브라우저에 저장된 2B 선택은 DutchIT로 전환한다. 선택만 이 브라우저에 저장하고 기존 프롬프트·영상 설정은 변경하지 않는다. RAM 부족이나 오류 때 엔진을 몰래 바꾸지 않는다. 기존 API의 legacy 처리는 호환 목적으로 남아 있으나 로컬 2B 가중치는 제거했으므로 사용할 수 없다.
 
 [DutchIT/minimax-prompt-enhancer](https://huggingface.co/DutchIT/minimax-prompt-enhancer)는 별도 학습 가중치가 아닌 MiniMax용 지시문 모음이다. `Modelfile.ref`의 동작·소리·시간 연계 원칙을 기존 편집기에 맞게 수정했으며, 기반인 Huihui Qwen3-VL 8B Instruct abliterated의 Q4_K_M 가중치를 기존 CPU llama.cpp에서 실행한다. 원본 지시문·라이선스·고정 리비전과 수정 사항은 `third_party/dutchit/`에 보관한다. 원본 Modelfile 전체를 그대로 실행하거나 Ollama를 추가 설치하지 않는다.
 
@@ -20,7 +20,7 @@ DutchIT는 Q8_0 키·값 캐시와 CPU Flash Attention을 사용하고, 시작 �
 
 동작 칸에 `the camera smoothly pushes`처럼 부사가 낀 카메라 지시가 중복되는 경우도 검사한다. 새 초안이 이 검사를 통과하지 못하면 적용 전에 한 번만 동작 중심으로 다시 작성하고 재검사하며, 여전히 위반하면 원문을 유지한 채 거절한다. 이미 작성된 사용자의 문장이나 부분 수정 요청은 이 자동 재작성 대상이 아니다.
 
-설치 시 `--engine dutchit`은 DutchIT만, `--engine legacy`는 기존 모델만, 생략 또는 `--engine all`은 둘 다 준비한다. 가중치와 런타임의 크기·SHA256을 검증하고 모델은 Git에 넣지 않는다.
+설치 옵션 생략 또는 `--engine dutchit`은 DutchIT만 준비한다. `--engine legacy`와 `--engine all`은 이전 환경 호환을 위한 명시적 설치에만 사용하며, 기본 설치로 2B를 다시 받지 않는다. 가중치와 런타임의 크기·SHA256을 검증하고 모델은 Git에 넣지 않는다.
 
 ```powershell
 .\ComfyUI\.venv\Scripts\python.exe scripts/install_prompt_helper.py --engine dutchit

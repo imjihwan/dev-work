@@ -335,7 +335,7 @@ a{color:var(--acc)}
       <div class="hint" id="translationHint" style="margin-bottom:10px" role="status">켜고 입력 칸을 누르면 원문 아래에 번역을 표시합니다. 원문은 바꾸지 않습니다.</div>
       <details class="prompt-helper">
         <summary>프롬프트 작성 도우미</summary>
-        <label for="helperEngine">도우미 선택</label><select id="helperEngine"><option value="grok">Grok CLI · 계정 로그인</option><option value="dutchit" selected>DutchIT H3 · 상세 작성 (8B)</option><option value="legacy">기존 도우미 · 가볍게 (2B)</option></select>
+        <label for="helperEngine">도우미 선택</label><select id="helperEngine"><option value="grok">Grok CLI · 계정 로그인</option><option value="dutchit" selected>DutchIT H3 · 상세 작성 (8B)</option></select>
         <div class="hint">DutchIT는 RAM 여유 8GB가 필요하며 CPU에서 시간이 걸립니다. 유지 조건·카메라·원테이크는 그대로 두고 텍스트만 처리합니다.</div>
         <div class="hint" id="helperGrokInfo" hidden>Grok CLI는 요청·공통 조건·참고 중인 프롬프트와 최근 대화를 외부로 보냅니다. 사진·영상·작업이력은 보내지 않습니다. PC에서 Connect-Grok.ps1로 로그인하세요. 사용량·개인정보 처리는 Grok 계정 설정을 따릅니다.</div>
         <pre id="helperChat" class="hint" style="white-space:pre-wrap;max-height:260px;overflow:auto" hidden></pre>
@@ -1336,7 +1336,7 @@ function helperVideoConfig(){ return {duration:Number($("duration").value)||5,mo
   fixed:Object.fromEntries(["subject","style","keep"].map(key=>[key,$(key).value]))}; }
 function helperMessage(text,error=false){ $("helperStatus").textContent=text; $("helperStatus").style.color=error ? "var(--warn)" : ""; }
 function helperBusy(busy){ $("helperStart").disabled=busy; $("helperDiscuss").disabled=busy; $("helperClearChat").disabled=busy; $("helperReview").disabled=busy; $("helperEngine").disabled=busy; $("helperCancel").hidden=!busy; $("helperCancel").disabled=false; }
-try{const saved=localStorage.getItem("h3simple.promptHelperEngine.v1");$("helperEngine").value=["legacy","grok"].includes(saved)?saved:"dutchit";}catch{$("helperEngine").value="dutchit";}
+try{const saved=localStorage.getItem("h3simple.promptHelperEngine.v1");$("helperEngine").value=saved==="grok"?"grok":"dutchit";}catch{$("helperEngine").value="dutchit";}
 $("helperEngine").onchange=()=>{try{localStorage.setItem("h3simple.promptHelperEngine.v1",$("helperEngine").value);}catch{}clearHelperConversation();refreshHelperChoice();helperMessage("도우미를 바꿨습니다. 새 작성 결과를 확인한 뒤 적용하세요.");};
 refreshHelperChoice();
 function formatPromptReview(review){
