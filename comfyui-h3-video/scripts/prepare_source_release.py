@@ -32,7 +32,7 @@ SCRIPT_FILES = (
     "test_gallery_progress.py", "test_settings_sequence_bulk.py",
     "test_restore_anchored_reference.py", "test_restart_running.py",
     "test_reference_restore.cjs", "test_queue_edit.py", "test_prompt_sync.cjs", "test_priority_queue.py",
-    "test_ui_features.cjs", "test_story_ui.cjs", "test_story_routes.py", "test_story.py", "test_reference_images.cjs",
+    "test_ui_features.cjs", "test_story_ui.cjs", "test_story_routes.py", "test_story.py", "test_reference_images.cjs", "test_playback_preferences.cjs",
 )
 PUBLIC_FILES = tuple(ROOT_FILES) + THIRD_PARTY_FILES + tuple("simple_ui/"+name for name in UI_FILES) + tuple(
     "docs/"+name for name in DOC_FILES) + tuple("scripts/"+name for name in SCRIPT_FILES)

@@ -94,6 +94,13 @@ async function swipe(video,x1,y1,x2,y2){
   assert(context.loraHtml({loras:[{name:'bad<img>.safetensors',strength:0}]}).includes('bad&lt;img&gt;'));
   context.setLoras(true);assert(doc.body.classList.contains('show-loras'));context.closeViewer();
 
+  context.setDefaultPlaybackMuted(true,true);context.openViewer(entries[4].id);await settle();
+  const mutedPlayer=get('players').players[0];assert(mutedPlayer.muted&&mutedPlayer.defaultMuted);
+  const mutedPlays=mutedPlayer.playCount;mutedPlayer.currentTime=1.5;
+  context.setDefaultPlaybackMuted(false,true);assert.equal(mutedPlayer.muted,false);assert.equal(mutedPlayer.playCount,mutedPlays);assert.equal(mutedPlayer.currentTime,1.5);
+  context.setDefaultPlaybackMuted(true,true);mutedPlayer.muted=false;
+  await context.moveViewer(1);assert.equal(get('players').players[0],mutedPlayer);assert.equal(mutedPlayer.muted,false,'Swipe preserves a native-control audio override');
+  context.closeViewer();context.setDefaultPlaybackMuted(false,true);
   // Single playback reuses the same element (Safari permission) and replaces its stream.
   context.openViewer(entries[10].id);await settle();
   const oldPlayer=get('players').players[0],oldError=oldPlayer.onerror,opener=run('PLAYER.opener');oldPlayer.muted=true;oldPlayer.volume=.35;oldPlayer.focus();

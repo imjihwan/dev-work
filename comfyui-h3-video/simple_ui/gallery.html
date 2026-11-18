@@ -18,6 +18,7 @@ main{max-width:1680px;margin:auto;padding:0 18px 40px}.toolbar{position:sticky;t
 .viewer-nav{display:flex;align-items:center;gap:8px;margin-top:8px}.viewer-nav button{width:44px;flex-shrink:0;font-size:24px;padding:0}.viewer-nav span{flex:1;text-align:center;font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums}
 @media(min-width:1800px){.grid{grid-template-columns:repeat(6,minmax(0,1fr))}}@media(max-width:900px){.grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}}@media(max-width:600px){main{padding:0 10px calc(24px + env(safe-area-inset-bottom))}.toolbar{padding-top:6px}.toolbar-row{gap:6px}.filters{width:100%;gap:6px}.filters button{flex:1;padding:7px 5px}.search{min-width:120px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;padding-top:10px}.tile-body{padding:8px}.tile-date{font-size:12px}.tile-actions{gap:4px}.tile-actions button,.tile-actions a{font-size:11px}.selection button{font-size:12px;padding:7px 9px}.status{width:100%;margin:0;min-height:18px}.viewer-tools{gap:6px}.viewer-tools button{font-size:12px}.viewer{padding:6px}.players{gap:10px}}
 @media(max-width:330px){.grid{grid-template-columns:1fr}}
+.playback-preference{display:inline-flex;align-items:center;gap:5px;margin:4px 0;font-size:13px;white-space:nowrap}.playback-preference input{width:auto;margin:0}.app-view-options{gap:8px 14px;flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -39,6 +40,7 @@ main{max-width:1680px;margin:auto;padding:0 18px 40px}.toolbar{position:sticky;t
       </div>
       <div class="search"><input id="search" type="search" placeholder="날짜 · 모델 검색" aria-label="갤러리 검색"></div>
       <select id="order" aria-label="정렬"><option value="newest">최신순</option><option value="oldest">오래된순</option></select>
+      <label class="playback-preference" title="이 브라우저에 저장됩니다. 접속 주소가 다르면 별도로 기억합니다."><input type="checkbox" id="defaultMuteToggle"> 기본 음소거</label>
       <button id="refresh" type="button" aria-label="갤러리 새로고침">↻</button>
     </div>
     <div class="selection">
@@ -83,6 +85,31 @@ main{max-width:1680px;margin:auto;padding:0 18px 40px}.toolbar{position:sticky;t
   <div class="regeneration-buttons"><button type="button" id="changeRegenerationSource">다른 영상 선택</button><button type="button" class="primary" id="confirmRegeneration">우선 재생성</button></div>
 </dialog>
 <script>
+// Browser playback mute.
+const DEFAULT_PLAYBACK_MUTE_KEY="h3simple.defaultPlaybackMuted.v1";
+let defaultPlaybackMuted=false,playbackMuteChanged=()=>{};
+function isDefaultPlaybackMuted(){return defaultPlaybackMuted;}
+function setDefaultPlaybackMuted(enabled,persist=false){
+  defaultPlaybackMuted=enabled===true;$("defaultMuteToggle").checked=defaultPlaybackMuted;
+  if(persist)try{localStorage.setItem(DEFAULT_PLAYBACK_MUTE_KEY,defaultPlaybackMuted?"1":"0");}catch{}
+  playbackMuteChanged(defaultPlaybackMuted);
+}
+function initDefaultPlaybackMute(apply){
+  playbackMuteChanged=apply||(()=>{});
+  let enabled=false;try{enabled=localStorage.getItem(DEFAULT_PLAYBACK_MUTE_KEY)==="1";}catch{}
+  setDefaultPlaybackMuted(enabled);
+  $("defaultMuteToggle").onchange=()=>setDefaultPlaybackMuted($("defaultMuteToggle").checked,true);
+  window.addEventListener("storage",event=>{if(event.key===DEFAULT_PLAYBACK_MUTE_KEY)setDefaultPlaybackMuted(event.newValue==="1");});
+}
+// End browser playback mute.
+function applyPlaybackMuteDefault(enabled){
+  if(!$("viewer").open)return;
+  $("audio").value=enabled?"none":($("audio").value==="none"?"0":$("audio").value);
+  $("players").querySelectorAll("video").forEach(video=>video.defaultMuted=enabled);
+  audio();
+}
+// End playback default handling.
+
 const $=id=>document.getElementById(id);
 const esc=value=>String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const base=value=>String(value||"").split(/[\\/]/).pop();
@@ -331,6 +358,7 @@ function releasePlayers(){
   PLAYER.mediaToken++;pause();$("players").querySelectorAll("video").forEach(video=>{video.onloadedmetadata=null;video.onerror=null;video.removeAttribute("src");video.load();});$("players").replaceChildren();
 }
 function renderPlayers(entries,sound=null){
+  const startMuted=sound?!!sound.muted:isDefaultPlaybackMuted();
   const previous=[...$("players").querySelectorAll("video")],reuse=entries.length===1&&PLAYER.entries.length===1&&previous.length===1;
   if(reuse){
     // Safari grants playback permission per element. Keep it when swiping.
@@ -343,8 +371,9 @@ function renderPlayers(entries,sound=null){
     $("players").innerHTML=entries.map((item,index)=>{const aspect=item.width&&item.height?item.width/item.height:16/9;return `<div class="player"><div class="stage" style="--aspect:${aspect}"><video controls loop playsinline preload="metadata" aria-label="영상 ${index+1}" src="${esc(videoUrl(item))}"></video></div><div class="lora-info">${loraHtml(item)}</div><div class="regeneration-control">${regenerationButton(item)}</div></div>`;}).join("");
   }
   PLAYER.entries=entries;PLAYER.sizes=[];PLAYER.swipe=null;const mediaToken=++PLAYER.mediaToken;
-  $("audio").innerHTML=entries.map((_,index)=>`<option value="${index}">영상 ${index+1} 소리</option>`).join("")+`<option value="none">모두 음소거</option>`;$("audio").value=sound?.muted?"none":"0";$("viewerTools").hidden=entries.length===1;$("viewerStatus").textContent="";
+  $("audio").innerHTML=entries.map((_,index)=>`<option value="${index}">영상 ${index+1} 소리</option>`).join("")+`<option value="none">모두 음소거</option>`;$("audio").value=startMuted?"none":"0";$("viewerTools").hidden=entries.length===1;$("viewerStatus").textContent="";
   $("players").querySelectorAll("video").forEach((video,index)=>{
+    video.defaultMuted=startMuted;video.muted=startMuted||index>0;
     if(sound)video.volume=sound.volume;
     video.onloadedmetadata=()=>{if(mediaToken!==PLAYER.mediaToken||!video.isConnected||!video.videoWidth||!video.videoHeight)return;PLAYER.sizes[index]={width:video.videoWidth,height:video.videoHeight};video.parentElement.style.setProperty("--aspect",video.videoWidth+"/"+video.videoHeight);layoutViewer();};
     video.onerror=()=>{if(mediaToken===PLAYER.mediaToken&&video.isConnected)$("viewerStatus").textContent="영상을 불러오지 못했습니다.";};
@@ -484,6 +513,7 @@ window.addEventListener("resize",resetGalleryScroll,{passive:true});
 document.addEventListener("visibilitychange",()=>{if(document.hidden){clearTimeout(G.timer);clearTimeout(ACTIVITY.timer);pause();}else{loadGallery(false,true);pollActivity();}});
 window.addEventListener("message",event=>{if(event.origin!==location.origin||event.source!==parent)return;if(event.data?.type==="gallery-navigation-state")acknowledgeGalleryNavigation(event.data.hidden);if(event.data?.type==="gallery-active"){G.active=!!event.data.active;GALLERY_NAV.hidden=false;resetGalleryScroll();if(G.active){loadGallery(false,true);pollActivity();}else{clearTimeout(G.timer);clearTimeout(ACTIVITY.timer);closeViewer();}}if(event.data?.type==="lora-overlay-toggle")setLoras(event.data.enabled);});
 window.addEventListener("storage",event=>{if(event.key===LORA_KEY)setLoras(event.newValue==="1");});
+initDefaultPlaybackMute(applyPlaybackMuteDefault);
 // Bootstrap only requests gallery/progress metadata and cached images; playback requires a click.
 try{setLoras(localStorage.getItem(LORA_KEY)==="1");}catch{}
 try{const waiting=JSON.parse(localStorage.getItem(REGEN_WAIT_KEY));if(Array.isArray(waiting))ACTIVITY.waiting=new Set(waiting.filter(id=>typeof id==="string"));}catch{}

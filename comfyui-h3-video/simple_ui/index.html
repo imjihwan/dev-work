@@ -249,11 +249,12 @@ a{color:var(--acc)}
 .video-compare-grid video{position:absolute;inset:0;width:100%;height:100%;max-height:none;display:block;object-fit:contain;aspect-ratio:auto}
 
 @media(max-width:600px){.video-compare{padding:8px}.video-compare-panel{padding:8px;max-height:calc(100dvh - 16px)}.video-compare-grid{gap:6px}.video-compare-tools{gap:6px}}
+.playback-preference{display:inline-flex;align-items:center;gap:5px;margin:4px 0;font-size:13px;white-space:nowrap}.playback-preference input{width:auto;margin:0}.app-view-options{gap:8px 14px;flex-wrap:wrap}
 </style>
 </head>
 <body>
 <div class="app-top"><nav class="app-tabs" role="tablist" aria-label="화면 선택"><button id="singleTab" role="tab" aria-selected="true" aria-controls="singleApp">영상 1편 만들기</button><button id="storyTab" role="tab" aria-selected="false" aria-controls="storyFrame">4편 이어 만들기 · 약 20초</button><button id="galleryTab" role="tab" aria-selected="false" aria-controls="galleryFrame">결과 갤러리</button></nav>
-<div class="app-view-options"><label><input type="checkbox" id="loraOverlayToggle"> LoRA 정보 표시</label></div></div>
+<div class="app-view-options"><label class="playback-preference" title="이 브라우저에 저장됩니다. 접속 주소가 다르면 별도로 기억합니다."><input type="checkbox" id="defaultMuteToggle"> 기본 음소거</label><label><input type="checkbox" id="loraOverlayToggle"> LoRA 정보 표시</label></div></div>
 <iframe id="storyFrame" class="story-frame" title="4편 이어 만들기" hidden></iframe>
 <iframe id="galleryFrame" class="gallery-frame" title="결과 갤러리" hidden></iframe>
 <div class="wrap view-make" id="singleApp" role="tabpanel" aria-labelledby="singleTab">
@@ -485,6 +486,31 @@ a{color:var(--acc)}
 </div>
 
 <script>
+// Browser playback mute.
+const DEFAULT_PLAYBACK_MUTE_KEY="h3simple.defaultPlaybackMuted.v1";
+let defaultPlaybackMuted=false,playbackMuteChanged=()=>{};
+function isDefaultPlaybackMuted(){return defaultPlaybackMuted;}
+function setDefaultPlaybackMuted(enabled,persist=false){
+  defaultPlaybackMuted=enabled===true;$("defaultMuteToggle").checked=defaultPlaybackMuted;
+  if(persist)try{localStorage.setItem(DEFAULT_PLAYBACK_MUTE_KEY,defaultPlaybackMuted?"1":"0");}catch{}
+  playbackMuteChanged(defaultPlaybackMuted);
+}
+function initDefaultPlaybackMute(apply){
+  playbackMuteChanged=apply||(()=>{});
+  let enabled=false;try{enabled=localStorage.getItem(DEFAULT_PLAYBACK_MUTE_KEY)==="1";}catch{}
+  setDefaultPlaybackMuted(enabled);
+  $("defaultMuteToggle").onchange=()=>setDefaultPlaybackMuted($("defaultMuteToggle").checked,true);
+  window.addEventListener("storage",event=>{if(event.key===DEFAULT_PLAYBACK_MUTE_KEY)setDefaultPlaybackMuted(event.newValue==="1");});
+}
+// End browser playback mute.
+function applyPlaybackMuteDefault(enabled){
+  if(!VIDEO_COMPARE.entries.length||$("videoCompare").hidden)return;
+  $("compareAudio").value=enabled?"none":($("compareAudio").value==="none"?"0":$("compareAudio").value);
+  $("videoCompareGrid").querySelectorAll("video").forEach(video=>video.defaultMuted=enabled);
+  setVideoCompareAudio();
+}
+// End playback default handling.
+
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const base = n => String(n).split(/[\\/]/).pop();
@@ -2126,9 +2152,11 @@ function openVideoComparison(){
   $("videoCompareTitle").textContent=`선택한 ${entries.length}개 영상 재생`;layoutVideoPlayback(entries);
   const audioChoice=$("compareAudio").value;
   $("compareAudio").innerHTML=entries.map((entry,index)=>`<option value="${index}">영상 ${index+1}</option>`).join("")+`<option value="none">모두 끄기</option>`;
-  $("compareAudio").value=audioChoice==="none" || (audioChoice!=="" && Number(audioChoice)>=0 && Number(audioChoice)<entries.length)?audioChoice:"0";
+  $("compareAudio").value=isDefaultPlaybackMuted()?"none":(audioChoice!=="" && audioChoice!=="none" && Number(audioChoice)>=0 && Number(audioChoice)<entries.length?audioChoice:"0");
   $("videoCompareGrid").innerHTML=entries.map((entry,index)=>`<div>${videoStageHtml(`<video controls loop playsinline preload="auto" tabindex="0" aria-label="영상 ${index+1}" src="${vurl(entry.video)}"></video>`,entry)}</div>`).join("");
   $("videoCompareGrid").querySelectorAll("video").forEach((video,index)=>{
+    video.defaultMuted=isDefaultPlaybackMuted();
+    video.muted=isDefaultPlaybackMuted()||index!==Number($("compareAudio").value);
     video.onerror=()=>$("videoCompareStatus").textContent="선택한 영상 중 불러오지 못한 영상이 있습니다.";
     video.onloadedmetadata=()=>{if(video.isConnected===false || VIDEO_COMPARE.entries[index]?.id!==entries[index].id || !video.videoWidth || !video.videoHeight)return;VIDEO_COMPARE.actualSizes[index]={width:video.videoWidth,height:video.videoHeight};video.parentElement.style.setProperty("--video-aspect",video.videoWidth+"/"+video.videoHeight);layoutVideoPlayback(VIDEO_COMPARE.entries);};
   });
@@ -2431,6 +2459,7 @@ window.addEventListener("resize",sizeGalleryFrame);window.visualViewport?.addEve
 window.addEventListener("message",onGalleryNavigationMessage);
 window.addEventListener("message",event=>{if(event.origin===location.origin&&event.source===$("storyFrame").contentWindow&&event.data?.type==="story-resize"&&Number.isFinite(event.data.height))$("storyFrame").style.height=Math.max(800,Math.min(60000,event.data.height))+"px";});
 initLoraOverlay();
+initDefaultPlaybackMute(applyPlaybackMuteDefault);
 initTranslationPreview();
 load(); setMode(S.mode || "REF2VA"); render(); loadCatalog().then(() => loadHist()); restoreImgs().then(initSync); restoreJobs();
 // 파일로 직접 열면(file://) 서버 API 를 못 부르므로 서버 주소로 보낸다

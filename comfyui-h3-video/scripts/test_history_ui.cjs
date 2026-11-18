@@ -34,6 +34,7 @@ const context=vm.createContext({console,$:get,esc:escape,base:value=>String(valu
   currentJobs:[],finished:job=>job.state==='done',vurl:()=>'/synthetic-video-not-requested.mp4',
   editingJobId:null,bulkEditingIds:[],bulkAllEditing:false,setQueueEdit(){},loadFromHist(){},setStatus(){},updateGoLabel(){},
   pollGen:0,pollT0:0,timer:null,queueSubmitting:false,localStorage:{removeItem(){}},restartCurrentJob(){}});
+vm.runInContext(script.slice(script.indexOf('// Browser playback mute.'),script.indexOf('// End playback default handling.')),context);
 vm.runInContext(script.slice(script.indexOf('function loraOverlayHtml('),script.indexOf('async function submitJobs(')),context);
 vm.runInContext(script.slice(script.indexOf('const HIST ='),script.indexOf('// 그때 구성을 화면에 다시 채운다')),context);
 const loras=Array.from({length:10},(_,i)=>({name:`folder/Very_long_synthetic_lora_name_${i}_full_suffix.safetensors`,strength:i===0?0:i/10}));
@@ -72,6 +73,14 @@ context.syntheticEntries=entries;
   get('compareAudio').value='2';get('compareAudio').onchange();assert.equal(players[0].muted,true);assert.equal(players[1].muted,true);assert.equal(players[2].muted,false);
   get('compareAudio').value='none';get('compareAudio').onchange();assert(players.every(video=>video.muted));
   get('closeCompare').onclick();assert.equal(get('videoCompare').hidden,true);assert.equal(get('videoCompareGrid').players.length,0);assert(players.every(video=>video.paused&&video.loadCount===1));assert.equal(doc.body.style.overflow,'auto');assert.equal(active,get('compareVideos'));assert.equal(active.focusOptions.preventScroll,true);
+  context.initDefaultPlaybackMute(context.applyPlaybackMuteDefault);context.setDefaultPlaybackMuted(true,true);
+  context.openVideoComparison();await new Promise(setImmediate);
+  const mutedPlayers=get('videoCompareGrid').players;assert(mutedPlayers.every(video=>video.muted&&video.defaultMuted));
+  const playCounts=mutedPlayers.map(video=>video.playCount);mutedPlayers[0].currentTime=2;
+  context.setDefaultPlaybackMuted(false,true);assert.equal(mutedPlayers[0].muted,false);assert(mutedPlayers.slice(1).every(video=>video.muted));
+  assert.deepEqual(mutedPlayers.map(video=>video.playCount),playCounts);assert.equal(mutedPlayers[0].currentTime,2,'Preference must not restart playback');
+  context.closeVideoComparison();context.openVideoComparison();await new Promise(setImmediate);assert.equal(get('videoCompareGrid').players[0].muted,false);
+  context.closeVideoComparison();
   get('clearCompare').onclick();assert.equal(get('compareVideos').disabled,true);assert.equal(get('clearCompare').hidden,true);
   const overlay=context.loraOverlayHtml(loras);assert.equal((overlay.match(/class="lora-overlay-row"/g)||[]).length,10);
   for(let i=0;i<10;i++)assert(overlay.includes(`name_${i}_full_suffix`));assert(!overlay.includes('외 '));assert(overlay.includes('many'));

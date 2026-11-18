@@ -15,8 +15,8 @@ class Element{
 const get=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
 const requests=[];let handler=()=>({});
 const context=vm.createContext({console,structuredClone,URLSearchParams,Map,Set,JSON,Number,String,Object,Array,Date,
-  document:{getElementById:get,createElement:tag=>new Element(tag),querySelector:selector=>get(selector),querySelectorAll:()=>[]},
-  window:{parent:{},postMessage:()=>{}},location:{origin:'http://synthetic.invalid',search:''},
+  document:{getElementById:get,createElement:tag=>new Element(tag),querySelector:selector=>get(selector),querySelectorAll:selector=>selector==='video'?[...elements.values()].flatMap(element=>element.children.filter(child=>child.tagName==='video')):[]},
+  window:{parent:{},postMessage:()=>{},addEventListener(){}},location:{origin:'http://synthetic.invalid',search:''},
   fetch:async(url,options)=>{const body=options?.body?JSON.parse(options.body):null;requests.push({url,body});return{ok:true,json:async()=>handler(url,body)};},
   localStorage:{getItem:()=>null,setItem:()=>{}},setTimeout:()=>0,confirm:()=>true,navigator:{clipboard:{writeText:async()=>{}}}});
 vm.runInContext(source,context);
@@ -54,7 +54,11 @@ const plain=value=>JSON.parse(JSON.stringify(value));
   context.updateStatus();assert.equal(get('generate0').disabled,false);assert.equal(get('generate1').disabled,true);assert.equal(get('merge').disabled,true);
   vm.runInContext("project.renders[0]={state:'done',approved:false,stale:false,has_video:true};",context);context.updateStatus();assert.equal(get('generate1').disabled,true);assert.equal(get('approve0').disabled,false);
   vm.runInContext("project.renders[0].approved=true;",context);context.updateStatus();assert.equal(get('generate1').disabled,false);assert.equal(get('generate2').disabled,true);
-  context.showVideo(0,'preview0');const player=get('preview0').children[0];
+  context.initDefaultPlaybackMute(context.applyPlaybackMuteDefault);context.setDefaultPlaybackMuted(true,true);
+  const beforePlaybackPreference=JSON.stringify(plain(context.readDefinition()));
+  context.showVideo(0,'preview0');const player=get('preview0').children[0];assert(player.muted&&player.defaultMuted);
+  get('defaultMuteToggle').checked=false;get('defaultMuteToggle').onchange();assert.equal(player.muted,false);
+  assert.equal(JSON.stringify(plain(context.readDefinition())),beforePlaybackPreference);
   context.updateStatus();context.updateStatus();assert.equal(get('preview0').children[0],player,'Polling must not recreate a playing video');
   assert.equal(player.playsInline,true);assert(player.src.includes('/api/story/video?'));assert(!player.src.includes('filename'));
   vm.runInContext("project.renders.forEach(run=>Object.assign(run,{state:'done',approved:true,stale:false}));",context);context.updateStatus();assert.equal(get('merge').disabled,false);

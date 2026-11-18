@@ -9,8 +9,10 @@
 .show-lora-overlay .lora-overlay{display:block}
 .lora-overlay-list{display:grid;grid-template-columns:minmax(0,1fr);gap:1px 10px;margin-top:2px}.lora-overlay-list.many{grid-template-columns:repeat(2,minmax(0,1fr))}
 .lora-overlay-row{display:flex;gap:6px;min-width:0;justify-content:space-between}.lora-overlay-name{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.lora-overlay-strength{flex-shrink:0;font-variant-numeric:tabular-nums}
+.playback-preference{display:inline-flex;align-items:center;gap:5px;margin:4px 0;font-size:13px;white-space:nowrap}.playback-preference input{width:auto;margin:0}.app-view-options{gap:8px 14px;flex-wrap:wrap}
 </style></head><body><main class="page">
 <header class="toolbar"><div><h1>4편 이어 만들기</h1><div class="hint">원본 사진으로 1번을 만들고, 직전 영상의 끝 구간과 원본 사진을 함께 참조해 이어갑니다.</div></div><div class="actions"><button id="newProject">새 프로젝트</button><button id="saveProject" class="primary">프로젝트 저장</button><button id="projectCode">프로젝트 코드 복사</button></div></header>
+<label class="playback-preference" title="이 브라우저에 저장됩니다. 접속 주소가 다르면 별도로 기억합니다."><input type="checkbox" id="defaultMuteToggle"> 기본 음소거</label>
 <div class="row"><div><label for="title">프로젝트 이름</label><input id="title" maxlength="80" placeholder="이어 만들기 프로젝트"></div><div><label for="savedProjects">이 기기에 저장한 프로젝트</label><select id="savedProjects"><option value="">선택</option></select></div><div><label for="openCode">다른 기기의 프로젝트 코드</label><div class="actions" style="margin:0;flex-wrap:nowrap"><input id="openCode" class="project-code" placeholder="복사한 프로젝트 코드"><button id="openProject">열기</button></div></div></div>
 <div id="notice" class="status" role="status" aria-live="polite"></div>
 <nav class="stepnav steps" aria-label="진행 단계"><button data-jump="commonCard">공통 설정</button><button data-jump="clip0" data-step="0">1번</button><button data-jump="clip1" data-step="1">2번</button><button data-jump="clip2" data-step="2">3번</button><button data-jump="clip3" data-step="3">4번</button><button data-jump="mergeCard">최종 병합</button></nav>
@@ -26,6 +28,28 @@
 <section class="grid" id="clips" style="margin-top:16px"></section>
 <section class="card" id="mergeCard"><h2>최종 병합 · 약 20초</h2><div class="hint">네 편을 모두 확정한 뒤 한 영상으로 합칩니다. 개별 영상은 유지됩니다.</div><label for="bgm">전체 배경음악 · 선택 사항</label><input id="bgm" type="file" accept="audio/*"><div class="actions"><button id="clearBgm">전체 배경음악 해제</button><button id="merge" class="primary" disabled>확정한 4편 병합</button><button id="cancel" hidden>현재 단계만 중지</button></div><div id="mergeStatus" class="status"></div><div class="actions media-actions" id="mergedActions" hidden><button id="showMerged">병합 영상 보기</button><a class="download" id="downloadMerged">다운로드</a></div><div id="mergedPreview" class="preview" hidden></div></section>
 </main><script>
+// Browser playback mute.
+const DEFAULT_PLAYBACK_MUTE_KEY="h3simple.defaultPlaybackMuted.v1";
+let defaultPlaybackMuted=false,playbackMuteChanged=()=>{};
+function isDefaultPlaybackMuted(){return defaultPlaybackMuted;}
+function setDefaultPlaybackMuted(enabled,persist=false){
+  defaultPlaybackMuted=enabled===true;$("defaultMuteToggle").checked=defaultPlaybackMuted;
+  if(persist)try{localStorage.setItem(DEFAULT_PLAYBACK_MUTE_KEY,defaultPlaybackMuted?"1":"0");}catch{}
+  playbackMuteChanged(defaultPlaybackMuted);
+}
+function initDefaultPlaybackMute(apply){
+  playbackMuteChanged=apply||(()=>{});
+  let enabled=false;try{enabled=localStorage.getItem(DEFAULT_PLAYBACK_MUTE_KEY)==="1";}catch{}
+  setDefaultPlaybackMuted(enabled);
+  $("defaultMuteToggle").onchange=()=>setDefaultPlaybackMuted($("defaultMuteToggle").checked,true);
+  window.addEventListener("storage",event=>{if(event.key===DEFAULT_PLAYBACK_MUTE_KEY)setDefaultPlaybackMuted(event.newValue==="1");});
+}
+// End browser playback mute.
+function applyPlaybackMuteDefault(enabled){
+  document.querySelectorAll("video").forEach(video=>{video.defaultMuted=enabled;video.muted=enabled;});
+}
+// End playback default handling.
+
 const $=id=>document.getElementById(id), COUNT=4;
 const COMMON=['model','steps','aspect','resolution','subject','style','keep','sampler','scheduler','shift_video','shift_audio'];
 let catalog=null, project=null, dirty=false, newImages=null, newBgm=undefined, ai=null, pollTimer=null, saving=false;
@@ -81,7 +105,7 @@ function initLoraOverlay(){
 }
 function showVideo(which,container){
   const box=$(container);if(box.querySelector('video')){box.querySelector('video').pause();box.replaceChildren();box.hidden=true;return;}
-  const video=document.createElement('video');video.controls=true;video.playsInline=true;video.preload='metadata';video.src=videoUrl(which);box.appendChild(video);
+  const video=document.createElement('video');video.controls=true;video.playsInline=true;video.preload='metadata';video.defaultMuted=isDefaultPlaybackMuted();video.muted=isDefaultPlaybackMuted();video.src=videoUrl(which);box.appendChild(video);
   const overlay=document.createElement('div');overlay.className='lora-overlay';overlay.ariaHidden='true';
   const run=which==='merged'?project.merged:project.renders[Number(which)];
   overlay.innerHTML=loraOverlayHtml(run && !run.stale?project.definition.common.loras:null);box.appendChild(overlay);box.hidden=false;
@@ -165,7 +189,7 @@ function createCards(){
   }
 }
 function bind(){
-  document.querySelectorAll('input,textarea,select').forEach(input=>{if(!['photoFiles','bgm','savedProjects','openCode','storyHelperEngine'].includes(input.id))input.addEventListener('input',()=>{markDirty();updateStatus();});});
+  document.querySelectorAll('input,textarea,select').forEach(input=>{if(!['photoFiles','bgm','savedProjects','openCode','storyHelperEngine','defaultMuteToggle'].includes(input.id))input.addEventListener('input',()=>{markDirty();updateStatus();});});
   try{$('storyHelperEngine').value=localStorage.getItem('h3simple.promptHelperEngine.v1')==='legacy'?'legacy':'dutchit';}catch{$('storyHelperEngine').value='dutchit';}
   $('storyHelperEngine').onchange=()=>{try{localStorage.setItem('h3simple.promptHelperEngine.v1',$('storyHelperEngine').value);}catch{}};
   document.querySelectorAll('[data-jump]').forEach(button=>button.onclick=()=>$(button.dataset.jump).scrollIntoView({behavior:'smooth',block:'start'}));
@@ -186,6 +210,7 @@ function bind(){
 async function poll(){try{if(project&&!saving){const id=project.id,fresh=await api('/api/story/project?id='+id);if(project?.id===id){project={...project,renders:fresh.renders,active:fresh.active,merged:fresh.merged,merge_error:fresh.merge_error};updateStatus();}}}catch(error){say('진행 상태를 확인하지 못했습니다. 연결이 복구되면 다시 확인합니다.',true);}finally{pollTimer=setTimeout(poll,2500);}}
 async function init(){
   initLoraOverlay();
+  initDefaultPlaybackMute(applyPlaybackMuteDefault);
   createCards();catalog=await api('/api/catalog');
   $('model').innerHTML=catalog.models.filter(item=>item.auto?.h3!==false&&item.auto?.fmt!=='gguf'&&(!item.auto?.modes||item.auto.modes.includes('REF2VA'))).map(item=>`<option value="${esc(item.name)}">${esc(item.name.split(/[\\/]/).pop())}</option>`).join('');
   for(const [id,items] of [['sampler',catalog.samplers],['scheduler',catalog.schedulers]])$(id).innerHTML=items.map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join('');
