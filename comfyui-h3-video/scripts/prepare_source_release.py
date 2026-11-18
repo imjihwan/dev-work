@@ -23,7 +23,7 @@ DOC_FILES = (
 )
 SCRIPT_FILES = (
     "setup.ps1", "start_comfyui.bat", "get_models.py", "download-ranges.py",
-    "install_prompt_helper.py", "install_face_detector.py", "install_local_translator.py", "test_face_references.py", "prepare_ui_restart.py", "prepare_source_release.py",
+    "install_prompt_helper.py", "install_face_detector.py", "install_local_translator.py", "test_face_references.py", "prepare_ui_restart.py", "prepare_source_release.py", "restart_backend.py", "test_backend_restart.py",
     "apply_queued_style.py", "add_queued_opening_pose.py", "restore_anchored_reference.py",
     "test_gallery.py", "test_apply_queued_style.py", "test_add_queued_opening_pose.py",
     "test_prompt_helper.py", "test_local_translate.py", "test_translation_preview.cjs", "test_photo_batch_ui.cjs", "test_folder_photos.cjs", "test_opening_pose.cjs",

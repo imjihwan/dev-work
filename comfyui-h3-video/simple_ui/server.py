@@ -24,6 +24,25 @@ ROOT = os.path.dirname(HERE)
 TEMPLATE = os.path.join(HERE, "template_api.json")
 INDEX = os.path.join(HERE, os.environ.get("SIMPLEUI_INDEX", "index.html"))
 PORT = int(os.environ.get("SIMPLEUI_PORT", "8190"))
+BACKEND_RESTART_HOLD = os.path.join(HERE, "backend-restart.tmp")
+
+def backend_restart_hold(pid=None):
+    """Hold status polling during an explicitly prepared backend restart."""
+    try:
+        with open(BACKEND_RESTART_HOLD, encoding="utf-8") as handle:
+            held = json.load(handle)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        # Fail closed for writes if the operator's marker cannot be read.
+        return True if pid is None else {"state":"queued","pct":0,"label":"서버 복구 확인 중"}
+    if pid is None:
+        return True
+    position = held.get("jobs", {}).get(pid)
+    if position is not None:
+        return {"state":"queued","position":position,"pct":0,"label":"서버 재시작 중 · 대기열 보존됨"}
+    return None
+
 PROMPT_HELPER = PromptHelper()
 def prompt_helper_busy():
     with PROMPT_HELPER.lock:
@@ -82,6 +101,7 @@ def _on_message(msg):
         if st is None:
             return
         if t == "execution_start":
+            st["pct"] = 0.0
             _bump(pid, 1, "시작")
         elif t == "executing" and d.get("node"):
             lo, _, name = stage_of(st["classes"].get(d["node"]))
@@ -1174,6 +1194,12 @@ def _queue_state(pid, q):
 
 
 def _status(pid, q=None):
+    held = backend_restart_hold(pid)
+    if held:
+        with PLOCK:
+            if pid in PROGRESS:
+                PROGRESS[pid]["pct"] = 0.0
+        return held
     # 이미 받은 대기열 스냅샷이 있으면 그걸로 먼저 판정(대기·실행 중인 작업은 history 에 아직 없다)
     if q is not None:
         found = _queue_state(pid, q)
@@ -1294,7 +1320,8 @@ class H(BaseHTTPRequestHandler):
             elif u.path == "/api/health":
                 # sequence_face_crop = 이 서버가 얼굴 크롭을 아는 버전인지(화면의 버전 확인용),
                 # face_detector_ready = 지금 실제로 크롭할 수 있는지(모델·OpenCV 준비 여부)
-                self._json({"ok": True, "sequence_face_crop": True, "face_detector_ready": face_detector_ready()})
+                self._json({"ok": True, "sequence_face_crop": True, "face_detector_ready": face_detector_ready(),
+                            "backend_restart_guard": True, "backend_restarting": bool(backend_restart_hold())})
             elif u.path == "/api/status":
                 self._json(status(q["id"]))
             elif u.path == "/api/history":
@@ -1406,6 +1433,9 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
+            if self.path != "/api/ui-state" and globals().get("backend_restart_hold", lambda: None)():
+                self._json({"error":"영상 서버 재시작 중입니다. 대기열 복구가 끝난 뒤 다시 시도해 주세요."}, 503)
+                return
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(n) or b"{}")
             if self.path == "/api/generate":

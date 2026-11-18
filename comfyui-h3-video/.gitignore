@@ -53,6 +53,7 @@ node_modules/
 **/story_data/
 **/gallery_data/
 **/queue-style-backups/
+**/restart_backups/
 **/input/
 **/output/
 **/models/
