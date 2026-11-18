@@ -202,5 +202,34 @@ vm.runInContext(section('function storyModelSettings()', 'function selectAppTab(
   const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(x=>x[1]);
   assert.equal(new Set(ids).size,ids.length,'HTML IDs must remain unique');
   assert(!html.includes('id="example"'));assert(html.includes('설정 묶음 저장'));
+
+  // Grok conversations use the latest unapplied proposal, never mutate the form on discussion.
+  $('helperEngine').value='grok';$('helperEngine').onchange();$('helperContext').checked=false;
+  const formBeforeChat=JSON.stringify(context.helperCurrentText()),beforeChatApplied=lastApplied;
+  $('helperIdea').value='Can the synthetic action fit?';
+  replyHandler=url=>url.endsWith('/start')?{id:'grok-discuss'}:{state:'done',draft:{discussion:true,reply:'Keep one slow action.',f:{},engine:'grok'}};
+  await $('helperDiscuss').onclick();
+  let req=requests.findLast(r=>r.url==='/api/prompt-helper/start').body;
+  assert.equal(req.engine,'grok');assert.equal(req.discuss,true);assert(req.context);assert.equal(req.conversation.length,0);
+  assert.equal(JSON.stringify(context.helperCurrentText()),formBeforeChat);assert.equal(lastApplied,beforeChatApplied);
+  $('helperIdea').value='Make a synthetic draft.';
+  const chatDraft={f:{summary:'New synthetic action.',sound:'Quiet room.',music:'N/A',style:'Must never replace camera.'},shots:[[0,'Slide slowly.']],reply:'초안 제안입니다.',engine:'grok'};
+  replyHandler=url=>url.endsWith('/start')?{id:'grok-new'}:{state:'done',draft:chatDraft};
+  await $('helperStart').onclick();
+  req=requests.findLast(r=>r.url==='/api/prompt-helper/start').body;assert.equal(req.conversation.length,2);assert(!req.context);
+  const originalCamera=$('style').value;
+  $('helperIdea').value='Change only music.';
+  replyHandler=url=>url.endsWith('/start')?{id:'grok-edit'}:{state:'done',draft:{f:{music:'Piano.'},edit:true,changes:[{target:'music',index:0,before:'N/A',after:'Piano.'}],reply:'음악만 제안했습니다.',engine:'grok'}};
+  await $('helperStart').onclick();
+  req=requests.findLast(r=>r.url==='/api/prompt-helper/start').body;
+  assert.equal(req.context.summary,'New synthetic action.','Follow-up must reference the latest proposal');assert.equal(req.conversation.length,4);
+  assert.equal(JSON.stringify(context.helperCurrentText()),formBeforeChat,'Even a follow-up proposal must wait for Apply');
+  $('helperApply').onclick();assert.equal(lastApplied.f.summary,'New synthetic action.');assert.equal(lastApplied.f.music,'Piano.');
+  assert.equal($('style').value,originalCamera,'Accumulated proposals must still filter fixed fields');
+  $('summary').value='User changed the editor';$('helperIdea').value='Discuss the new editor content.';
+  replyHandler=url=>url.endsWith('/start')?{id:'grok-fresh'}:{state:'done',draft:{discussion:true,reply:'New source.',f:{},engine:'grok'}};
+  await $('helperDiscuss').onclick();req=requests.findLast(r=>r.url==='/api/prompt-helper/start').body;
+  assert.equal(req.conversation.length,0,'Changed source invalidates the old conversation');assert.equal(req.context.summary,'User changed the editor');
+  $('helperClearChat').onclick();assert.equal($('summary').value,'User changed the editor');assert($('helperChat').hidden);
   console.log('UI feature checks passed: settings, sequence, bulk edits, selection, restart, CPU prompt helper, unique IDs.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

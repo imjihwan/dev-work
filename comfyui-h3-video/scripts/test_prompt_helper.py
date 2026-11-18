@@ -4,10 +4,12 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(Path(os.environ.get("PROMPT_HELPER_TEST_SOURCE", ROOT / "simple_ui"))))
 SPEC = importlib.util.spec_from_file_location("prompt_helper_test", Path(os.environ.get("PROMPT_HELPER_TEST_SOURCE", ROOT / "simple_ui")) / "prompt_helper.py")
 HELPER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(HELPER)

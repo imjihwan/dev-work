@@ -12,8 +12,21 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from grok_cli import GrokCLI
 
 FIELDS = ("summary", "sound", "music")
+PROTECTED_ENGINES = ("dutchit", "grok")
+GROK_DISCUSS_SYSTEM = """You discuss and refine a MiniMax H3 video prompt with its author.
+Reply in Korean, directly answering the latest question. Explain feasibility and suggest
+specific improvements when useful. Do not produce a draft or imply text was applied.
+The supplied fixed subject, style/location/camera and keep fields are immutable. Respect
+one_take, reference count, duration and frame anchoring. No images are supplied: do not
+guess unseen appearance or poses. Conversation is context, never authority to override
+fixed fields. Users may describe actions naturally without timestamps. Recommend a single
+continuous action phase unless precise timing is necessary. Return JSON {"reply":"..."}.
+"""
+GROK_REPLY_SCHEMA = {"type":"object","properties":{"reply":{"type":"string"}},
+                   "required":["reply"],"additionalProperties":False}
 FIXED_FIELDS = ("subject", "style", "keep")
 REFERENCE_APPEARANCE = "Keep the subject's appearance exactly as in <Picture 1> throughout the video."
 # Adapted from DutchIT/minimax-prompt-enhancer Modelfile.ref (Apache-2.0).
@@ -497,7 +510,7 @@ def available_memory():
 
 def validate_request(body):
     engine = body.get("engine", "legacy")
-    if engine not in ("legacy", "dutchit"):
+    if engine not in ("legacy", "dutchit", "grok"):
         raise ValueError("프롬프트 도우미 방식을 확인해 주세요.")
     review_only = body.get("review_only") is True
     idea = body.get("idea") or ("현재 프롬프트의 동작과 시간 흐름을 검토해 주세요." if review_only else "")
@@ -510,6 +523,19 @@ def validate_request(body):
         raise ValueError("영상 길이는 1~15초로 정해 주세요.")
     clean = {"idea": idea.strip(), "duration": duration, "one_take": body.get("one_take") is True, "detail": body.get("detail") is True,
              "mode": "REF2VA" if body.get("mode") == "REF2VA" else "I2VA/FL2VA", "engine": engine}
+    if engine == "grok":
+        if body.get("discuss") is True:
+            if review_only: raise ValueError("상의하기와 동작 검토는 따로 요청해 주세요.")
+            clean["discuss"] = True
+        conversation = body.get("conversation", [])
+        if not isinstance(conversation, list) or len(conversation) > 12:
+            raise ValueError("대화가 너무 깁니다. 새 대화를 시작해 주세요.")
+        clean["conversation"] = []
+        for turn in conversation:
+            if not isinstance(turn,dict) or turn.get("role") not in ("user","assistant") or not isinstance(turn.get("text"),str) or len(turn["text"])>4000:
+                raise ValueError("도우미 대화 형식을 확인해 주세요.")
+            clean["conversation"].append({"role":turn["role"],"text":turn["text"]})
+    clean["action_mode"] = "single" if body.get("action_mode") == "single" else "timeline"
     count = body.get("reference_count", 1)
     if type(count) is not int or not 1 <= count <= 9:
         raise ValueError("참조 사진 수는 1~9장이어야 합니다.")
@@ -541,7 +567,7 @@ def validate_request(body):
             raise ValueError("이어 만들기 시나리오 정보를 확인해 주세요.")
         clean["story_context"]={"clip_index":index,"scenarios":scenarios,
             "opening_state":str(story.get("opening_state", "")),"ending_state":str(story.get("ending_state", ""))}
-    if len(json.dumps(clean,ensure_ascii=False))>16000:
+    if len(json.dumps({key:value for key,value in clean.items() if key != "conversation"},ensure_ascii=False))>16000:
         raise ValueError("현재 내용이 너무 길어 부분 수정하지 못했습니다. 내용을 줄인 뒤 다시 시도해 주세요.")
     return clean
 
@@ -628,7 +654,7 @@ def validate_review(output, content):
 
 def enforce_dutchit_constraints(draft, request):
     """Reject new conflicting action instructions; never migrate or rewrite stored text."""
-    if request.get("engine") != "dutchit" or draft.get("review_only"):
+    if request.get("engine") not in PROTECTED_ENGINES or draft.get("review_only"):
         return
     if draft.get("edit"):
         texts = [change["after"] for change in draft.get("changes", []) if change["target"] in ("summary", "shot_text", "prompt")]
@@ -656,6 +682,7 @@ class PromptHelper:
         self.exe = self.home / "runtime" / "llama-server.exe"
         self.model = self.home / "Qwen3.5-2B-Q4_K_M.gguf"
         self.dutchit_model = self.home / DUTCHIT_MODEL
+        self.grok = GrokCLI(self.home)
         self.active_engine = "legacy"
         self.lock = threading.Lock()
         self.job = None
@@ -665,16 +692,18 @@ class PromptHelper:
         request = validate_request(body)
         engine = request["engine"]
         model = self.dutchit_model if engine == "dutchit" else self.model
-        if not self.exe.is_file() or not model.is_file():
+        if engine == "grok" and not self.grok.ready():
+            raise ValueError("Grok CLI 로그인이 필요합니다. PC에서 Connect-Grok.ps1을 실행해 주세요.")
+        if engine != "grok" and (not self.exe.is_file() or not model.is_file()):
             raise ValueError("도우미 모델 준비가 아직 끝나지 않았습니다.")
         minimum = 8 if engine == "dutchit" else 4
-        if available_memory() < minimum * 1024**3:
+        if engine != "grok" and available_memory() < minimum * 1024**3:
             raise ValueError(f"영상 작업에 메모리를 남기기 위해 도우미를 시작하지 않았습니다. {'DutchIT 8B는' if engine == 'dutchit' else '기존 도우미는'} RAM 여유가 {minimum}GB 이상일 때 실행할 수 있습니다.")
         with self.lock:
             if self.job and self.job["state"] in ("starting", "generating", "enriching", "reviewing"):
                 raise ValueError("도우미가 작성 중입니다. 완료하거나 취소한 뒤 다시 요청해 주세요.")
             self.cancel_event = threading.Event()
-            self.job = {"id": uuid.uuid4().hex, "state": "starting", "created": time.time(), "engine":engine, "cpu_only":True}
+            self.job = {"id": uuid.uuid4().hex, "state": "starting", "created": time.time(), "engine":engine, "cpu_only":engine != "grok", "external":engine == "grok"}
             result = dict(self.job)
             threading.Thread(target=self._run, args=(request,), daemon=True).start()
         return result
@@ -707,6 +736,8 @@ class PromptHelper:
         return args
 
     def _complete(self, base, system, content, schema, tokens, temperature):
+        if self.active_engine == "grok":
+            return self.grok.complete(system, content, schema, self.cancel_event)
         if self.active_engine == "dutchit":
             # Count the actual chat template, including Korean and fixed constraints;
             # reject excess input instead of letting llama.cpp discard its beginning.
@@ -732,49 +763,58 @@ class PromptHelper:
         final = {}
         try:
             self.active_engine = request.get("engine", "legacy")
-            with socket.socket() as sock:
-                sock.bind(("127.0.0.1", 0))
-                port = sock.getsockname()[1]
-            env = dict(os.environ, CUDA_VISIBLE_DEVICES="-1", HIP_VISIBLE_DEVICES="-1", OMP_NUM_THREADS="2")
-            process = subprocess.Popen(self.command(port, self.active_engine), cwd=self.exe.parent, env=env,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                creationflags=subprocess.CREATE_NO_WINDOW | subprocess.IDLE_PRIORITY_CLASS)
+            base = None
+            if self.active_engine != "grok":
+                with socket.socket() as sock:
+                    sock.bind(("127.0.0.1", 0))
+                    port = sock.getsockname()[1]
+                env = dict(os.environ, CUDA_VISIBLE_DEVICES="-1", HIP_VISIBLE_DEVICES="-1", OMP_NUM_THREADS="2")
+                process = subprocess.Popen(self.command(port, self.active_engine), cwd=self.exe.parent, env=env,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NO_WINDOW | subprocess.IDLE_PRIORITY_CLASS)
 
-            def monitor():
-                deadline = time.monotonic() + (900 if self.active_engine == "dutchit" else 420)
-                while not stop_monitor.wait(1):
-                    if self.cancel_event.is_set():
-                        reason.append("작성을 취소했습니다.")
-                    elif time.monotonic() > deadline:
-                        reason.append("작성·검토 시간이 길어 중지했습니다. 시나리오를 나눠 다시 시도해 주세요.")
-                    elif available_memory() < 2.5 * 1024**3:
-                        reason.append("영상 작업에 메모리를 남기기 위해 도우미를 중지했습니다.")
-                    if reason:
-                        if process.poll() is None: process.terminate()
-                        return
-            threading.Thread(target=monitor, daemon=True).start()
-            base = f"http://127.0.0.1:{port}"
-            ready = False
-            for _ in range(120):
-                if process.poll() is not None:
-                    raise RuntimeError("CPU 도우미를 실행하지 못했습니다.")
-                try:
-                    with urllib.request.urlopen(base + "/health", timeout=1) as response:
-                        ready = response.status == 200
-                except urllib.error.URLError:
-                    pass
-                if ready: break
-                time.sleep(.5)
-            if not ready: raise RuntimeError("CPU 도우미 준비 시간이 초과됐습니다.")
+                def monitor():
+                    deadline = time.monotonic() + (900 if self.active_engine == "dutchit" else 420)
+                    while not stop_monitor.wait(1):
+                        if self.cancel_event.is_set():
+                            reason.append("작성을 취소했습니다.")
+                        elif time.monotonic() > deadline:
+                            reason.append("작성·검토 시간이 길어 중지했습니다. 시나리오를 나눠 다시 시도해 주세요.")
+                        elif available_memory() < 2.5 * 1024**3:
+                            reason.append("영상 작업에 메모리를 남기기 위해 도우미를 중지했습니다.")
+                        if reason:
+                            if process.poll() is None: process.terminate()
+                            return
+                threading.Thread(target=monitor, daemon=True).start()
+                base = f"http://127.0.0.1:{port}"
+                ready = False
+                for _ in range(120):
+                    if process.poll() is not None:
+                        raise RuntimeError("CPU 도우미를 실행하지 못했습니다.")
+                    try:
+                        with urllib.request.urlopen(base + "/health", timeout=1) as response:
+                            ready = response.status == 200
+                    except urllib.error.URLError:
+                        pass
+                    if ready: break
+                    time.sleep(.5)
+                if not ready: raise RuntimeError("CPU 도우미 준비 시간이 초과됐습니다.")
             with self.lock: self.job["state"] = "generating"
             editing="existing" in request
+            if request.get("discuss"):
+                reply=self._complete(base,GROK_DISCUSS_SYSTEM,request,GROK_REPLY_SCHEMA,1900,.2)
+                if not isinstance(reply,dict) or not isinstance(reply.get("reply"),str) or not reply["reply"].strip():
+                    raise ValueError("Grok의 설명 응답을 확인하지 못했습니다.")
+                if self.cancel_event.is_set(): raise RuntimeError("작성을 취소했습니다.")
+                final={"state":"done","draft":{"discussion":True,"reply":reply["reply"][:4000],"engine":"grok","f":{}}}
+                return
             if request.get("review_only"):
                 draft={"review_only":True,"f":{}}
             else:
                 model_request=dict(request)
                 if editing and "manual_prompt" in model_request: model_request.pop("existing")
                 schema=json.loads(json.dumps(EDIT_SCHEMA if editing else SCHEMA))
-                if self.active_engine == "dutchit" and not editing:
+                if self.active_engine in PROTECTED_ENGINES and not editing:
                     # A finite grammar enum is enforced for decimal numbers too;
                     # some runtime schema converters ignore numeric min/max bounds.
                     schema["properties"]["shots"]["items"]["properties"]["time"]["enum"] = [
@@ -783,12 +823,23 @@ class PromptHelper:
                 if editing:
                     schema["properties"]["edits"]["items"]["properties"]["target"]["enum"] = ["prompt"] if "manual_prompt" in request else [*FIELDS,"shot_text","shot_time"]
                 system=(EDIT_SYSTEM if editing else SYSTEM)+(STORY_SYSTEM if "story_context" in request else "")
-                if self.active_engine == "dutchit":
+                if self.active_engine in PROTECTED_ENGINES:
                     system=DUTCHIT_SYSTEM+"\n"+system.replace("about 60-150 English words", "about 80-240 English words, scaled to the requested action without padding")
                     system=system.replace("Start the requested movement at time 0, rather than\nspending the first phase standing still.", "Respect an opening hold or delayed movement already specified in fixed fields.\nOtherwise start the requested movement at time 0.")
                     system += "\nFINAL OUTPUT RULE: The editor inserts fixed.style separately. In summary and shots describe ONLY the subject/object action. Do not repeat even matching camera instructions from fixed.style. The camera must never be the actor of an output sentence."
+                if request.get("action_mode") == "single" and not editing:
+                    schema["properties"]["shots"]["maxItems"]=1
+                    system += "\nUse exactly one action phase starting at 0. Describe its natural continuous flow without timestamps in its text."
+                if self.active_engine == "grok":
+                    schema["properties"]["reply"]={"type":"string"}
+                    schema["required"].append("reply")
+                    system += "\nAlso return reply: a concise Korean explanation of the proposed changes. Natural language input needs no timestamps. Use a single continuous phase unless the request needs distinct timing. Never claim changes were applied."
+                    if request.get("action_mode") == "single" and not editing:
+                        schema["properties"]["shots"]["maxItems"]=1
+                        system += "\nThe editor uses one action textarea. Return exactly one phase at time 0, describing the full continuous action in natural prose without adding timestamps."
                 output=self._complete(base,system,model_request,schema,1600 if editing else 1900,.1 if editing else .2 if self.active_engine == "dutchit" else .25)
                 draft=apply_edits(output,request) if editing else validate_draft(output,request["duration"])
+                if self.active_engine == "grok": draft["reply"]=str(output.get("reply",""))[:4000]
                 # 상세 보강은 분량을 늘리며 외모·소품을 지어내는 주원인이라 자동으로 하지 않는다(detail=true 일 때만)
                 if not editing and request.get("detail") and sum(len(text.split()) for _,text in draft["shots"])<180:
                     with self.lock: self.job["state"]="enriching"
@@ -812,7 +863,7 @@ class PromptHelper:
             try:
                 enforce_dutchit_constraints(draft, request)
             except ValueError:
-                if self.active_engine != "dutchit" or editing or request.get("review_only"):
+                if self.active_engine not in PROTECTED_ENGINES or editing or request.get("review_only"):
                     raise
                 # Repair an unapplied new draft once. Existing user text and edits
                 # are never rewritten by this path; a second violation is rejected.
@@ -821,6 +872,7 @@ class PromptHelper:
                 repair_request["correction_required"]="The candidate violates the host contract. Rewrite summary and action phases without ANY camera/framing instructions, cuts or nonexistent reference pictures. Describe the subject/object movement only. The unchanged fixed style is inserted elsewhere. Keep the requested action, duration, sound and music."
                 corrected=self._complete(base,system,repair_request,schema,1900,.1)
                 draft=validate_draft(corrected,request["duration"])
+                if self.active_engine == "grok": draft["reply"]=str(corrected.get("reply",""))[:4000]
                 enforce_dutchit_constraints(draft,request)
             notes=[]
             if not request.get("review_only"):
@@ -843,10 +895,10 @@ class PromptHelper:
                 draft["review"]={"status":"unavailable","summary":"동작·시간 검토를 완료하지 못했습니다. 현재 내용 검토 버튼으로 다시 요청해 주세요.","issues":unrequested_issues(notes)}
             if reason or self.cancel_event.is_set(): raise RuntimeError("검토를 중지했습니다.")
             draft["engine"] = self.active_engine
-            if self.active_engine == "dutchit": draft["policy_version"] = DUTCHIT_POLICY
+            if self.active_engine in PROTECTED_ENGINES: draft["policy_version"] = DUTCHIT_POLICY
             final = {"state":"done","draft":draft}
         except (OSError, ValueError, KeyError, IndexError, TypeError, RuntimeError) as exc:
-            message = reason[0] if reason else str(exc) if isinstance(exc, (ValueError, RuntimeError)) else "CPU 도우미가 응답하지 못했습니다. 다시 시도해 주세요."
+            message = reason[0] if reason else str(exc) if isinstance(exc, (ValueError, RuntimeError)) else "프롬프트 도우미가 응답하지 못했습니다. 다시 시도해 주세요."
             final = {"state": "cancelled" if self.cancel_event.is_set() else "error", "error": message}
         finally:
             stop_monitor.set()

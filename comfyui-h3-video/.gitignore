@@ -92,3 +92,8 @@ node_modules/
 
 # 특정 PC 주소가 들어간 현장용 방화벽 설정
 /Enable-Home-LAN.ps1
+
+# Grok CLI account tokens, sessions and npm runtime
+**/grok-account/
+**/grok-cli/
+**/.grok/

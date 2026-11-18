@@ -9,24 +9,24 @@ ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = (
     ".gitignore", "AGENTS.md", "README.md", "CHANGELOG.md", "TODO.md",
     "models.json", "versions.json", "requirements-test.txt",
-    "Start-H3-Video.ps1", "Stop-H3-Video.ps1", "Restart-H3-UI.ps1", "Complete-Models.ps1",
+    "Start-H3-Video.ps1", "Stop-H3-Video.ps1", "Restart-H3-UI.ps1", "Complete-Models.ps1", "Connect-Grok.ps1",
 )
 UI_FILES = (
     "server.py", "index.html", "start.bat", "template_api.json",
-    "cards.seed.json", "presets.seed.json", "prompt_helper.py", "local_translate.py", "translation_worker.py",
+    "cards.seed.json", "presets.seed.json", "prompt_helper.py", "grok_cli.py", "local_translate.py", "translation_worker.py",
     "story.py", "story_workflow.py", "story.html", "gallery.py", "gallery.html", "face_references.py",
 )
 THIRD_PARTY_FILES = ("third_party/dutchit/NOTICE.md", "third_party/dutchit/LICENSE.txt", "third_party/dutchit/Modelfile.ref.txt")
 DOC_FILES = (
-    "MODELS.md", "PROMPT_HELPER.md", "STORY.md", "UI.md",
+    "MODELS.md", "PROMPT_HELPER.md", "GROK_CLI.md", "STORY.md", "UI.md",
     "ARCHITECTURE.md", "TESTING.md", "SOURCE_RELEASE.md", "FACE_REFERENCES.md", "LOCAL_TRANSLATION.md",
 )
 SCRIPT_FILES = (
     "setup.ps1", "start_comfyui.bat", "get_models.py", "download-ranges.py",
-    "install_prompt_helper.py", "install_face_detector.py", "install_local_translator.py", "test_face_references.py", "prepare_ui_restart.py", "prepare_source_release.py", "restart_backend.py", "test_backend_restart.py",
+    "install_prompt_helper.py", "install_grok_cli.py", "install_face_detector.py", "install_local_translator.py", "test_face_references.py", "prepare_ui_restart.py", "prepare_source_release.py", "restart_backend.py", "test_backend_restart.py",
     "apply_queued_style.py", "add_queued_opening_pose.py", "restore_anchored_reference.py",
     "test_gallery.py", "test_apply_queued_style.py", "test_add_queued_opening_pose.py",
-    "test_prompt_helper.py", "test_local_translate.py", "test_translation_preview.cjs", "test_photo_batch_ui.cjs", "test_folder_photos.cjs", "test_opening_pose.cjs",
+    "test_prompt_helper.py", "test_grok_cli.py", "test_action_editor.cjs", "test_local_translate.py", "test_translation_preview.cjs", "test_photo_batch_ui.cjs", "test_folder_photos.cjs", "test_opening_pose.cjs",
     "test_input_thumbnail.py", "test_history_ui.cjs", "test_history_media.cjs",
     "test_history_delete.py", "test_gallery_ui.cjs", "test_gallery_thumbnails.cjs", "test_gallery_navigation.cjs", "test_gallery_regenerate.py",
     "test_gallery_progress.py", "test_settings_sequence_bulk.py",
@@ -37,7 +37,7 @@ SCRIPT_FILES = (
 PUBLIC_FILES = tuple(ROOT_FILES) + THIRD_PARTY_FILES + tuple("simple_ui/"+name for name in UI_FILES) + tuple(
     "docs/"+name for name in DOC_FILES) + tuple("scripts/"+name for name in SCRIPT_FILES)
 ALLOWED_SUFFIXES = {".md", ".py", ".cjs", ".html", ".ps1", ".bat", ".json", ".txt"}
-SECRET = re.compile(r"(?:gh[pousr]_[A-Za-z0-9_]{30,}|github_pat_[A-Za-z0-9_]{40,}|-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----)")
+SECRET = re.compile(r"(?:xai-[A-Za-z0-9_-]{24,}|gh[pousr]_[A-Za-z0-9_]{30,}|github_pat_[A-Za-z0-9_]{40,}|-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----)")
 
 
 def prepare(destination):

@@ -227,6 +227,17 @@ class FeatureTests(unittest.TestCase):
             self.assertEqual(p[self.env["ANCHOR_IMG"]]["inputs"]["image"],before[i]["images"][0])
         self.assertEqual(self.env["HIST_DB"][2]["prompt"],before[2]["prompt"])
 
+    def test_single_action_mode_follows_content_in_bulk_without_touching_other_settings(self):
+        result=self.sequence();ids=[job["id"] for job in result["jobs"]]
+        before=json.loads(json.dumps(self.env["HIST_DB"]))
+        changed=self.env["bulk_edit_queue"](self.request(edit_ids=ids,bulk_fields=["content"],prompt="Synthetic prose.",ui={"f":{"summary":"Synthetic"},"shots":[[0,"Continuous synthetic movement."]],"actionMode":"single"}))
+        self.assertEqual(len(changed["jobs"]),5)
+        for old,new in zip(before,self.env["HIST_DB"]):
+            self.assertEqual(new["ui"]["actionMode"],"single")
+            self.assertEqual(new["ui"]["shots"],[[0,"Continuous synthetic movement."]])
+            for key in ("id","images","seed","mode","anchor","model","steps","duration"):
+                self.assertEqual(old.get(key),new.get(key))
+
     def test_bulk_skips_started_or_missing_item(self):
         result=self.sequence()
         req=self.request(edit_ids=[result["jobs"][0]["id"],"missing"],bulk_fields=["model"],steps=8)

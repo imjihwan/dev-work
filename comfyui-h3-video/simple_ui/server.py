@@ -797,7 +797,7 @@ def regenerate_gallery(req):
         source_ui = source["ui"]
         for key in ("subject", "summary", "style", "keep", "sound", "music"):
             ui["f"][key] = source_ui["f"].get(key, "")
-        for key in ("shots", "trig", "oneTake"):
+        for key in ("shots", "actionMode", "trig", "oneTake"):
             if key in source_ui:
                 ui[key] = source_ui[key]
             else:
@@ -1139,7 +1139,7 @@ def bulk_edit_queue(req):
                     values["prompt"] = chosen
             for key in ("subject", "summary", "style", "keep", "sound", "music"):
                 if key in incoming.get("f", {}): form[key] = incoming["f"][key]
-            for key in ("shots", "final", "oneTake"):
+            for key in ("shots", "actionMode", "final", "oneTake"):
                 if key in incoming: ui[key] = incoming[key]
         if "model" in fields:
             for key in ("model", "steps", "sampler", "scheduler", "shift_video", "shift_audio", "loras"):
@@ -1364,6 +1364,8 @@ class H(BaseHTTPRequestHandler):
                 self.wfile.write(b)
             elif u.path == "/api/translation/status":
                 self._json({"ready": TRANSLATOR.ready(), "cpu_only": True})
+            elif u.path == "/api/prompt-helper/config":
+                self._json({"grok":{"installed":PROMPT_HELPER.grok.exe.is_file(),"signed_in":PROMPT_HELPER.grok.ready()}})
             elif u.path == "/api/prompt-helper/status":
                 self._json(PROMPT_HELPER.status(q.get("id")))
             elif u.path == "/api/story/project":
@@ -1462,7 +1464,7 @@ class H(BaseHTTPRequestHandler):
                 except TranslationBusy as error:
                     self._json({"error": str(error), "busy": True}, 409)
             elif self.path == "/api/prompt-helper/start":
-                TRANSLATOR.pause()
+                if body.get("engine") != "grok": TRANSLATOR.pause()
                 self._json(PROMPT_HELPER.start(body))
             elif self.path == "/api/prompt-helper/cancel":
                 self._json(PROMPT_HELPER.cancel(body.get("id")))
