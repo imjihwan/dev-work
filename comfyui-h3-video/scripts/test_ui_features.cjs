@@ -24,7 +24,7 @@ const context = vm.createContext({$, console, setTimeout, clearTimeout, Date, JS
   fetch:async (url,options) => {if(url==='/api/health')return {ok:true,json:async()=>({sequence_face_crop:true})};requests.push({url,body:options?.body ? JSON.parse(options.body) : null});return {ok:true,json:async()=>replyHandler ? replyHandler(url) : reply};},
   isRef:()=>true,runCount:()=>20,withFaceReferenceRules:(text,count)=>text+'|n='+count,sendMode:()=> 'REF2VA', drawGoInfo:()=>context.updateSequenceButton(),
   setStatus:()=>{},curModel:()=>null,histModelName:x=>x,finished:x=>x.state==='done',
-  poll:jobs=>{context.currentJobs=jobs;},loadHist:()=>{},closeResult:()=>{},
+  poll:jobs=>{context.currentJobs=jobs;},loadHist:()=>{},closeResult:()=>{},updatePromptFromFields:()=>{context.manualFinal=false;context.manualPromptInputs=null;},
   loadFromHist:async entry=>{context.lastLoaded=entry;return true;},apply:s=>{lastApplied=s;for (const [key,value] of Object.entries(s.f||{})) $(key).value=value;},setMode:()=>{},drawModelCard:()=>{},render:()=>{},saveImgs:()=>{},esc:x=>x
 });
 $('summary').value='safe summary';$('duration').value='5';$('aspect').value='auto';$('resolution').value='draft';
@@ -82,7 +82,8 @@ vm.runInContext(section('function storyModelSettings()', 'function selectAppTab(
   const bulk=requests.at(-1);assert.equal(bulk.url,'/api/queue/bulk-edit');assert.equal(bulk.body.images.length,0);
   assert.deepEqual(Object.keys(bulk.body.prompt_by_count),['1','2','3','4','5','6','7','8','9']);assert(bulk.body.prompt_by_count['3'].endsWith('|n=3'));
   assert.deepEqual(bulk.body.edit_ids,['a','b']);assert.deepEqual(bulk.body.bulk_fields,['content','video']);
-  assert.equal($('photoFields').disabled,false);assert.equal($('queueFeedback').hidden,false);
+  assert.equal($('photoFields').disabled,true);assert.equal($('queueFeedback').hidden,false);assert.deepEqual(Array.from(context.bulkEditingIds),['b']);
+  context.setQueueEdit(null);
   context.HIST.selected=new Set(['a','done']);context.refreshQueueSelection();
   assert.equal(context.HIST.selected.has('done'),false);assert.equal($('selectQueued').indeterminate,true);
   $('selectQueued').checked=true;$('selectQueued').onchange();assert.equal(context.HIST.selected.size,2);
@@ -100,6 +101,14 @@ vm.runInContext(section('function storyModelSettings()', 'function selectAppTab(
   await context.submitJobs();
   const allRequest=requests.at(-1);assert.equal(allRequest.url,'/api/queue/bulk-edit');assert.equal(allRequest.body.all_pending,true);
   assert.deepEqual(allRequest.body.edit_ids,[]);assert.equal(context.bulkAllEditing,false);assert($('queueFeedback').textContent.includes('1개 수정 완료'));
+  context.setQueueEdit({id:'failed-fixture'},['saved-fixture','failed-fixture'],true);
+  $('summary').value='Synthetic edit that must survive partial failure.';
+  reply={jobs:[{id:'saved-fixture',seed:1}],failed:[{id:'failed-fixture',error:'Synthetic validation failure'}],all_pending:true,target_count:2};
+  await context.submitJobs();
+  assert.equal(context.bulkAllEditing,true);assert.deepEqual(Array.from(context.bulkEditingIds),['failed-fixture']);
+  assert.equal($('summary').value,'Synthetic edit that must survive partial failure.');
+  assert.equal($('queueEdit').hidden,false);assert($('queueFeedback').textContent.includes('미적용'));
+  context.setQueueEdit(null);
   reply={ids:[],total:0,first:null};await $('bulkEditAll').onclick();assert.equal(context.bulkAllEditing,false);assert(!context.queueSubmitting);assert(!$('go').disabled);
   context.setQueueEdit({id:'snapshot',seed:123},['snapshot'],true);reply={jobs:[],failed:[],all_pending:true,target_count:0};
   await context.submitJobs();assert($('queueFeedback').textContent.includes('수정할 대기항목이 없어'));assert.equal(context.bulkAllEditing,false);

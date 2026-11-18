@@ -517,6 +517,7 @@ const base = n => String(n).split(/[\\/]/).pop();
 const images = [];          // data URLs
 let manualFinal = false, timer = null, editingJobId = null, bulkEditingIds = [], queueSubmitting = false;
 let bulkAllEditing=false;
+let manualPromptInputs=null;
 const FIELDS = ["subject","summary","style","keep","sound","music","aspect","resolution","duration","count"];
 const PARAMS = ["steps","sampler","scheduler","shift_video","shift_audio"];
 let CAT = null;             // /api/catalog 결과
@@ -730,9 +731,9 @@ function render(){
   if(typeof refreshTranslationPreview==="function")refreshTranslationPreview();
 }
 function updatePromptFromFields(){
-  manualFinal=false;$("resetFinal").hidden=true;$("finalHint").textContent="2번 내용·장면별 동작을 반영한 자동 프롬프트입니다.";render();
+  manualFinal=false;manualPromptInputs=null;$("resetFinal").hidden=true;$("finalHint").textContent="2번 내용·장면별 동작을 반영한 자동 프롬프트입니다.";render();
 }
-$("final").oninput = () => { manualFinal = true; $("resetFinal").hidden = false; $("finalHint").textContent = "직접 고친 최종 프롬프트를 사용합니다. 2번 내용·장면을 수정하면 자동 작성으로 전환됩니다. 사진 구성이 바뀌었다면 ‘현재 사진 참조 문구만 반영’을 사용할 수 있습니다."; refreshFaceReferenceAction();save(); };
+$("final").oninput = () => { manualFinal = true; rememberManualPromptInputs(); $("resetFinal").hidden = false; $("finalHint").textContent = "직접 고친 최종 프롬프트를 사용합니다. 2번 내용·장면을 수정하면 자동 작성으로 전환됩니다. 사진 구성이 바뀌었다면 ‘현재 사진 참조 문구만 반영’을 사용할 수 있습니다."; refreshFaceReferenceAction();save(); };
 $("resetFinal").onclick = updatePromptFromFields;
 $("refreshFaceRefs").onclick=()=>{
   if(!isRef())return;
@@ -1277,7 +1278,7 @@ function load(){
   const openingPoseChanged=localStorage.getItem(openingPoseKey)==="done"?null:applyOpeningPoseSaved(s);
   apply(s?.f ? s : EXAMPLE);
   if (s?.seed) $("seed").value = s.seed;
-  if (typeof s?.final === "string") { manualFinal = true; $("final").value = s.final; $("resetFinal").hidden = false; $("finalHint").textContent = "직접 고친 최종 프롬프트를 사용합니다. 2번 내용·장면을 수정하면 자동 작성으로 전환됩니다."; }
+  if (typeof s?.final === "string") { manualFinal = true; rememberManualPromptInputs(); $("final").value = s.final; $("resetFinal").hidden = false; $("finalHint").textContent = "직접 고친 최종 프롬프트를 사용합니다. 2번 내용·장면을 수정하면 자동 작성으로 전환됩니다."; }
   try { const m = JSON.parse(localStorage.getItem(KEY_M)); if (m) Object.assign(S, m, {loras: m.loras || {}}); } catch {}
   const referenceModelChanged=restoreAnchoredModel();
   if(referenceFormChanged||referenceModelChanged||openingPoseChanged===true)save();
@@ -1366,7 +1367,7 @@ $("helperApply").onclick = () => {
   else if (helperDraft.shots) apply({f:fields,shots:helperDraft.shots});
   else for (const [key,value] of Object.entries(fields)) $(key).value=value;
   manualFinal=typeof helperDraft.final==="string";
-  if (manualFinal) $("final").value=helperDraft.final;
+  if (manualFinal) {$("final").value=helperDraft.final;rememberManualPromptInputs();} else manualPromptInputs=null;
   $("resetFinal").hidden=!manualFinal;
   $("finalHint").textContent=manualFinal ? "부분 수정한 최종 프롬프트를 사용합니다. 2번 내용·장면을 수정하면 자동 작성으로 전환됩니다." : "위 칸을 고치면 자동으로 다시 만들어집니다.";
   render(); helperMessage("내용 칸에 적용했습니다. 필요하면 각 칸을 수정하세요.");
@@ -1378,6 +1379,15 @@ function captureSettings(){
     seed:$("seed").value, final:manualFinal ? $("final").value : null,
     model:JSON.parse(JSON.stringify(S)), images:[...images]};
 }
+function promptInputsFingerprint(){
+  return JSON.stringify({f:Object.fromEntries(["subject","summary","style","keep","sound","music","duration"].map(id=>[id,$(id).value])),
+    shots:[...$("shots").children].map(row=>[row.querySelector("input").value,row.querySelector("textarea").value])});
+}
+function rememberManualPromptInputs(){manualPromptInputs=promptInputsFingerprint();}
+function refreshSubmissionPrompt(){
+  if(manualFinal && typeof manualPromptInputs==="string" && manualPromptInputs!==promptInputsFingerprint())updatePromptFromFields();
+  if(!manualFinal)render();
+}
 // 저장한 설정·다른 창의 상태·수정 전 화면을 칸·설정·사진에 한 번에 되살린다
 function applySnapshot(snapshot,{withImages=true}={}){
   for (const key of Object.keys(S)) if (snapshot.model && Object.hasOwn(snapshot.model,key)) S[key] = snapshot.model[key];
@@ -1385,7 +1395,7 @@ function applySnapshot(snapshot,{withImages=true}={}){
   if (withImages) { images.length = 0; images.push(...(snapshot.images || [])); imgsReady = true; }
   $("seed").value = snapshot.seed ?? "";
   manualFinal = typeof snapshot.final === "string";
-  if (manualFinal) $("final").value = snapshot.final;
+  if (manualFinal) {$("final").value = snapshot.final;rememberManualPromptInputs();} else manualPromptInputs=null;
   $("resetFinal").hidden = !manualFinal;
   $("finalHint").textContent = manualFinal ? "저장한 최종 프롬프트를 사용합니다. 2번 내용·장면을 수정하면 자동 작성으로 전환됩니다." : "위 칸을 고치면 자동으로 다시 만들어집니다.";
   setMode(S.mode); if (CAT) drawModelCard(); render(); if (withImages) saveImgs();
@@ -1669,7 +1679,7 @@ async function submitJobs(sequence=false, priority=false){
       const health=healthResponse.ok?await healthResponse.json():null;
       if(!health?.sequence_face_crop)throw new Error('얼굴 크롭 업데이트를 적용하려면 화면 서버를 재시작해 주세요. Restart-H3-UI.ps1을 실행한 뒤 다시 등록하세요.');
     }
-    if(!manualFinal)render();
+    refreshSubmissionPrompt();
     const snapshot = captureSettings();
     const r = await fetch(bulkIds.length ? "/api/queue/bulk-edit" : priority ? "/api/generate/priority" : "/api/generate", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({
       images:bulkIds.length ? [] : images, prompt: $("final").value, aspect: $("aspect").value, resolution: $("resolution").value, edit_id: editId,
@@ -1690,14 +1700,17 @@ async function submitJobs(sequence=false, priority=false){
       const known = new Set(currentJobs.map(x => x.id));
       const updated = currentJobs.map(x => replacements.get(x.id) || x).concat(add.filter(x => !known.has(x.id)));
       add.forEach(x => HIST.selected.delete(x.id));
-      setQueueEdit(null);
+      if(bulkIds.length && j.failed?.length){
+        const retryIds=j.failed.map(item=>item.id).filter(id=>typeof id==="string");
+        setQueueEdit(null,retryIds.length?retryIds:bulkIds,allPending);
+      }else setQueueEdit(null);
       if (add.length) poll(updated, pollT0 || Date.now(), null);
     }
     else if (priority && currentJobs.some(x => !finished(x))) poll(currentJobs.filter(x => x.state === "running").concat(add, currentJobs.filter(x => x.state !== "running")), pollT0, null);
     else if (currentJobs.some(x => !finished(x))) poll(currentJobs.concat(add), pollT0, null);
     else poll(add, Date.now(), jobs.length > 1 ? info : `${info}, 시드 ${jobs[0].seed}`);
-    if (j.failed?.length) { $("queueFeedback").textContent = `${add.length}개 수정 완료, ${j.failed.length}개 미적용: ${j.failed[0].error}`; $("queueFeedback").hidden = false; }
-    else if(allPending){$("queueFeedback").textContent=add.length?`전체 대기항목 ${add.length}개 수정 완료 · 실행 중인 작업은 제외했습니다.`:"저장 시점에 수정할 대기항목이 없어 적용하지 않았습니다.";$("queueFeedback").hidden=false;}
+    if (j.failed?.length) { $("queueFeedback").textContent = `${add.length}개 수정 완료, ${j.failed.length}개 미적용: ${j.failed[0].error} · 수정 입력을 유지했습니다. 미적용 항목을 확인한 뒤 다시 저장할 수 있습니다.`; $("queueFeedback").hidden = false; }
+    else if(allPending){$("queueFeedback").textContent=add.length?`전체 대기항목 ${add.length}개 수정 완료${Number.isInteger(j.verified_count)?` · ComfyUI 반영 ${j.verified_count}개 대조 확인`:""} · 실행 중인 작업은 제외했습니다. 입력 화면은 수정 전 작성 내용으로 돌아갑니다.`:"저장 시점에 수정할 대기항목이 없어 적용하지 않았습니다.";$("queueFeedback").hidden=false;}
     else if(j.face_crops?.unavailable){$("queueFeedback").textContent=`${sequence?"순차 ":""}${add.length}건 등록 · 얼굴인식강화를 쓰지 못해 원본 사진으로 등록했습니다: ${j.face_crops.unavailable}`;$("queueFeedback").hidden=false;}
     else if(j.face_crops){$("queueFeedback").textContent=`${sequence?"순차 ":""}${add.length}건 등록 · 얼굴인식강화: 얼굴 크롭 ${j.face_crops.cropped}장, 얼굴을 못 찾아 원본 유지 ${j.face_crops.original}장. 사진 1은 원본입니다.`;$("queueFeedback").hidden=false;}
     if(priority){const extra=$("queueFeedback").hidden?"":"\n"+$("queueFeedback").textContent;$("queueFeedback").textContent=`${add.length}건을 대기열 맨 앞에 추가했습니다. 실행 중인 작업이 끝나면 먼저 시작합니다.`+extra;$("queueFeedback").hidden=false;}
@@ -2422,7 +2435,7 @@ async function loadFromHist(e){
   manualFinal = false; $("resetFinal").hidden = true; $("finalHint").textContent = "위 칸을 고치면 자동으로 다시 만들어집니다.";
   drawThumbs(); drawModelCard();
   // 화면 칸으로 다시 만든 프롬프트가 그때와 다르면(직접 고쳤던 경우 등) 그때 프롬프트를 그대로 쓴다
-  if ($("final").value !== e.prompt) { manualFinal = true; $("final").value = e.prompt; $("resetFinal").hidden = false; $("finalHint").textContent = "이력의 최종 프롬프트를 사용합니다. 2번 내용·장면을 수정하면 자동 작성으로 전환됩니다."; }
+  if ($("final").value !== e.prompt) { manualFinal = true; rememberManualPromptInputs(); $("final").value = e.prompt; $("resetFinal").hidden = false; $("finalHint").textContent = "이력의 최종 프롬프트를 사용합니다. 2번 내용·장면을 수정하면 자동 작성으로 전환됩니다."; }
   render();
   setMobileView("make");
   window.scrollTo({top: 0, behavior: "smooth"});

@@ -66,6 +66,21 @@ const directFinal=text=>{get('final').value=text;get('final').oninput();assert.e
   await context.submitJobs();
   assert.equal(requests.length,1);assert.equal(requests[0].url,'/api/generate');assert(requests[0].body.prompt.includes('Movement submitted to the backend.'));assert(!requests[0].body.prompt.includes('Stale generated preview.'));
   assert.equal(requests[0].body.prompt,get('final').value);assert.equal(context.currentJobs[0].id,'synthetic-new');
+  // A restored manual prompt must not hide changed form values if a browser/input
+  // integration changes .value without delivering a bubbling input event.
+  directFinal('Previous synthetic final prompt.');
+  first.querySelector('textarea').value='New bulk synthetic action without an input event.';
+  context.bulkEditingIds=['waiting-fixture'];context.bulkAllEditing=true;
+  get('bulkFields').querySelectorAll=()=>[{value:'content'}];
+  await context.submitJobs();
+  assert(requests.at(-1).body.prompt.includes('New bulk synthetic action without an input event.'));
+  assert(!requests.at(-1).body.prompt.includes('Previous synthetic final prompt.'));
+  assert.equal(requests.at(-1).body.all_pending,true);
+  // An explicit final edit made after the form change remains authoritative.
+  first.querySelector('textarea').value='Another synthetic form action.';directFinal('Explicit synthetic final after form editing.');
+  await context.submitJobs();assert.equal(requests.at(-1).body.prompt,'Explicit synthetic final after form editing.');
+  context.bulkEditingIds=[];context.bulkAllEditing=false;
+  first.querySelector('textarea').value='Movement submitted to the backend.';context.manualFinal=false;context.render();
   const commonStyle=JSON.parse(source.match(/^const REFERENCE_STYLE_CURRENT = (.*);$/m)[1]);
   context.REFERENCE_STYLE_CURRENT=commonStyle;
   assert(!context.build().includes('Replace the reference pelvis'),'Removed experimental pose rules must stay removed');

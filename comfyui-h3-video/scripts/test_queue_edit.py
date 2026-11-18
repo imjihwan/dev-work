@@ -12,7 +12,8 @@ import urllib.parse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TREE = ast.parse((ROOT / "simple_ui/server.py").read_text(encoding="utf-8"))
+SOURCE=Path(os.environ.get('QUEUE_EDIT_TEST_SOURCE',ROOT/'simple_ui'))
+TREE = ast.parse((SOURCE / "server.py").read_text(encoding="utf-8"))
 FUNCTION = next(n for n in TREE.body if isinstance(n, ast.FunctionDef) and n.name == "replace_queued_prompt")
 
 
@@ -26,6 +27,7 @@ class Backend:
         self.race = False
         self.reject = False
         self.history = {}
+        self.ignore_update=False
 
     def response(self, value):
         return io.BytesIO(json.dumps(value).encode())
@@ -46,7 +48,8 @@ class Backend:
             self.posts.append(body)
             if self.reject and body["prompt"] == {"updated": True}:
                 raise urllib.error.URLError("invalid replacement")
-            self.pending.append([body["number"], body["prompt_id"], body["prompt"], body.get("extra_data", {}), []])
+            graph=self.original[2] if self.ignore_update else body['prompt']
+            self.pending.append([body["number"], body["prompt_id"], graph, body.get("extra_data", {}), []])
             return self.response({"prompt_id": body["prompt_id"], "number": body["number"], "node_errors": {}})
         raise AssertionError(path)
 
@@ -73,7 +76,7 @@ class QueueEditTests(unittest.TestCase):
         self.assertEqual(updated[:3], [7, "owned", {"updated": True}])
         self.assertEqual(self.backend.deleted, ["owned"])
         self.assertTrue(any(x[1] == "other" for x in self.backend.pending))
-        self.assertFalse((Path(self.tmp.name) / "queue-edit-recovery.json").exists())
+        self.assertFalse((Path(self.tmp.name) / "queue-edit-recovery/owned.json").exists())
 
     def test_running_job_is_untouched(self):
         self.backend.running = [self.backend.original]
@@ -97,6 +100,20 @@ class QueueEditTests(unittest.TestCase):
     def test_foreign_job_is_untouched(self):
         with self.assertRaises(ValueError): self.edit("other")
         self.assertEqual(self.backend.deleted, [])
+
+    def test_success_acknowledgement_without_changed_queue_data_is_not_success(self):
+        self.backend.ignore_update=True
+        with self.assertRaisesRegex(ValueError,'대조|확인'):self.edit()
+        self.assertTrue((Path(self.tmp.name)/'queue-edit-recovery/owned.json').is_file())
+
+    def test_failed_backups_are_kept_per_identity(self):
+        self.env['HIST_DB'].append({'id':'other'});self.backend.ignore_update=True
+        for pid in ('owned','other'):
+            with self.assertRaises(ValueError):self.edit(pid)
+        self.assertEqual(len(list((Path(self.tmp.name)/'queue-edit-recovery').glob('*.json'))),2)
+
+    def test_verified_replacement_reports_native_readback(self):
+        self.assertTrue(self.edit()['prompt_verified'])
 
 
 if __name__ == "__main__":

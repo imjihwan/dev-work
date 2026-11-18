@@ -679,7 +679,9 @@ def replace_queued_prompt(pid, prompt):
         if old is None:
             raise ValueError("이미 생성이 시작됐거나 대기열에서 빠진 항목입니다. 새 작업으로 추가해 주세요.")
         original = {"number": old[0], "prompt_id": pid, "prompt": old[2], "extra_data": old[3]}
-        backup = os.path.join(HERE, "queue-edit-recovery.json")
+        recovery_dir = os.path.join(HERE, "queue-edit-recovery")
+        os.makedirs(recovery_dir, exist_ok=True)
+        backup = os.path.join(recovery_dir, urllib.parse.quote(pid, safe="") + ".json")
         _save_json(backup, original)
         headers = {"Content-Type": "application/json"}
         comfy("/queue", json.dumps({"delete": [pid]}).encode(), headers)
@@ -687,7 +689,7 @@ def replace_queued_prompt(pid, prompt):
             live = json.load(comfy("/queue"))
             started = any(item[1] == pid for item in live["queue_running"] + live["queue_pending"]) or json.load(comfy("/history/" + urllib.parse.quote(pid)))
         except (urllib.error.URLError, ValueError) as exc:
-            raise ValueError("대기열 상태 확인에 실패했습니다. queue-edit-recovery.json에 원래 작업을 보관했습니다.") from exc
+            raise ValueError("대기열 상태 확인에 실패했습니다. queue-edit-recovery 폴더에 원래 작업을 보관했습니다.") from exc
         if started:
             os.remove(backup)
             raise ValueError("수정하는 동안 생성이 시작됐습니다. 실행 중인 작업은 변경하지 않았습니다.")
@@ -698,10 +700,22 @@ def replace_queued_prompt(pid, prompt):
             try:
                 json.load(comfy("/prompt", json.dumps(original).encode(), headers))
             except (urllib.error.URLError, ValueError) as restore_error:
-                raise ValueError("수정과 원본 복원에 실패했습니다. queue-edit-recovery.json에 원래 작업을 보관했습니다.") from restore_error
+                raise ValueError("수정과 원본 복원에 실패했습니다. queue-edit-recovery 폴더에 원래 작업을 보관했습니다.") from restore_error
             os.remove(backup)
             raise ValueError("수정에 실패해 원래 대기 항목을 복원했습니다.") from exc
+        # An acknowledgement alone does not prove the queued graph changed.
+        # Inspect only this identity, including the fast-start/fast-finish races.
+        try:
+            observed = json.load(comfy("/queue"))
+            item = next((row for row in observed["queue_running"] + observed["queue_pending"] if row[1] == pid), None)
+            if item is None:
+                item = (json.load(comfy("/history/" + urllib.parse.quote(pid))).get(pid) or {}).get("prompt")
+            if result.get("prompt_id") != pid or item is None or item[2] != prompt:
+                raise ValueError("ComfyUI 대기열의 수정 결과 대조에 실패했습니다. 원본 사본을 queue-edit-recovery 폴더에 보관했습니다.")
+        except (urllib.error.URLError, OSError, KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+            raise ValueError("ComfyUI 반영 확인을 완료하지 못했습니다. 원본 사본을 queue-edit-recovery 폴더에 보관했습니다.") from exc
         os.remove(backup)
+        result["prompt_verified"] = True
         return result
 
 
@@ -1046,7 +1060,7 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
             with PLOCK:
                 PROGRESS[r["prompt_id"]] = {"classes": classes, "pct": 0.0, "label": "대기"}
             jobs.append({"id": r["prompt_id"], "seed": s, "width": job_w, "height": job_h,
-                         "model": model, "steps": steps, "anchor": anchor, "face_side": face_side_for(index if sequence else 0),
+                         "model": model, "steps": steps, "anchor": anchor, "prompt_verified": bool(edit_id and r.get("prompt_verified")), "face_side": face_side_for(index if sequence else 0),
                          "images": list(job_names), "sequence_index": index + 1 if sequence else reference["entry"].get("sequence_index") if reference else None})
     except Exception as exc:
         # 여러 편 등록 중 실패: 이미 ComfyUI 에 들어간 작업은 이력에 남겨 추적·중지·결과 연결이 되게 한다
@@ -1145,7 +1159,7 @@ def bulk_edit_queue(req):
             updated.extend(dict(job, loras=values.get("loras", [])) for job in result["jobs"])
         except (ValueError, OSError) as exc:
             failed.append({"id": pid, "error": str(exc)})
-    return {"jobs": updated, "failed": failed, "bulk_edit": True, "all_pending": all_pending, "target_count": len(set(ids))}
+    return {"jobs": updated, "failed": failed, "bulk_edit": True, "all_pending": all_pending, "target_count": len(set(ids)), "verified_count": sum(bool(job.get("prompt_verified")) for job in updated)}
 
 
 def face_detector_ready():

@@ -79,7 +79,7 @@ class FeatureTests(unittest.TestCase):
 
     def replace(self, pid, prompt):
         self.edited.append((pid,json.loads(json.dumps(prompt))))
-        return {"prompt_id":pid,"node_errors":{}}
+        return {"prompt_id":pid,"node_errors":{},"prompt_verified":True}
 
     def request(self, **changes):
         req={"images":self.photos,"prompt":"safe test prompt","mode":"REF2VA","model":"test-model.safetensors",
@@ -291,6 +291,44 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(response["target_count"],0)
         with self.assertRaises(ValueError): self.env["bulk_edit_queue"]({"all_pending":"true","bulk_fields":["model"]})
         self.assertFalse(self.sent)
+
+    def test_full_bulk_pipeline_reads_back_native_graph_and_retains_partial_failure(self):
+        self.sequence();before=json.loads(json.dumps(self.env['HIST_DB']))
+        rows=[[i,pid,json.loads(json.dumps(body['prompt'])),{},[]] for i,(pid,body) in enumerate(self.sent)]
+        running=[rows[0]];pending=rows[1:];originals={row[1]:row for row in rows};bad=rows[-1][1]
+        def native(path,data=None,headers=None):
+            nonlocal pending
+            body=json.loads(data) if data else None
+            if path=='/queue' and body is None:return self.response({'queue_running':running,'queue_pending':pending})
+            if path=='/queue':
+                pending=[row for row in pending if row[1] not in body['delete']]
+                return io.BytesIO(b'')
+            if path.startswith('/history/'):return self.response({})
+            if path=='/prompt':
+                graph=originals[bad][2] if body['prompt_id']==bad else body['prompt']
+                pending.append([body['number'],body['prompt_id'],json.loads(json.dumps(graph)),body.get('extra_data',{}),[]])
+                return self.response({'prompt_id':body['prompt_id'],'node_errors':{}})
+            raise AssertionError(path)
+        function=next(node for node in TREE.body if isinstance(node,ast.FunctionDef) and node.name=='replace_queued_prompt')
+        self.env.update(comfy=native,QUEUE_EDIT_LOCK=threading.Lock())
+        exec(compile(ast.Module(body=[function],type_ignores=[]),'native-queue-replace','exec'),self.env)
+        request=self.request(all_pending=True,bulk_fields=['content'],prompt='New synthetic final action.',
+                             ui={'f':{'summary':'New synthetic action.'},'shots':[[0,'New synthetic action.']],'final':None})
+        result=self.env['bulk_edit_queue'](request)
+        self.assertEqual(result['verified_count'],3);self.assertEqual(len(result['jobs']),3);self.assertEqual(len(result['failed']),1)
+        self.assertEqual(running[0],rows[0]);self.assertEqual(self.env['HIST_DB'][0],before[0])
+        self.assertEqual([row[1] for row in sorted(pending,key=lambda row:row[0])],[row[1] for row in rows[1:]])
+        for row in pending:
+            saved=next(entry for entry in self.env['HIST_DB'] if entry['id']==row[1])
+            if row[1]==bad:
+                self.assertEqual(saved,before[-1]);continue
+            director=row[2][self.env['DIRECTOR']]['inputs'];timeline=json.loads(director['timeline_data'])
+            self.assertEqual(director['prompt'],'New synthetic final action.')
+            self.assertEqual(timeline['resolved_prompt'],director['prompt'])
+            self.assertEqual(timeline['builder_state']['simple_prompt'],director['prompt'])
+            self.assertEqual(timeline['continuity']['continuation_prompt'],director['prompt'])
+            self.assertEqual(json.loads(director['builder_state'])['simple_prompt'],director['prompt'])
+            self.assertEqual(saved['prompt'],director['prompt']);self.assertEqual(saved['ui']['shots'],request['ui']['shots'])
 
     def test_settings_roundtrip_and_invalid_photo_rejected(self):
         data={"version":1,"f":{"summary":"safe","duration":"5"},"model":{"mode":"REF2VA","loras":{}},"images":self.photos,"seed":"123","shots":[[0,"safe"]]}

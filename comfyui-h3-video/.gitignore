@@ -50,6 +50,7 @@ node_modules/
 **/saved-settings.json
 **/ui-state.json
 **/queue-edit-recovery.json
+**/queue-edit-recovery/
 **/story_data/
 **/gallery_data/
 **/queue-style-backups/
