@@ -74,7 +74,8 @@ $ui = "$ComfyDir\simple_ui"
 New-Item -ItemType Directory -Force $ui | Out-Null
 $publicUiFiles = @(
     'server.py', 'index.html', 'start.bat', 'template_api.json',
-    'cards.seed.json', 'presets.seed.json', 'prompt_helper.py',
+    'cards.seed.json', 'presets.seed.json', 'prompt_helper.py', 'grok_cli.py',
+    'production_assistant.py', 'production_assistant.js', 'local_translate.py', 'translation_worker.py',
     'story.py', 'story_workflow.py', 'story.html', 'gallery.py', 'gallery.html', 'face_references.py'
 )
 foreach ($publicUiFile in $publicUiFiles) {

@@ -13,6 +13,8 @@
 
 CLI는 `local-prompt-helper/grok-cli/bin/grok.exe`, 전용 계정 설정은 `local-prompt-helper/grok-account`에 둔다. 사용자의 다른 Grok 설치·계정 설정을 변경하지 않는다. 모델 가중치를 설치하지 않으며 로컬 CPU 도우미의 RAM 시작 조건도 적용하지 않는다.
 
+별도의 [영상 제작 도우미](PRODUCTION_ASSISTANT.md)는 오른쪽 아래 패널에서 현재 입력·최종 문구·다른 대기 항목·웹 기능을 다룬다. 아래 내용은 기존 2번의 프롬프트 도우미 안내다.
+
 ## 일반 탭에서 대화하기
 
 1. 프롬프트 도우미에서 **Grok CLI · 계정 로그인**을 선택한다.

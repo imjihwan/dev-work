@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>4편 이어 만들기</title>
+<html lang="ko"><head><meta charset="utf-8"><script src="/production-assistant.js" defer></script><meta name="viewport" content="width=device-width,initial-scale=1"><title>4편 이어 만들기</title>
 <style>
 :root{--bg:#f6f6f4;--card:#fff;--ink:#1d1d1b;--mute:#6b6b66;--line:#e4e3de;--soft:#f1f0ec;--acc:#2f6fe4;--warn:#b5462f;--ok:#1e8a4c}
 @media(prefers-color-scheme:dark){:root{--bg:#161615;--card:#1f1f1d;--ink:#ecebe6;--mute:#a09f98;--line:#34332f;--soft:#262623;--acc:#6b9af2;--warn:#ff8b73;--ok:#4fc27e}}
@@ -220,4 +220,6 @@ async function init(){
   if(window.parent!==window)new ResizeObserver(()=>window.parent.postMessage({type:'story-resize',height:document.body.scrollHeight+24},location.origin)).observe(document.body);
 }
 init().catch(error=>say(error.message,true));
+
+window.H3ProductionBridge={context(){return {project_id:project?.id||"",mode:"story"};},fingerprint(){return JSON.stringify(readDefinition());},bindings(){return {current_story:readDefinition()};},refresh(){updateStatus();}};
 </script></body></html>

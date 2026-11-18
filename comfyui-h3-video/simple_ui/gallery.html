@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="ko">
-<head>
+<head><script src="/production-assistant.js" defer></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>결과 갤러리</title>
@@ -519,6 +519,8 @@ try{setLoras(localStorage.getItem(LORA_KEY)==="1");}catch{}
 try{const waiting=JSON.parse(localStorage.getItem(REGEN_WAIT_KEY));if(Array.isArray(waiting))ACTIVITY.waiting=new Set(waiting.filter(id=>typeof id==="string"));}catch{}
 new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)&&G.items.length<G.total)loadGallery(true,true);},{rootMargin:"400px"}).observe($("sentinel"));
 loadGallery();pollActivity();
+
+window.H3ProductionBridge={context(){return {mode:"gallery"};},refresh(){loadGallery(false,true);}};
 </script>
 </body>
 </html>

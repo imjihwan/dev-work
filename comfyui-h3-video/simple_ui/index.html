@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko">
 <head>
-<meta charset="utf-8">
+<meta charset="utf-8"><script src="/production-assistant.js" defer></script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>H3 영상 만들기</title>
 <style>
@@ -2542,6 +2542,37 @@ if (location.protocol === "file:") {
   $("status").className = "status err";
   $("status").innerHTML = `파일로 열려 있어 만들 수 없습니다. <a href="http://127.0.0.1:8190/">http://127.0.0.1:8190</a> 으로 여세요.`;
 }
+
+// Bounded bindings for the app assistant. Photo bytes stay in the browser/local API.
+function productionGenerationBinding(){
+  if(queueSubmitting||editingJobId||bulkEditingIds.length)throw new Error("기존 등록·편집을 마친 뒤 새 작업을 요청해 주세요.");
+  if(!images.length)throw new Error("사진을 먼저 선택해 주세요.");
+  refreshSubmissionPrompt();
+  const snapshot=captureSettings();
+  return {images:[...images],prompt:$("final").value,aspect:$("aspect").value,resolution:$("resolution").value,duration:$("duration").value,seed:$("seed").value,mode:sendMode(),model:S.model,steps:S.steps,sampler:S.sampler,scheduler:S.scheduler,shift_video:S.shift_video,shift_audio:S.shift_audio,loras:Object.entries(S.loras).map(([name,strength])=>({name,strength})),count:runCount(),anchor:isRef()&&!!S.anchor,face_boost:isRef()&&!!S.faceBoost&&images.length>1,ui:{f:snapshot.f,shots:snapshot.shots,actionMode:snapshot.actionMode,final:snapshot.final,trig:S.trig,oneTake:S.oneTake!==false,faceBoost:!!S.faceBoost}};
+}
+window.H3ProductionBridge={
+  beforeSnapshot(){refreshSubmissionPrompt();},
+  context(){return {photo_count:images.length,mode:sendMode(),final_mode:manualFinal?"manual":"automatic",editing_queue:!!editingJobId||bulkEditingIds.length>0};},
+  fingerprint(){const snapshot=captureSettings();delete snapshot.images;return JSON.stringify(snapshot);},
+  imageRefs(){return [...images];},
+  bindings(){
+    const value={current_settings:captureSettings(),current_prompt:$("final").value};
+    Object.defineProperty(value,"current_generation",{enumerable:true,get:productionGenerationBinding});
+    return value;
+  },
+  afterApi(path,result){
+    if(path==="/api/cancel"){const ids=new Set(result?.cancelled_ids||[]);currentJobs.forEach(job=>{if(ids.has(job.id))Object.assign(job,{state:"error",error:"제작 도우미에서 취소됨"});});}
+    if((path==="/api/generate"||path==="/api/generate/priority")&&result){
+      const add=(result.jobs||[{id:result.id,seed:result.seed}]).filter(job=>job.id).map(job=>({...job,state:"queued",pct:0,info:"제작 도우미에서 추가"}));
+      const known=new Set(currentJobs.map(job=>job.id));const fresh=add.filter(job=>!known.has(job.id));
+      const jobs=path.endsWith("priority")?currentJobs.filter(job=>job.state==="running").concat(fresh,currentJobs.filter(job=>job.state!=="running")):currentJobs.concat(fresh);
+      if(fresh.length)poll(jobs,Date.now(),null);
+    }
+    if(path==="/api/queue/restart"&&result?.id){const old=currentJobs.find(job=>job.id===result.replaces)||{};const jobs=currentJobs.filter(job=>job.id!==result.replaces&&job.id!==result.id);jobs.unshift({...old,id:result.id,seed:result.seed,state:"queued",pct:0,error:null,video:null});poll(jobs,Date.now(),null);}
+  },
+  refresh(){loadHist(false,true);}
+};
 </script>
 </body>
 </html>

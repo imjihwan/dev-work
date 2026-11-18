@@ -90,6 +90,12 @@ class QueueEditTests(unittest.TestCase):
         self.assertEqual(self.backend.posts, [])
         self.assertEqual(self.backend.running[0][2], {"original": True})
 
+    def test_production_compare_and_swap_rejects_stale_graph_before_deleting(self):
+        with self.assertRaisesRegex(ValueError,"수정됐습니다"):
+            self.env["replace_queued_prompt"]("owned", {"new":True}, expected_graph={"stale":True})
+        self.assertEqual(self.backend.deleted,[])
+        self.assertEqual(self.backend.posts,[])
+
     def test_invalid_replacement_restores_original(self):
         self.backend.reject = True
         with self.assertRaisesRegex(ValueError, "복원"):

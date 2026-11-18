@@ -14,6 +14,7 @@ from functools import lru_cache
 
 from PIL import Image, ImageOps
 from prompt_helper import PromptHelper
+from production_assistant import ProductionAssistant, READS as PRODUCTION_READS, WRITES as PRODUCTION_WRITES
 from local_translate import LocalTranslator, TranslationBusy
 from story import StoryProjects
 from gallery import VideoGallery
@@ -667,7 +668,7 @@ def catalog():
 # =====================================================================
 # 생성
 # =====================================================================
-def replace_queued_prompt(pid, prompt):
+def replace_queued_prompt(pid, prompt, expected_graph=None):
     with QUEUE_EDIT_LOCK:
         with HLOCK:
             if not any(e["id"] == pid for e in HIST_DB):
@@ -678,6 +679,8 @@ def replace_queued_prompt(pid, prompt):
         old = next((item for item in queue_state["queue_pending"] if item[1] == pid), None)
         if old is None:
             raise ValueError("이미 생성이 시작됐거나 대기열에서 빠진 항목입니다. 새 작업으로 추가해 주세요.")
+        if expected_graph is not None and old[2] != expected_graph:
+            raise ValueError("조회 후 대기 작업이 수정됐습니다. 다시 조회해 주세요.")
         original = {"number": old[0], "prompt_id": pid, "prompt": old[2], "extra_data": old[3]}
         recovery_dir = os.path.join(HERE, "queue-edit-recovery")
         os.makedirs(recovery_dir, exist_ok=True)
@@ -1307,6 +1310,120 @@ STORIES=StoryProjects(os.path.join(HERE,"story_data"),OUTPUT,
     comfy,upload,_status,track_story_job,client_id=CLIENT_ID)
 
 
+def production_queue_snapshot():
+    # Only queue order/identity/state/progress leave this function; graphs stay local.
+    raw=json.load(comfy("/queue"))
+    with HLOCK: owned={entry["id"] for entry in HIST_DB}
+    rows=[]
+    for key,state in (("queue_running","running"),("queue_pending","queued")):
+        for position,item in enumerate(sorted(raw.get(key,[]),key=lambda row:row[0]),1):
+            if item[1] not in owned:continue
+            with PLOCK: pct=PROGRESS.get(item[1],{}).get("pct",0)
+            rows.append({"id":item[1],"state":state,"position":position,"pct":pct})
+    return {"items":rows,"running_count":sum(row["state"]=="running" for row in rows),"pending_count":sum(row["state"]=="queued" for row in rows),"other_count":len(raw.get("queue_running",[]))+len(raw.get("queue_pending",[]))-len(rows)}
+
+
+def production_queue_item(args,snapshot):
+    rows=[row for row in snapshot["items"] if row["state"]=="queued"]
+    target=next((row for row in rows if row["id"]==args.get("id") or type(args.get("position")) is int and row["position"]==args["position"]),None)
+    if not target:raise ValueError("지정한 대기 항목을 찾지 못했습니다.")
+    raw=json.load(comfy("/queue"))
+    native=next((item for item in raw.get("queue_pending",[]) if item[1]==target["id"]),None)
+    if native is None:raise ValueError("대기 상태가 바뀌었습니다. 다시 조회해 주세요.")
+    with HLOCK:
+        entry=next((item for item in HIST_DB if item["id"]==target["id"]),None)
+        if not entry:raise ValueError("이 화면의 대기 항목만 조회할 수 있습니다.")
+        result={key:entry[key] for key in ("id","mode","duration","model","steps","sampler","scheduler","shift_video","shift_audio","loras","seed","anchor","width","height") if key in entry}
+        ui=entry.get("ui") or {}
+        result["ui"]={key:ui[key] for key in ("f","shots","final","actionMode","oneTake","trig","faceBoost") if key in ui}
+    # Actual queued text, not a possibly stale editor/history string.
+    result["prompt"]=native[2][DIRECTOR]["inputs"]["prompt"]
+    result["prompt_hash"]=hashlib.sha256(result["prompt"].encode()).hexdigest()
+    return result
+
+
+def production_read_api(path,args):
+    if path not in PRODUCTION_READS or not path.startswith("/api/"):raise ValueError("허용되지 않은 앱 조회입니다.")
+    if any(not isinstance(key,str) or not isinstance(value,(str,int,float,bool)) for key,value in args.items()):raise ValueError("조회 인수를 확인해 주세요.")
+    args=dict(args)
+    if path in ("/api/history","/api/gallery"):args["limit"]=min(20,max(1,int(args.get("limit",10))))
+    url="http://127.0.0.1:"+str(PORT)+path+("?"+urllib.parse.urlencode(args) if args else "")
+    with urllib.request.urlopen(url,timeout=20) as response:
+        if "application/json" not in response.headers.get("Content-Type",""):raise ValueError("텍스트 정보만 조회할 수 있습니다.")
+        data=response.read(8*1024*1024+1)
+        if len(data)>8*1024*1024:raise ValueError("조회 범위를 줄여 주세요.")
+        return json.loads(data)
+
+
+def production_validate_write(action,snapshot):
+    if action["path"] not in PRODUCTION_WRITES:raise ValueError("허용되지 않은 앱 실행입니다.")
+    args=json.loads(action["args"])
+    if not isinstance(args,dict):return  # A local binding is checked once materialized.
+    path=action["path"]
+    if path not in ("/api/cancel","/api/queue/restart","/api/history/delete","/api/queue/bulk-edit","/api/production-assistant/patch-queue"):return
+    previous={row["id"]:row["state"] for row in snapshot["items"]}
+    current={row["id"]:row["state"] for row in production_queue_snapshot()["items"]}
+    ids=args.get("ids") or args.get("edit_ids") or ([args["id"]] if args.get("id") else [])
+    if not isinstance(ids,list) or any(not isinstance(pid,str) for pid in ids):raise ValueError("대상을 확인해 주세요.")
+    if args.get("all") and previous!=current:raise ValueError("대기열이 바뀌었습니다. 전체 삭제 대상을 다시 확인해 주세요.")
+    for pid in ids:
+        if pid in previous and previous[pid]!=current.get(pid):raise ValueError("대상의 실행 상태가 바뀌었습니다. 다시 조회해 주세요.")
+        if path in ("/api/cancel","/api/queue/restart","/api/production-assistant/patch-queue") and pid not in previous:raise ValueError("조회한 작업만 제어할 수 있습니다.")
+
+
+def production_write_api(path,args,snapshot):
+    if path not in PRODUCTION_WRITES:raise ValueError("허용되지 않은 앱 실행입니다.")
+    if path=="/api/production-assistant/patch-queue":
+        from production_assistant import replacement
+        pid=args.get("id");edits=args.get("edits")
+        if not isinstance(edits,list) or not 1<=len(edits)<=12 or not snapshot.get("prompt_hashes",{}).get(pid):raise ValueError("수정 전 해당 대기 항목을 먼저 조회해 주세요.")
+        raw=json.load(comfy("/queue"));row=next((item for item in raw.get("queue_pending",[]) if item[1]==pid),None)
+        if row is None:raise ValueError("대기 상태가 바뀌었습니다. 실행 중인 작업은 수정하지 않았습니다.")
+        original=row[2][DIRECTOR]["inputs"]["prompt"]
+        if hashlib.sha256(original.encode()).hexdigest()!=snapshot["prompt_hashes"][pid]:raise ValueError("조회 후 문구가 바뀌었습니다. 다시 조회해 주세요.")
+        updated=original
+        for edit in edits:
+            if not isinstance(edit,dict):raise ValueError("교체할 문구를 확인해 주세요.")
+            updated=replacement(updated,edit.get("before"),edit.get("after"))
+        graph=json.loads(json.dumps(row[2]));graph[DIRECTOR]["inputs"]["prompt"]=updated
+        result=replace_queued_prompt(pid,graph,expected_graph=row[2])
+        with HLOCK:
+            for entry in HIST_DB:
+                if entry["id"]==pid:
+                    entry["prompt"]=updated;entry.setdefault("ui",{})["final"]=updated;entry["edited_at"]=time.time();break
+            _save_json(HIST,HIST_DB)
+        return {"ok":True,"id":pid,"prompt_verified":bool(result.get("prompt_verified"))}
+    if path=="/api/cancel":
+        # A pending job starting during the race must never be interrupted.
+        ids=args.get("ids") or ([args["id"]] if args.get("id") else [])
+        if not ids:raise ValueError("중지할 대상을 지정해 주세요.")
+        original={row["id"]:row["state"] for row in snapshot["items"]}
+        with QUEUE_EDIT_LOCK:
+            production_validate_write({"path":path,"args":json.dumps(args)},snapshot)
+            headers={"Content-Type":"application/json"}
+            comfy("/queue",json.dumps({"delete":ids}).encode(),headers)
+            for pid in ids:
+                if original.get(pid)=="running":comfy("/interrupt",json.dumps({"prompt_id":pid}).encode(),headers)
+        after=json.load(comfy("/queue"));active={item[1] for item in after.get("queue_running",[])+after.get("queue_pending",[])}
+        cancelled=[]
+        for pid in ids:
+            if original.get(pid)!="queued" or pid in active:continue
+            observed=_status(pid,after)
+            if observed["state"]=="unknown":cancelled.append(pid)
+            elif observed["state"] in ("done","error"):hist_result(pid,observed)
+        if cancelled:
+            with HLOCK:
+                for entry in HIST_DB:
+                    if entry["id"] in cancelled:entry.update(state="error",error="제작 도우미에서 취소됨",t_end=time.time())
+                _save_json(HIST,HIST_DB)
+        return {"ok":True,"requested":len(ids),"cancelled_ids":cancelled,"stop_requested_ids":[pid for pid in ids if original.get(pid)=="running"],"skipped_started_ids":[pid for pid in ids if original.get(pid)=="queued" and pid in active]}
+    request=urllib.request.Request("http://127.0.0.1:"+str(PORT)+path,json.dumps(args,ensure_ascii=False).encode(),{"Content-Type":"application/json"},method="POST")
+    with urllib.request.urlopen(request,timeout=120) as response:return json.load(response)
+
+
+PRODUCTION_ASSISTANT=ProductionAssistant(PROMPT_HELPER,production_read_api,production_queue_snapshot,production_queue_item,production_validate_write,production_write_api)
+
+
 class H(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -1331,11 +1448,16 @@ class H(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(b)))
                 self.end_headers()
                 self.wfile.write(b)
+            elif u.path == "/production-assistant.js":
+                with open(os.path.join(HERE,"production_assistant.js"),"rb") as script:b=script.read()
+                self.send_response(200);self.send_header("Content-Type","text/javascript; charset=utf-8");self.send_header("Cache-Control","no-store");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
+            elif u.path == "/api/production-assistant/status":
+                self._json(PROMPT_HELPER.status(q.get("id")))
             elif u.path == "/api/health":
                 # sequence_face_crop = 이 서버가 얼굴 크롭을 아는 버전인지(화면의 버전 확인용),
                 # face_detector_ready = 지금 실제로 크롭할 수 있는지(모델·OpenCV 준비 여부)
                 self._json({"ok": True, "sequence_face_crop": True, "face_detector_ready": face_detector_ready(),
-                            "backend_restart_guard": True, "backend_restarting": bool(backend_restart_hold())})
+                            "production_assistant":True,"backend_restart_guard": True, "backend_restarting": bool(backend_restart_hold())})
             elif u.path == "/api/status":
                 self._json(status(q["id"]))
             elif u.path == "/api/history":
@@ -1458,6 +1580,14 @@ class H(BaseHTTPRequestHandler):
                 self._json(build_and_queue(body))
             elif self.path == "/api/generate/priority":
                 self._json(build_and_queue(body, queue_first=True))
+            elif self.path == "/api/production-assistant/start":
+                self._json(PRODUCTION_ASSISTANT.start(body))
+            elif self.path == "/api/production-assistant/claim":
+                self._json(PRODUCTION_ASSISTANT.claim(body))
+            elif self.path == "/api/production-assistant/finish":
+                self._json(PRODUCTION_ASSISTANT.finish(body))
+            elif self.path == "/api/production-assistant/execute":
+                self._json(PRODUCTION_ASSISTANT.execute_api(body))
             elif self.path == "/api/translate":
                 try:
                     self._json(TRANSLATOR.translate(body.get("text"), body.get("engine", "quality")))
@@ -1559,7 +1689,7 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, fmt, *a):
         line = a[0] if a else ""
         # 자주 부르는 조회만 숨긴다(이력 삭제 같은 POST 는 남김)
-        if not (line.startswith("GET ") and any(s in line for s in ("/api/status", "/api/fetch-state", "/api/history", "/api/input", "/api/video", "/api/gallery", "/api/queue/bulk-context", "/api/ui-state"))):
+        if not (line.startswith("GET ") and any(s in line for s in ("/api/production-assistant/status", "/api/status", "/api/fetch-state", "/api/history", "/api/input", "/api/video", "/api/gallery", "/api/queue/bulk-context", "/api/ui-state"))):
             print("%s %s" % (self.command, self.path), flush=True)
 
 

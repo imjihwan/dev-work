@@ -59,3 +59,5 @@
 개인 작업 내용 확인 없이 검증할 수 있도록 테스트는 임시 디렉터리·합성 입력·가짜 HTTP/대기열·가짜 DOM을 사용한다.
 
 Grok CLI는 일반 탭의 설명 대화와 미적용 초안 이어 수정을 지원한다. 전용 계정 폴더·빈 임시 작업 폴더·파일/웹/셸 도구 제거를 사용하고 허용된 텍스트만 전달한다. 단일 동작 입력은 기존 `ui.shots=[[0,text]]`와 `ui.actionMode="single"`로 표현하여 워크플로 노드를 변경하지 않는다. 상세 설계는 [GROK_CLI.md](GROK_CLI.md).
+
+`production_assistant.py`는 공유 Grok 작업 잠금, 앱 API 조회, 컨트롤 참조·정확한 원문 검증, 변경안과 단계별 실행 기록을 관리한다. `production_assistant.js`는 일반·갤러리·이어 만들기 페이지를 같은 출처에서 조작하며 현재 사진의 로컬 바인딩을 제공한다. CLI 도구를 추가하지 않고 앱 API/DOM만 연결한다. `replace_queued_prompt(expected_graph=...)`는 전용 대기 문구 교체의 비교 후 적용 검사를 지원한다. [제작 도우미 설계](PRODUCTION_ASSISTANT.md).
