@@ -25,14 +25,47 @@ function app(options={}){
   const button=new Node('button',doc);button.id='go';button.textContent='대기열 추가';doc.appControls.push(button);doc.nodes.set(button.id,button);
   field('password','password','PRIVATE_SECRET');field('photos','file','PRIVATE_FILE_PATH');
   const requests=[],delays=[],progressText=[],storage=options.storage||new Map();let handler=(url,body)=>url.endsWith('/start')?{id:'fake-job'}:url.includes('/status')?{state:'done',production:{plan_id:'fake-plan',reply:'합성 답변',intent:'execute',reads:[],actions:[],auto_eligible:true}}:{ok:true};
-  const win={document:doc,innerWidth:options.width||900,matchMedia:()=>({matches:!!options.coarse}),location:{origin:'http://fake.invalid',href:'http://fake.invalid/'},localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>{if(options.storageFail)throw Error("Storage unavailable");storage.set(key,value);},removeItem:key=>storage.delete(key)},setTimeout:(fn,delay)=>{delays.push(delay);progressText.push(doc.getElementById("h3ProductionThinkingText")?.textContent);fn();return 0;},Event:class{constructor(type){this.type=type;}},fetch:async(url,options)=>{const body=options?.body?JSON.parse(options.body):null;requests.push({url,body});return {ok:true,json:async()=>handler(url,body)};}};win.top=win.self=win;doc.defaultView=win;
+  const shared=options.shared,origin=options.origin||'http://fake.invalid';
+  const win={document:doc,innerWidth:options.width||900,matchMedia:()=>({matches:!!options.coarse}),location:{origin,href:origin+'/'},localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>{if(options.storageFail)throw Error("Storage unavailable");storage.set(key,value);},removeItem:key=>storage.delete(key)},setTimeout:(fn,delay)=>{delays.push(delay);progressText.push(doc.getElementById("h3ProductionThinkingText")?.textContent);fn();return 0;},Event:class{constructor(type){this.type=type;}},fetch:async(url,options)=>{url=url.split('?revision=')[0];const body=options?.body?JSON.parse(options.body):null;if(url==='/api/production-assistant/conversation')return shared?shared.fetch(url,body,handler):{ok:false,status:404,json:async()=>({error:'Legacy synthetic server'})};requests.push({url,body});return shared?shared.fetch(url,body,handler):{ok:true,json:async()=>handler(url,body)};}};win.top=win.self=win;doc.defaultView=win;
   let generationReads=0;
   win.H3ProductionBridge={fingerprint:()=>JSON.stringify({duration:duration.value,final:final.value}),imageRefs:()=>['PRIVATE_PHOTO_BYTES'],bindings:()=>{const value={current_settings:{f:{duration:duration.value},images:['PRIVATE_PHOTO_BYTES']},current_prompt:final.value};Object.defineProperty(value,'current_generation',{enumerable:true,get:()=>{generationReads++;throw Error('Unused photo generation binding must not be read');}});return value;},refresh(){}};
   const edit={kind:'set',target:'main:1',before:'7',value:'5',path:'',args:'{}',label:'길이를 5초로 수정'};
-  P.mount(win);
+  const mounted=P.mount(win);
   const $=id=>doc.getElementById(id);
   function respond(actions,extra={}){const states=[...(extra.pendingStates||[])];handler=(url,body)=>url.endsWith('/start')?{id:'fake-job'}:url.includes('/status')?(states.length?states.shift():{state:'done',production:{plan_id:'fake-plan',reply:'합성 답변 <img src=x onerror=alert(1)>',intent:'execute',reads:[],actions,auto_eligible:true,...extra}}):url.endsWith('/claim')?{action:actions[body.index]}:{ok:true};}
-  return {win,doc,$,duration,final,button,requests,storage,edit,respond,delays,progressText,getGenerationReads:()=>generationReads};
+  return {win,doc,$,duration,final,button,requests,storage,edit,respond,delays,progressText,mounted,getGenerationReads:()=>generationReads};
+}
+class SharedServer{
+  constructor(){this.data={revision:0,session_id:'synthetic-session',messages:[],active:null};this.next=0;this.blocked=false;}
+  reply(value,ok=true){return {ok,status:ok?200:409,json:async()=>structuredClone(value)};}
+  fetch(url,body,handler){
+    if(this.blocked)return this.reply({error:'Synthetic network unavailable'},false);
+    if(url==='/api/production-assistant/conversation'){
+      if(!body)return this.reply(this.data);
+      if(body.revision!==this.data.revision)return this.reply({error:'다른 기기에서 대화가 갱신됐습니다.'},false);
+      if(body.operation==='import'){
+        if(this.data.revision||this.data.messages.length)return this.reply({error:'Already imported'},false);
+        this.data.messages=body.messages.map(row=>({...row,id:'import-'+(++this.next)}));this.data.revision++;return this.reply(this.data);
+      }
+      if(body.operation==='clear'){
+        if(this.data.active)return this.reply({error:'Busy'},false);
+        this.data.messages=[];this.data.session_id+='-new';this.data.revision++;return this.reply(this.data);
+      }
+    }
+    const value=handler(url,body);
+    if(url.endsWith('/start')){
+      if(body.chat_revision!==this.data.revision||this.data.active)return this.reply({error:'Conversation changed'},false);
+      this.data.messages.push({id:'user-'+(++this.next),role:'user',text:body.message});this.data.active={id:value.id,phase:'model',round:1};this.data.revision++;
+      return this.reply({...value,chat_revision:this.data.revision,chat_user_id:this.data.messages.at(-1).id});
+    }
+    if(url.includes('/status')&&value.state==='done'&&this.data.active){
+      const row={id:'assistant-'+(++this.next),role:'assistant',text:value.production.reply};
+      if(value.production.actions.length)row.plan={state:'확인 대기',steps:value.production.actions.map(action=>({label:action.label,changes:action.kind==='set'?[{before:action.before,after:action.value}]:[]}))};
+      this.data.messages.push(row);this.data.active=null;this.data.revision++;
+      return this.reply({...value,chat_revision:this.data.revision,chat_message_id:row.id});
+    }
+    return this.reply(value);
+  }
 }
 (async()=>{
   assert.equal(P.replaceOne('  Before.\nKeep this.  ','Before','After'),'  After.\nKeep this.  ');
@@ -65,7 +98,7 @@ function app(options={}){
   const executed=a.requests.find(item=>item.url.endsWith('/execute'));assert.equal(executed.body.args.data.images[0],'PRIVATE_PHOTO_BYTES','Media remains local to the existing save API');assert.equal(a.getGenerationReads(),0,'Unused generation binding stays lazy');
   assert(!JSON.stringify(a.requests.find(item=>item.url.endsWith('/start')).body).includes('PRIVATE_PHOTO_BYTES'));
   a=app();a.respond([a.edit]);a.$('h3ProductionInput').value='길이를 바꿔줘';await a.$('h3ProductionSend').click();a.respond([],{intent:'explain'});a.$('h3ProductionInput').value='이 수정안을 더 보완해줘';await a.$('h3ProductionSend').click();assert(a.requests.filter(item=>item.url.endsWith('/start')).at(-1).body.proposal.actions.length===1,'Follow-up carries the latest unapplied proposal');
-  a.$('h3ProductionNew').click();assert.equal(a.duration.value,'7');assert(a.$('h3ProductionPlan').hidden);
+  await a.$('h3ProductionNew').click();assert.equal(a.duration.value,'7');assert(a.$('h3ProductionPlan').hidden);
   a=app();a.respond([{...a.edit,kind:'click',target:'main:3',before:'',value:'',label:'대기열 추가'}]);a.$('h3ProductionInput').value='대기열에 추가해줘';await a.$('h3ProductionSend').click();await a.$('h3ProductionExecute').click();assert.equal(a.button.clicks,1);
   a=app({width:1440});assert(!a.$('h3ProductionPanel').hidden,'Desktop opens as an embedded chat sidebar');assert(a.doc.body.classList.contains('h3pa-open'));
   a.$('h3ProductionClose').click();assert(a.$('h3ProductionPanel').hidden);assert(!a.doc.body.classList.contains('h3pa-open'));assert(!a.$('h3ProductionToggle').hidden);
@@ -92,12 +125,22 @@ function app(options={}){
   const restored=app({storage:a.storage});assert.equal(restored.requests.length,0,'Restoring chat makes no API calls');assert.equal(restored.$('h3ProductionInput').value,savedChat.draft);assert(restored.$('h3ProductionLog').textContent.includes('합성 길이 요청'));assert(restored.$('h3ProductionLog').textContent.includes('기존: 7'));assert(restored.$('h3ProductionLog').textContent.includes('읽기 전용'));assert(restored.$('h3ProductionExecute').hidden);assert(!restored.$('h3ProductionLog').innerHTML.includes('<img'));
   await restored.$('h3ProductionExecute').click();assert.equal(restored.requests.length,0,'Restored proposals cannot replay even by invoking their handler');
   restored.respond([],{intent:'explain'});restored.$('h3ProductionInput').value='이어서 설명해줘';await restored.$('h3ProductionSend').click();const resumed=restored.requests.find(item=>item.url.endsWith('/start')).body;assert(resumed.conversation.some(item=>item.text==='합성 길이 요청'));assert(resumed.conversation.some(item=>item.text.includes('길이를 5초로 수정')));assert(!resumed.proposal,'Only a fresh plan can become executable');
-  restored.$('h3ProductionNew').click();assert(!restored.storage.has(chatKey),'New chat removes persisted conversation and draft');assert.equal(restored.$('h3ProductionInput').value,'');assert.equal(restored.duration.value,'7');const empty=app({storage:restored.storage});assert(empty.$('h3ProductionWelcome').hidden===false);assert.equal(empty.requests.length,0);
+  await restored.$('h3ProductionNew').click();assert(!restored.storage.has(chatKey),'New chat removes persisted conversation and draft');assert.equal(restored.$('h3ProductionInput').value,'');assert.equal(restored.duration.value,'7');const empty=app({storage:restored.storage});assert(empty.$('h3ProductionWelcome').hidden===false);assert.equal(empty.requests.length,0);
   a=app();a.respond([a.edit]);a.$('h3ProductionInput').value='합성 변경';await a.$('h3ProductionSend').click();await a.$('h3ProductionExecute').click();const receipt=app({storage:a.storage});assert(receipt.$('h3ProductionLog').textContent.includes('앱에 전달됨'));await receipt.$('h3ProductionExecute').click();assert.equal(receipt.requests.length,0);
   const interrupted=new Map([[chatKey,JSON.stringify({version:1,messages:[{role:'user',text:'합성 요청'},{role:'assistant',text:'합성 제안',plan:{state:'실행 중',steps:[{label:'합성 변경',changes:[]}]}}],draft:'',inFlight:true})],['h3simple.productionAssistant.auto.v1','true']]);a=app({storage:interrupted});assert(a.$('h3ProductionLog').textContent.includes('상태 확인'));assert(a.$('h3ProductionStatus').textContent.includes('자동 재실행하지'));assert.equal(a.requests.length,0,'An interrupted request must not auto-resume execution');
   a=app({storage:new Map([[chatKey,'{broken']])});assert(a.$('h3ProductionStatus').textContent.includes('복원하지 못'));a.respond([]);a.$('h3ProductionInput').value='새 합성 요청';await a.$('h3ProductionSend').click();assert.equal(JSON.parse(a.storage.get(chatKey)).version,1,'New messages recover from corrupt saved data');
   a=app({storageFail:true});a.respond([]);a.$('h3ProductionInput').value='합성 질문';await a.$('h3ProductionSend').click();assert(a.$('h3ProductionLog').textContent.includes('합성 답변'));assert(a.$('h3ProductionStorage').textContent.includes('저장하지 못'),'Unavailable storage must not block chat or silently claim persistence');
   const longHistory=Array.from({length:120},(_,index)=>({role:index%2?'assistant':'user',text:'합성 '+index}));a=app({storage:new Map([[chatKey,JSON.stringify({version:1,messages:longHistory,draft:''})]])});assert.equal(a.$('h3ProductionLog').children.filter(node=>node.getAttribute('data-role')).length,100);a.respond([]);a.$('h3ProductionInput').value='후속 합성 질문';await a.$('h3ProductionSend').click();assert.equal(a.requests.find(item=>item.url.endsWith('/start')).body.conversation.length,12,'Restored context stays within backend conversation limits');assert(JSON.parse(a.storage.get(chatKey)).messages.length<=100);
   assert(P.CHAT_STYLES.includes('min-width:1280px')&&P.CHAT_STYLES.includes('max-width:1279px')&&P.CHAT_STYLES.includes('min-height:0'),'Sidebar and full mobile chat have independent bounded scroll areas');
-  console.log('Production assistant UI passed: full final prompt, review/auto modes, stale-source protection, literal replies, local-only bindings, follow-ups and non-replayed actions.');
+  const server=new SharedServer();let desktop=app({shared:server,width:1440,origin:'http://192.0.2.10:8190'}),phone=app({shared:server,width:390,coarse:true,origin:'http://tailscale.example:8190'});await Promise.all([desktop.mounted.ready,phone.mounted.ready]);
+  desktop.respond([desktop.edit]);desktop.$('h3ProductionInput').value='PC 합성 질문';await desktop.$('h3ProductionSend').click();assert(!desktop.$('h3ProductionExecute').hidden,'The originating page retains its reviewed execution button');
+  phone.$('h3ProductionInput').value='휴대폰 미전송 초안';phone.$('h3ProductionInput').dispatchEvent({type:'input'});await phone.mounted.sync();assert(phone.$('h3ProductionLog').textContent.includes('PC 합성 질문'));assert(phone.$('h3ProductionLog').textContent.includes('기존: 7'));assert(phone.$('h3ProductionExecute').hidden,'Other devices restore proposals read-only');assert.equal(phone.$('h3ProductionInput').value,'휴대폰 미전송 초안');
+  phone.respond([],{intent:'explain'});phone.$('h3ProductionInput').value='휴대폰 후속 질문';await phone.$('h3ProductionSend').click();assert(phone.requests.find(item=>item.url.endsWith('/start')).body.conversation.some(row=>row.text==='PC 합성 질문'));
+  await desktop.$('h3ProductionExecute').click();assert(!desktop.requests.some(item=>item.url.endsWith('/claim')),'A new turn from another device invalidates the old executable card');assert.equal(desktop.duration.value,'7');assert(desktop.$('h3ProductionLog').textContent.includes('휴대폰 후속 질문'));
+  desktop.$('h3ProductionInput').value='PC 별도 초안';desktop.$('h3ProductionInput').dispatchEvent({type:'input'});await phone.$('h3ProductionNew').click();await desktop.mounted.sync();assert(!desktop.$('h3ProductionLog').textContent.includes('PC 합성 질문'));assert.equal(desktop.$('h3ProductionInput').value,'PC 별도 초안','Remote reset keeps this device draft');
+  const renewed=app({shared:server,storage:desktop.storage});await renewed.mounted.ready;assert.equal(renewed.$('h3ProductionInput').value,'PC 별도 초안');assert(!renewed.$('h3ProductionLog').textContent.includes('PC 합성 질문'),'A cleared server chat cannot be resurrected by old browser history');
+  const importedServer=new SharedServer(),oldStorage=new Map([[chatKey,JSON.stringify({version:1,messages:[{role:'user',text:'기존 합성 대화'}],draft:'기존 초안'})]]);const migrated=app({shared:importedServer,storage:oldStorage});await migrated.mounted.ready;const other=app({shared:importedServer});await other.mounted.ready;assert(other.$('h3ProductionLog').textContent.includes('기존 합성 대화'));assert.equal(migrated.$('h3ProductionInput').value,'기존 초안');
+  server.data.active={id:'another-device',phase:'model',round:1};server.data.revision++;await desktop.mounted.sync();assert(desktop.$('h3ProductionSend').disabled);assert(!desktop.$('h3ProductionThinking').hidden);server.data.messages.push({id:'background',role:'assistant',text:'다른 기기에서 완료한 합성 응답'});server.data.active=null;server.data.revision++;await desktop.mounted.sync();assert(desktop.$('h3ProductionLog').textContent.includes('완료한 합성 응답'));assert(!desktop.$('h3ProductionEffort').disabled);
+  const beforeClear=server.data.messages.length;desktop.$('h3ProductionInput').value='오프라인 초안';server.blocked=true;await desktop.$('h3ProductionNew').click();assert.equal(server.data.messages.length,beforeClear);assert.equal(desktop.$('h3ProductionInput').value,'오프라인 초안');assert(desktop.$('h3ProductionStorage').textContent.includes('덮어쓰지'));server.blocked=false;
+  console.log('Production assistant UI passed: shared devices, migration, private drafts, conflict protection, literal rendering, read-only restoration and non-replayed actions.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

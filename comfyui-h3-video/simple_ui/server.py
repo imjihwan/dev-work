@@ -14,6 +14,7 @@ from functools import lru_cache
 
 from PIL import Image, ImageOps
 from prompt_helper import PromptHelper
+from production_chat import ProductionChat
 from production_assistant import ProductionAssistant, READS as PRODUCTION_READS, WRITES as PRODUCTION_WRITES
 from local_translate import LocalTranslator, TranslationBusy
 from story import StoryProjects
@@ -1421,7 +1422,7 @@ def production_write_api(path,args,snapshot):
     with urllib.request.urlopen(request,timeout=120) as response:return json.load(response)
 
 
-PRODUCTION_ASSISTANT=ProductionAssistant(PROMPT_HELPER,production_read_api,production_queue_snapshot,production_queue_item,production_validate_write,production_write_api)
+PRODUCTION_ASSISTANT=ProductionAssistant(PROMPT_HELPER,production_read_api,production_queue_snapshot,production_queue_item,production_validate_write,production_write_api,chat=ProductionChat(os.path.join(HERE,"production-chat.json")))
 
 
 class H(BaseHTTPRequestHandler):
@@ -1451,13 +1452,15 @@ class H(BaseHTTPRequestHandler):
             elif u.path == "/production-assistant.js":
                 with open(os.path.join(HERE,"production_assistant.js"),"rb") as script:b=script.read()
                 self.send_response(200);self.send_header("Content-Type","text/javascript; charset=utf-8");self.send_header("Cache-Control","no-store");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
+            elif u.path == "/api/production-assistant/conversation":
+                self._json(PRODUCTION_ASSISTANT.conversation(revision=q.get("revision"),session=q.get("session")))
             elif u.path == "/api/production-assistant/status":
                 self._json(PROMPT_HELPER.status(q.get("id")))
             elif u.path == "/api/health":
                 # sequence_face_crop = 이 서버가 얼굴 크롭을 아는 버전인지(화면의 버전 확인용),
                 # face_detector_ready = 지금 실제로 크롭할 수 있는지(모델·OpenCV 준비 여부)
                 self._json({"ok": True, "sequence_face_crop": True, "face_detector_ready": face_detector_ready(),
-                            "production_assistant":True,"backend_restart_guard": True, "backend_restarting": bool(backend_restart_hold())})
+                            "production_assistant":True,"shared_production_chat":True,"backend_restart_guard": True, "backend_restarting": bool(backend_restart_hold())})
             elif u.path == "/api/status":
                 self._json(status(q["id"]))
             elif u.path == "/api/history":
@@ -1580,6 +1583,8 @@ class H(BaseHTTPRequestHandler):
                 self._json(build_and_queue(body))
             elif self.path == "/api/generate/priority":
                 self._json(build_and_queue(body, queue_first=True))
+            elif self.path == "/api/production-assistant/conversation":
+                self._json(PRODUCTION_ASSISTANT.conversation(body))
             elif self.path == "/api/production-assistant/start":
                 self._json(PRODUCTION_ASSISTANT.start(body))
             elif self.path == "/api/production-assistant/claim":
@@ -1689,7 +1694,7 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, fmt, *a):
         line = a[0] if a else ""
         # 자주 부르는 조회만 숨긴다(이력 삭제 같은 POST 는 남김)
-        if not (line.startswith("GET ") and any(s in line for s in ("/api/production-assistant/status", "/api/status", "/api/fetch-state", "/api/history", "/api/input", "/api/video", "/api/gallery", "/api/queue/bulk-context", "/api/ui-state"))):
+        if not (line.startswith("GET ") and any(s in line for s in ("/api/production-assistant/status", "/api/production-assistant/conversation", "/api/status", "/api/fetch-state", "/api/history", "/api/input", "/api/video", "/api/gallery", "/api/queue/bulk-context", "/api/ui-state"))):
             print("%s %s" % (self.command, self.path), flush=True)
 
 

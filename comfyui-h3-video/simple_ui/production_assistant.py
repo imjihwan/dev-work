@@ -5,6 +5,7 @@ import re
 import threading
 import time
 import uuid
+from production_chat import display_plan
 
 READS = {
     "queue": "현재 실행·대기 순서와 진행률(문구 없음)",
@@ -245,9 +246,17 @@ def model_request(request):
 
 
 class ProductionAssistant:
-    def __init__(self,helper,read_api,queue_snapshot,queue_item,validate_write=None,write_api=None):
+    def __init__(self,helper,read_api,queue_snapshot,queue_item,validate_write=None,write_api=None,chat=None):
         self.helper=helper;self.read_api=read_api;self.queue_snapshot=queue_snapshot;self.queue_item=queue_item;self.validate_write=validate_write;self.write_api=write_api
         self.lock=threading.RLock();self.plans={}
+        self.chat=chat;self.shared_jobs=set()
+
+    def conversation(self,body=None,revision=None,session=None):
+        if self.chat is None:raise ValueError("공유 대화를 사용할 수 없습니다.")
+        if body is None:return self.chat.snapshot(revision,session)
+        if body.get("operation")=="import":return self.chat.import_once(body.get("revision"),body.get("messages"))
+        if body.get("operation")=="clear":return self.chat.clear(body.get("revision"))
+        raise ValueError("대화 작업을 확인해 주세요.")
 
     def _expire(self):
         now=time.time()
@@ -261,8 +270,13 @@ class ProductionAssistant:
         with self.helper.lock:
             if self.helper.job and self.helper.job.get("state") in ("starting","generating","reviewing","enriching"): raise ValueError("다른 도우미가 처리 중입니다. 완료하거나 취소한 뒤 요청해 주세요.")
             self.helper.cancel_event=threading.Event();job_id=uuid.uuid4().hex
+            shared=None
+            if self.chat is not None and "chat_revision" in body:
+                shared=self.chat.begin(body["chat_revision"],job_id,request["message"])
+                request["conversation"]=shared["conversation"];self.shared_jobs.add(job_id)
             self.helper.job={"id":job_id,"state":"starting","engine":"grok","kind":"production","external":True,"created":time.time(),"effort":request["effort"],"phase":"prepare","round":0}
             result=dict(self.helper.job)
+            if shared:result.update(chat_revision=shared["revision"],chat_user_id=shared["user_id"])
             threading.Thread(target=self._run,args=(request,job_id,self.helper.cancel_event),daemon=True).start()
             return result
 
@@ -273,6 +287,7 @@ class ProductionAssistant:
             with self.helper.lock:
                 if self.helper.job and self.helper.job["id"]==job_id:
                     self.helper.job.update(phase=phase,round=round_number,elapsed_s=round(time.monotonic()-started,1))
+            if self.chat is not None and job_id in self.shared_jobs:self.chat.progress(job_id,phase,round_number)
         try:
             progress("prepare",0)
             queue=self.queue_snapshot()
@@ -310,11 +325,20 @@ class ProductionAssistant:
             if plan["intent"]=="explain" and plan["actions"]:raise ValueError("설명 요청에는 변경을 실행하지 않습니다. 원하는 변경을 명확히 요청해 주세요.")
             plan_id=uuid.uuid4().hex
             with self.lock:
-                self._expire();self.plans[plan_id]={"created":time.time(),"plan":plan,"request":request,"queue":queue,"claims":{}}
+                self._expire();self.plans[plan_id]={"created":time.time(),"plan":plan,"request":request,"queue":queue,"claims":{},"chat_job":job_id if job_id in self.shared_jobs else None}
             final={"state":"done","elapsed_s":round(time.monotonic()-started,1),"production":{"plan_id":plan_id,**plan,"auto_eligible":plan["intent"]=="execute" and explicit_command(request["message"])}}
         except (OSError,ValueError,RuntimeError,KeyError,TypeError) as exc:
             final={"state":"cancelled" if cancel.is_set() else "error","error":"제작 도우미 요청을 취소했습니다." if cancel.is_set() else str(exc) if isinstance(exc,(ValueError,RuntimeError)) else "제작 도우미가 요청을 완료하지 못했습니다. 대상·입력·Grok 로그인 상태를 확인해 주세요."}
         finally:
+            if self.chat is not None and job_id in self.shared_jobs:
+                try:
+                    shared=self.chat.complete(job_id,plan["reply"] if final.get("state")=="done" else final.get("error","도우미 요청이 중단됐습니다."),display_plan(plan["actions"]) if final.get("state")=="done" else None)
+                    if shared:
+                        final.update(chat_revision=shared["revision"],chat_message_id=shared["message_id"])
+                        if final.get("state")=="done":
+                            with self.lock:self.plans[plan_id]["chat_message_id"]=shared["message_id"]
+                except (OSError,ValueError):final["chat_error"]="공유 대화를 저장하지 못했습니다. 현재 답변은 이 화면에서 확인할 수 있습니다."
+                self.shared_jobs.discard(job_id)
             with self.helper.lock:
                 if self.helper.job and self.helper.job["id"]==job_id:self.helper.job.update(final)
 
@@ -323,12 +347,24 @@ class ProductionAssistant:
         with self.lock:
             self._expire();record=self.plans.get(identity)
             if not record or type(index) is not int or not 0<=index<len(record["plan"]["actions"]):raise ValueError("변경안이 만료됐습니다. 다시 요청해 주세요.")
+            if record.get("chat_job") and not self.chat.current(record["chat_job"]):raise ValueError("다른 기기에서 대화가 바뀌었습니다. 새 변경안을 요청해 주세요.")
             if index in record["claims"]:return {"already_claimed":True,"receipt":record["claims"][index]}
+            if self.chat is not None and record.get("chat_job") and not self.chat.current(record["chat_job"]):
+                raise ValueError("다른 기기에서 새 대화를 진행했습니다. 이전 변경안을 다시 실행하지 않았습니다.")
             if any(record["claims"].get(prior,{}).get("state")!="done" for prior in range(index)):raise ValueError("앞선 동작의 결과를 확인한 뒤 실행해 주세요.")
             action=record["plan"]["actions"][index]
             if action["kind"]=="api" and self.validate_write:self.validate_write(action,record["queue"])
             record["claims"][index]={"state":"claimed"}
+            self._chat_receipt(record)
             return {"action":action}
+
+    def _chat_receipt(self,record):
+        if self.chat is None or not record.get("chat_message_id"):return
+        states=[record["claims"].get(index,{}).get("state") for index in range(len(record["plan"]["actions"]))]
+        if "unknown" in states:state="중단 · 상태 확인";text="일부 실행의 완료 여부를 확인하지 못했습니다. 앱 상태를 확인하고 자동 재시도하지 마세요."
+        elif states and all(state=="done" for state in states):state="앱에 전달됨";text=f"{len(states)}개 변경·실행 요청을 앱에 전달했습니다. 완료 여부는 앱 상태에서 확인하세요."
+        else:state="실행 중";text=None
+        self.chat.plan_state(record["chat_message_id"],state,text)
 
     def finish(self,body):
         with self.lock:
@@ -336,6 +372,7 @@ class ProductionAssistant:
             if not record or type(index) is not int or index not in record["claims"]:raise ValueError("실행 요청을 찾지 못했습니다.")
             receipt=record["claims"][index]
             if receipt["state"]=="claimed":record["claims"][index]={"state":"done" if body.get("ok") is True else "unknown","message":"실행 요청을 전달했습니다." if body.get("ok") is True else "실행 여부를 확인하지 못했습니다. 자동 재시도하지 않습니다."}
+            self._chat_receipt(record)
             return record["claims"][index]
 
     def execute_api(self,body):
@@ -361,7 +398,11 @@ class ProductionAssistant:
             if self.validate_write:self.validate_write({**action,"args":json.dumps(args,ensure_ascii=False)},record["queue"])
             result=self.write_api(action["path"],args,record["queue"])
         except Exception:
-            with self.lock:record["claims"][index]={"state":"unknown","message":"실행 결과를 확인하지 못했습니다. 중복 실행을 막기 위해 자동 재시도하지 않습니다."}
+            with self.lock:
+                record["claims"][index]={"state":"unknown","message":"실행 결과를 확인하지 못했습니다. 중복 실행을 막기 위해 자동 재시도하지 않습니다."}
+                self._chat_receipt(record)
             return {"ok":False,"receipt":record["claims"][index]}
-        with self.lock:record["claims"][index]={"state":"done","message":"앱에서 실행 요청을 처리했습니다."}
+        with self.lock:
+            record["claims"][index]={"state":"done","message":"앱에서 실행 요청을 처리했습니다."}
+            self._chat_receipt(record)
         return {"ok":True,"result":scrub(result),"receipt":record["claims"][index]}

@@ -118,27 +118,28 @@
     doc.body.appendChild(panel);
     const $=id=>doc.getElementById(id),refs={map:new WeakMap(),next:0};
     let conversation=[],job=null,pending=null,busy=false,executing=false;
-    const chatKey='h3simple.productionAssistant.chat.v1',rowEntries=new WeakMap();
+    const chatKey='h3simple.productionAssistant.chat.v1',draftKey=chatKey+'.draft',rowEntries=new WeakMap();
     let transcript=[],restoring=false;
+    let sharedMode=null,sharedRevision=null,sharedSession=null,remoteBusy=false,syncPromise=null;
     const effortLabels={low:'빠르게',medium:'균형',high:'정밀',xhigh:'최대'};
     try{const saved=win.localStorage.getItem('h3simple.productionAssistant.effort.v1');$('h3ProductionEffort').value=Object.hasOwn(effortLabels,saved)?saved:'high';}catch{$('h3ProductionEffort').value='high';}
     $('h3ProductionEffort').addEventListener('input',event=>event.stopImmediatePropagation?.());
     $('h3ProductionEffort').onchange=event=>{event?.stopImmediatePropagation?.();try{win.localStorage.setItem('h3simple.productionAssistant.effort.v1',$('h3ProductionEffort').value);}catch{}};
     const post=async(path,body)=>{const response=await win.fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const value=await response.json();if(!response.ok)throw Error(value.error||'앱 요청을 처리하지 못했습니다.');return value;};
-    let follow=true,full=false,activePlanView=null;
+    let follow=true,full=false,activePlanView=null,scrollRevision=0;
     const say=text=>{$('h3ProductionStatus').textContent=text;};
     function scrollChat(force=false){
       if(force)follow=true;
       if(follow){$('h3ProductionLog').scrollTop=$('h3ProductionLog').scrollHeight;$('h3ProductionLatest').hidden=true;}else $('h3ProductionLatest').hidden=false;
     }
-    $('h3ProductionLog').addEventListener('scroll',()=>{const node=$('h3ProductionLog');follow=node.scrollHeight-node.scrollTop-node.clientHeight<64;if(follow)$('h3ProductionLatest').hidden=true;});
+    $('h3ProductionLog').addEventListener('scroll',()=>{scrollRevision++;const node=$('h3ProductionLog');follow=node.scrollHeight-node.scrollTop-node.clientHeight<64;if(follow)$('h3ProductionLatest').hidden=true;});
     $('h3ProductionLatest').onclick=()=>scrollChat(true);
-    const log=(role,text)=>{
+    const log=(role,text,forceUser=true)=>{
       $('h3ProductionWelcome').hidden=true;
       const row=doc.createElement('article');row.className='h3pa-message';row.setAttribute('data-role',role);
       const author=doc.createElement('div');author.className='h3pa-author';author.textContent=role==='user'?'나':'Grok';row.appendChild(author);
       const body=doc.createElement('div');body.className='h3pa-message-body';body.textContent=text;row.appendChild(body);
-      $('h3ProductionLog').appendChild(row);scrollChat(role==='user');conversation.push({role,text:String(text).slice(0,8000)});conversation=conversation.slice(-12);
+      $('h3ProductionLog').appendChild(row);scrollChat(role==='user'&&forceUser);conversation.push({role,text:String(text).slice(0,8000)});conversation=conversation.slice(-12);
       const entry={role,text:String(text).slice(0,8000)};transcript.push(entry);transcript=transcript.slice(-100);rowEntries.set(row,entry);saveChat();return row;
     };
     function planSummary(plan){
@@ -175,7 +176,7 @@
           // Store display text only: never persist executable plans, DOM targets or bindings.
           for(;;)try{win.localStorage.setItem(chatKey,JSON.stringify({version:1,messages,draft,inFlight}));break;}catch(error){if(messages.length<=1)throw error;messages=messages.slice(Math.max(1,Math.floor(messages.length/2)));}
         }
-        $('h3ProductionStorage').textContent='최근 대화·입력은 이 브라우저에 저장됩니다. 새 대화로 지울 수 있습니다.';
+        $('h3ProductionStorage').textContent=sharedMode?'대화는 서버에 공유됩니다. 작성 중인 입력은 이 기기에만 저장합니다.':'최근 대화·입력은 이 브라우저에 저장됩니다. 새 대화로 지울 수 있습니다.';
       }catch{$('h3ProductionStorage').textContent='브라우저에 대화를 저장하지 못했습니다. 새로고침하면 최근 대화가 사라질 수 있습니다.';}
     }
     function setPlanState(state){
@@ -213,12 +214,80 @@
       }
       $('h3ProductionPlanHome').appendChild($('h3ProductionPlan'));$('h3ProductionPlan').hidden=true;$('h3ProductionExecute').hidden=true;activePlanView=null;saveChat();
     }
+    function renderShared(data){
+      restoring=true;
+      try{
+        archivePlan();pending=null;conversation=[];transcript=[];
+        $('h3ProductionLog').replaceChildren($('h3ProductionWelcome'),$('h3ProductionThinking'));$('h3ProductionWelcome').hidden=true;
+        for(const saved of data.messages.slice(-100)){
+          if(!saved||!['user','assistant'].includes(saved.role)||typeof saved.text!=='string')continue;
+          const row=log(saved.role,saved.text.slice(0,8000),false),entry=rowEntries.get(row);entry.id=String(saved.id||'').slice(0,80);
+          if(saved.role==='assistant'&&Array.isArray(saved.plan?.steps)){
+            const steps=saved.plan.steps.slice(0,24).filter(step=>step&&typeof step.label==='string').map(step=>({label:step.label.slice(0,600),changes:(Array.isArray(step.changes)?step.changes:[]).slice(0,24).filter(change=>change&&typeof change.before==='string'&&typeof change.after==='string').map(change=>({before:change.before.slice(0,8000),after:change.after.slice(0,8000)}))}));
+            const prior=String(saved.plan.state||'').slice(0,100),state=prior==='확인 대기'?'읽기 전용 · 다시 검토 필요':prior;
+            entry.plan={steps,state};readonlyPlan(row,steps,state);
+          }
+        }
+        $('h3ProductionWelcome').hidden=transcript.length>0;
+        conversation=transcript.slice(-12).map(entry=>({role:entry.role,text:(entry.text+(entry.plan?'\n[이전 변경안 기록 · '+entry.plan.state+']\n'+entry.plan.steps.map(step=>step.label+'\n'+step.changes.map(change=>'기존: '+change.before+'\n변경: '+change.after).join('\n')).join('\n'):'')).slice(0,8000)}));
+        sharedRevision=data.revision;sharedSession=data.session_id;
+        if(data.revision>0&&!data.messages.length)try{win.localStorage.removeItem(chatKey);}catch{}
+      }finally{restoring=false;}
+      showSharedActive(data.active);saveChat();scrollChat();
+    }
+    function showSharedActive(active){
+      remoteBusy=!!active&&!busy&&!executing;
+      if(!busy&&!executing){
+        $('h3ProductionThinking').hidden=!remoteBusy;
+        if(remoteBusy){$('h3ProductionLog').appendChild($('h3ProductionThinking'));$('h3ProductionThinkingText').textContent='다른 기기의 요청을 처리하고 있어요';say('같은 대화의 응답을 기다리고 있습니다. 완료되면 자동으로 표시합니다.');}
+        for(const id of ['h3ProductionSend','h3ProductionNew','h3ProductionExecute','h3ProductionEffort'])$(id).disabled=remoteBusy;
+      }
+    }
+    async function getShared(){
+      const query=Number.isInteger(sharedRevision)&&sharedSession?'?revision='+sharedRevision+'&session='+encodeURIComponent(sharedSession):'';
+      const response=await win.fetch('/api/production-assistant/conversation'+query,{cache:'no-store'});
+      if(response.status===404)return null;
+      const data=await response.json();
+      const unchanged=data.unchanged===true&&data.revision===sharedRevision&&data.session_id===sharedSession;
+      if(!response.ok||!Number.isInteger(data.revision)||!unchanged&&!Array.isArray(data.messages)||typeof data.session_id!=='string')throw Error('공유 대화를 불러오지 못했습니다. 연결을 확인해 주세요.');
+      return data;
+    }
+    async function bootShared(){
+      try{
+        let data=await getShared();if(data===null){sharedMode=false;return;}
+        sharedMode=true;
+        if(data.revision===0&&!data.messages.length&&transcript.length){
+          try{data=await post('/api/production-assistant/conversation',{operation:'import',revision:0,messages:transcript});}
+          catch{data=await getShared();if(!data)throw Error('공유 대화를 불러오지 못했습니다.');}
+        }
+        renderShared(data);say('서버의 공통 대화를 불러왔습니다. 다른 기기에서도 이어서 볼 수 있습니다.');
+      }catch{sharedMode=true;$('h3ProductionStorage').textContent='공유 대화를 불러오지 못했습니다. 연결되면 다시 동기화합니다.';}
+    }
+    async function syncShared(){
+      if(sharedMode===false)return true;
+      if(busy||executing)return false;
+      if(syncPromise)return syncPromise;
+      syncPromise=(async()=>{
+        try{
+          let data=await getShared();if(!data)throw Error('공유 대화를 사용할 수 없습니다.');
+          if(sharedRevision===null&&data.revision===0&&!data.messages.length&&transcript.length){
+            try{data=await post('/api/production-assistant/conversation',{operation:'import',revision:0,messages:transcript});}
+            catch{data=await getShared();if(!data)throw Error('공유 대화를 사용할 수 없습니다.');}
+          }
+          sharedMode=true;
+          if(data.revision!==sharedRevision||data.session_id!==sharedSession)renderShared(data);else showSharedActive(data.active);
+          return true;
+        }catch{$('h3ProductionStorage').textContent='서버 연결을 확인해 주세요. 대화를 덮어쓰지 않았습니다.';return false;}
+        finally{syncPromise=null;}
+      })();
+      return syncPromise;
+    }
     function showPlan(plan,row){
       activePlanView={plan,row,entry:rowEntries.get(row)};activePlanView.entry.plan={steps:planSummary(plan),state:'확인 대기'};setPlanState('확인 대기');planSteps($('h3ProductionPlanSteps'),plan);
       $('h3ProductionPlanActions').appendChild($('h3ProductionExecute'));row.appendChild($('h3ProductionPlan'));$('h3ProductionPlan').hidden=false;$('h3ProductionExecute').hidden=false;scrollChat();
     }
     const setBusy=value=>{
-      busy=value;for(const id of ['h3ProductionSend','h3ProductionNew','h3ProductionExecute','h3ProductionEffort'])$(id).disabled=value;
+      busy=value;for(const id of ['h3ProductionSend','h3ProductionNew','h3ProductionExecute','h3ProductionEffort'])$(id).disabled=value||remoteBusy;
       $('h3ProductionCancel').hidden=!value||executing;$('h3ProductionThinking').hidden=!value;
       $('h3ProductionThinkingText').textContent=executing?'앱에 변경을 전달하고 있어요':'Grok이 확인하고 있어요';
       if(value){$('h3ProductionLog').appendChild($('h3ProductionThinking'));scrollChat();}
@@ -250,10 +319,19 @@
     $('h3ProductionExpand').onclick=()=>{full=!full;doc.body.classList?.toggle('h3pa-full',full);$('h3ProductionExpand').textContent=full?'분할 보기':'넓게';$('h3ProductionExpand').setAttribute('aria-pressed',String(full));win.dispatchEvent?.(new win.Event('resize'));scrollChat();};
     let opened=Number(win.innerWidth||0)>=1280;try{const saved=win.localStorage.getItem('h3simple.productionAssistant.open.v1');if(saved==='true'||saved==='false')opened=saved==='true';}catch{}openPanel(opened,false);
     for(const [id,message] of [['h3ProductionExample1','현재 최종 프롬프트와 설정을 설명해줘.'],['h3ProductionExample2','대기 1번의 최종 프롬프트를 가져와 현재 내용과 비교해줘. 변경하지 마.'],['h3ProductionExample3','현재 동작이 영상 길이 안에서 자연스럽게 가능한지 검토해줘.']])$(id).onclick=()=>{const input=$('h3ProductionInput');input.value=input.value.trim()?input.value+'\n'+message:message;resizeComposer();saveChat();input.focus?.({preventScroll:true});};
-    $('h3ProductionNew').onclick=()=>{archivePlan();conversation=[];transcript=[];pending=null;$('h3ProductionInput').value='';resizeComposer();saveChat();$('h3ProductionLog').replaceChildren($('h3ProductionWelcome'),$('h3ProductionThinking'));$('h3ProductionWelcome').hidden=false;follow=true;$('h3ProductionLatest').hidden=true;say('새 대화를 시작합니다. 화면 입력과 대기열은 그대로입니다.');};
+    $('h3ProductionNew').onclick=async()=>{
+      await sharedInit;if(busy||executing)return;
+      if(sharedMode){
+        try{const data=await post('/api/production-assistant/conversation',{operation:'clear',revision:sharedRevision});renderShared(data);}
+        catch(error){await syncShared();return say(error.message);}
+      }
+      archivePlan();conversation=[];transcript=[];pending=null;$('h3ProductionInput').value='';resizeComposer();saveChat();$('h3ProductionLog').replaceChildren($('h3ProductionWelcome'),$('h3ProductionThinking'));$('h3ProductionWelcome').hidden=false;follow=true;$('h3ProductionLatest').hidden=true;say('새 대화를 시작합니다. 화면 입력과 대기열은 그대로입니다.');
+    };
     $('h3ProductionCancel').onclick=async()=>{if(job){$('h3ProductionCancel').disabled=true;try{await post('/api/prompt-helper/cancel',{id:job});say('도우미 요청을 취소하고 있습니다.');}catch(error){say(error.message);}finally{$('h3ProductionCancel').disabled=false;}}};
     async function execute(){
       if(!pending||busy||executing)return;
+      await sharedInit;if(sharedMode&&!(await syncShared()))return say('공유 대화를 확인한 뒤 다시 실행해 주세요.');
+      if(!pending||remoteBusy)return say('다른 기기에서 대화가 갱신됐습니다. 새 변경안을 요청해 주세요.');
       const item=pending;pending=null;executing=true;setPlanState('실행 중');setBusy(true);$('h3ProductionExecute').hidden=true;
       let completed=0;
       try{
@@ -286,21 +364,22 @@
     }
     $('h3ProductionExecute').onclick=execute;
     $('h3ProductionSend').onclick=async()=>{
-      if(busy||executing)return;const message=$('h3ProductionInput').value.trim();if(!message)return say('요청을 적어 주세요.');
+      const startScrollRevision=scrollRevision;await sharedInit;if(busy||executing)return;if(sharedMode&&!(await syncShared()))return say('공유 대화를 확인한 뒤 다시 요청해 주세요.');if(remoteBusy)return say('현재 응답이 끝난 뒤 이어서 요청해 주세요.');const message=$('h3ProductionInput').value.trim();if(!message)return say('요청을 적어 주세요.');
       let snapshot,guard;try{snapshot=collect(win,refs);guard=sourceGuard(snapshot);}catch(error){return say(error.message);}
       const previous=conversation.slice(),auto=$('h3ProductionAuto').checked,effort=$('h3ProductionEffort').value||'high',began=Date.now();let proposal=null;if(pending){try{preflight(pending.plan.actions,pending.snapshot,pending.guard);proposal={actions:pending.plan.actions};}catch{}}
       archivePlan(true);pending=null;
-      log('user',message);$('h3ProductionInput').value='';resizeComposer();setBusy(true);say('현재 화면과 필요한 앱 정보를 확인하고 있습니다…');
+      const sentRow=log('user',message,startScrollRevision===scrollRevision);$('h3ProductionInput').value='';resizeComposer();setBusy(true);say('현재 화면과 필요한 앱 정보를 확인하고 있습니다…');
       try{
-        const started=await post('/api/production-assistant/start',{message,effort,controls:snapshot.controls,contexts:snapshot.contexts,conversation:previous,...(proposal?{proposal}:{})});job=started.id;
+        const started=await post('/api/production-assistant/start',{message,effort,...(sharedMode?{chat_revision:sharedRevision}:{}),controls:snapshot.controls,contexts:snapshot.contexts,conversation:previous,...(proposal?{proposal}:{})});job=started.id;if(sharedMode&&Number.isInteger(started.chat_revision)){sharedRevision=started.chat_revision;rowEntries.get(sentRow).id=started.chat_user_id;}
         while(job){
           const response=await win.fetch('/api/production-assistant/status?id='+encodeURIComponent(job),{cache:'no-store'}),state=await response.json();
           if(!response.ok)throw Error(state.error||'도우미 상태를 확인하지 못했습니다.');
           if(!['done','error','cancelled'].includes(state.state)){const phase={prepare:'앱 정보 준비',model:'Grok 응답 대기',read:'필요한 정보 조회',validate:'변경안 검사'}[state.phase]||'Grok 응답 대기';const elapsed=Math.floor((Date.now()-began)/1000),round=Math.min(5,Math.max(0,Number(state.round)||0));const status=`${effortLabels[effort]} · ${phase}${round?' · '+round+'차 응답':''} · ${elapsed}초`;$('h3ProductionThinkingText').textContent=status;say(status);}
           if(state.state==='done'){
-            const plan=state.production,row=log('assistant',plan.reply);
+            const plan=state.production,row=log('assistant',plan.reply);if(sharedMode&&Number.isInteger(state.chat_revision)){sharedRevision=state.chat_revision;rowEntries.get(row).id=state.chat_message_id;}
             if(plan.actions.length){pending={plan,snapshot,guard};showPlan(plan,row);}
             say(plan.actions.length?'변경안을 확인하거나 실행하세요.':'답변을 받았습니다.');
+            if(state.chat_error)$('h3ProductionStorage').textContent=state.chat_error;
             if(auto&&plan.auto_eligible&&plan.actions.length){setBusy(false);await execute();}
             break;
           }
@@ -310,8 +389,11 @@
       }catch(error){say(error.message);log('assistant',error.message);if(!$('h3ProductionInput').value.trim()){$('h3ProductionInput').value=message;resizeComposer();saveChat();}}
       finally{job=null;setBusy(false);}
     };
-    restoreChat();win.addEventListener?.('pagehide',saveChat);
+    restoreChat();try{const draft=win.localStorage.getItem(draftKey);if(draft!==null){$('h3ProductionInput').value=draft.slice(0,8000);resizeComposer();}}catch{}const sharedInit=bootShared();win.addEventListener?.('pagehide',saveChat);
+    win.setInterval?.(()=>{if(!doc.hidden&&!busy&&!executing)syncShared();},2000);
+    doc.addEventListener?.('visibilitychange',()=>{if(!doc.hidden&&!busy&&!executing)syncShared();});
     $('h3ProductionInput').addEventListener('keydown',event=>{if(event.isComposing||event.keyCode===229||busy||event.key!=='Enter')return;if(event.ctrlKey||event.metaKey||!event.shiftKey&&!coarse()){event.preventDefault();event.stopPropagation?.();$('h3ProductionSend').click();}});
+    return {ready:sharedInit,sync:syncShared};
   }
   return {CHAT_STYLES,valueOf,replaceOne,bindArgs,collect,sourceGuard,checkSources,preflight,setControl,clickControl,mount};
 });

@@ -97,3 +97,6 @@ node_modules/
 **/grok-account/
 **/grok-cli/
 **/.grok/
+
+# Shared assistant transcripts are private runtime state
+**/production-chat.json
