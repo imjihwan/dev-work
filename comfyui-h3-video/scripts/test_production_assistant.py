@@ -138,6 +138,46 @@ class PlannerTests(unittest.TestCase):
         self.helper.job={'state':'reviewing'}
         with self.assertRaises(ValueError):self.manager.start({'message':'Synthetic','controls':[]})
 
+    def test_quality_first_effort_is_validated_and_forwarded(self):
+        self.assertEqual(self.request['effort'],'high')
+        for effort in ('low','medium','high','xhigh'):
+            self.helper.job={'id':'synthetic','state':'starting'}
+            request=P.validate_input({'message':'Synthetic','controls':[],'effort':effort})
+            self.run_fake([plan(intent='explain')],request)
+            self.assertEqual(self.helper.grok.complete.call_args.kwargs['effort'],effort)
+        with self.assertRaises(ValueError):P.validate_input({'message':'Synthetic','controls':[],'effort':'invented'})
+
+    def test_large_queue_page_does_not_shorten_local_guards_or_target_access(self):
+        rows=[{'id':f'synthetic-{n}','state':'queued','position':n,'pct':0} for n in range(1,1001)]
+        snapshot={'items':rows,'pending_count':1000,'running_count':0,'other_count':2}
+        self.manager.queue_snapshot=lambda:snapshot
+        job=self.run_fake([plan(reads=[{'path':'queue_item','args':'{"position":990}'}],intent='explain'),plan(intent='explain')])
+        self.assertEqual(job['state'],'done');self.item.assert_called_once_with({'position':990},snapshot)
+        payload=self.helper.grok.complete.call_args.args[1]
+        self.assertEqual(len(payload['queue']['items']),20);self.assertEqual(payload['queue']['total'],1000);self.assertTrue(payload['queue']['has_more'])
+        self.assertEqual(len(self.manager.plans[job['production']['plan_id']]['queue']['items']),1000)
+        self.assertLess(len(json.dumps(payload['queue'])),len(json.dumps(snapshot))//10)
+        page=P.queue_page(snapshot,{'offset':980,'limit':20})
+        self.assertEqual(page['items'][-1]['position'],1000);self.assertFalse(page['has_more'])
+        for args in ({'offset':-1},{'limit':0},{'limit':101},{'offset':True}):
+            with self.assertRaises(ValueError):P.queue_page(snapshot,args)
+
+    def test_repeated_reads_are_reused_only_within_one_request(self):
+        read={'path':'queue_item','args':'{"position":2}'}
+        job=self.run_fake([plan(reads=[read],intent='explain'),plan(reads=[read],intent='explain'),plan(intent='explain')])
+        self.assertEqual(job['state'],'done');self.item.assert_called_once()
+        self.assertEqual(len(self.helper.grok.complete.call_args.args[1]['read_results']),1)
+        self.helper.job={'id':'synthetic','state':'starting'}
+        self.run_fake([plan(reads=[read],intent='explain'),plan(intent='explain')]);self.assertEqual(self.item.call_count,2)
+
+    def test_model_view_preserves_text_true_flags_and_original_request(self):
+        original=control(value='  Exact synthetic action.\n\n  ',hidden=False)
+        request=P.validate_input({'message':'Synthetic','controls':[original,dict(control(ref='main:2'),readonly=True)]})
+        compact=P.model_request(request)
+        self.assertEqual(compact['controls'][0]['value'],original['value']);self.assertNotIn('disabled',compact['controls'][0])
+        self.assertTrue(compact['controls'][1]['readonly']);self.assertIs(request['controls'][0]['disabled'],False)
+        self.assertNotIn('effort',compact)
+
     def test_all_user_facing_json_routes_are_available_without_binary_or_recursive_access(self):
         source=ast.parse((SOURCE/'server.py').read_text(encoding='utf-8-sig'))
         handler=next(item for item in source.body if isinstance(item,ast.ClassDef) and item.name=='H')

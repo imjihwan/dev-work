@@ -45,3 +45,11 @@ CLI는 `local-prompt-helper/grok-cli/bin/grok.exe`, 전용 계정 설정은 `loc
 개인 작업·사진·결과물을 조회하지 않고, 합성 블록 동작으로 계정 로그인, 도구 없는 호출, 단일 구간 초안+검토, 설명만 받기, 음악만 정확히 수정하기를 실제 실행했다. 모의 테스트는 인증 누락·API 인증 거절·도구 노출 거절·취소·요청 필드 제한·최근 미적용 초안 이어 수정·원문 변경 시 대화 초기화와 단일 입력의 저장·시간 복원을 검사한다. 실제 영상 생성은 하지 않았다.
 
 공식 참고: [CLI](https://docs.x.ai/build/cli/headless-scripting), [권한](https://docs.x.ai/build/features/permissions), [개인정보](https://docs.x.ai/developers/faq/security), [공식 소스](https://github.com/xai-org/grok-build).
+
+## 응답 방식과 전달량
+
+Grok 4.7에 추론 강도를 명시한다. 기존 프롬프트 도우미는 `high`를 유지하며, 제작 도우미는 **정밀(high)** 기본값과 **최대(xhigh)·균형(medium)·빠르게(low)**를 제공한다. 같은 모델의 추론 강도 선택이며 다른 모델로 전환하거나 유료 API로 우회하지 않는다. 선택은 접속 주소별 브라우저에 기억한다.
+
+JSON 직렬화의 구분 공백만 줄이고 문자열 내부의 공백·줄바꿈·고정 조건은 보존한다. 제작 도우미의 대기열 목록은 처음 20개 상태 메타데이터만 전달하고 추가 페이지나 지정 항목을 필요할 때 조회한다. 전체 원본 스냅샷과 변경 감지 검증은 로컬에 유지한다.
+
+2026-11-19 계정 CLI의 `grok models` 결과에는 `grok-4.7` 한 모델이 표시되었다. 현재 연결도 이미 이 모델을 사용한다. 웹 앱의 모델 선택지와 CLI 계정의 선택지는 같다고 가정하지 않는다. [공식 추론 강도 문서](https://docs.x.ai/developers/model-capabilities/text/reasoning), [CLI 명령](https://docs.x.ai/build/cli/reference).

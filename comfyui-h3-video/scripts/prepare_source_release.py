@@ -19,7 +19,7 @@ UI_FILES = (
 THIRD_PARTY_FILES = ("third_party/dutchit/NOTICE.md", "third_party/dutchit/LICENSE.txt", "third_party/dutchit/Modelfile.ref.txt")
 DOC_FILES = (
     "MODELS.md", "PROMPT_HELPER.md", "GROK_CLI.md", "PRODUCTION_ASSISTANT.md", "STORY.md", "UI.md",
-    "ARCHITECTURE.md", "TESTING.md", "SOURCE_RELEASE.md", "FACE_REFERENCES.md", "LOCAL_TRANSLATION.md",
+    "ARCHITECTURE.md", "TESTING.md", "SOURCE_RELEASE.md", "HANDOFF.md", "FACE_REFERENCES.md", "LOCAL_TRANSLATION.md",
 )
 SCRIPT_FILES = (
     "setup.ps1", "start_comfyui.bat", "get_models.py", "download-ranges.py",

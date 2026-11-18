@@ -61,6 +61,12 @@ read only needed jobs. The original queue snapshot defines position N, not histo
 display order. Completed work is available through paginated history/gallery APIs.
 Reads happen before planning writes. When reads are needed, return reads and NO
 actions. A subsequent turn provides their results; then answer or propose actions.
+The initial queue is a page, not the full list: has_more/total describe omitted rows.
+Use queue {offset:0,limit:20} for another page or queue_item {position:N} directly.
+For current-screen questions use supplied controls, not a redundant API read.
+Batch independent reads in the same response. Reuse read_results rather than
+requesting identical information again. Keep explanations concise unless detailed
+wording is requested; preserve the detail in prompts and exact edits.
 An unapplied pending_proposal is context for follow-up refinement, not completed work.
 Consolidate its changes into a fresh plan against the current controls.
 Use current final textarea for the actual current final prompt, even when automatic.
@@ -123,6 +129,8 @@ def json_args(value):
 
 
 def validate_input(body):
+    effort=body.get("effort","high")
+    if effort not in ("low","medium","high","xhigh"):raise ValueError("도우미 응답 방식을 확인해 주세요.")
     message=body.get("message")
     if not isinstance(message,str) or not message.strip() or len(message)>8000: raise ValueError("요청은 1~8,000자로 적어 주세요.")
     raw=body.get("controls")
@@ -143,7 +151,7 @@ def validate_input(body):
     for turn in conversation:
         if not isinstance(turn,dict) or turn.get("role") not in ("user","assistant") or not isinstance(turn.get("text"),str) or len(turn["text"])>8000: raise ValueError("대화 형식을 확인해 주세요.")
         turns.append({"role":turn["role"],"text":turn["text"]})
-    clean={"message":scrub(message.strip()),"controls":controls,"conversation":scrub(turns)}
+    clean={"message":scrub(message.strip()),"controls":controls,"conversation":scrub(turns),"effort":effort}
     contexts=body.get("contexts",[])
     if not isinstance(contexts,list) or len(contexts)>4:raise ValueError("현재 화면 정보를 확인해 주세요.")
     clean["contexts"]=[]
@@ -215,6 +223,27 @@ def explicit_command(message):
     return bool(re.search(r"(?:해줘|해 줘|해라|해주세요|하세요|하자|바꿔|변경해|추가해|취소해|중지해|지워|삭제해|재시작|켜줘|꺼줘|적용해|진행|please\s+(?:set|add|cancel|delete|change|start)|^(?:set|add|cancel|delete|change|start|stop|restart)\b)",message,re.I))
 
 
+def queue_page(snapshot,args=None):
+    """Bound model-facing metadata; retain the complete snapshot locally for guards."""
+    args=args or {}
+    offset=args.get("offset",0);limit=args.get("limit",20)
+    if type(offset) is not int or offset<0 or type(limit) is not int or not 1<=limit<=100:
+        raise ValueError("대기열 조회 범위를 확인해 주세요.")
+    rows=snapshot.get("items",[])
+    return {"items":[{key:row[key] for key in ("id","state","position","pct") if key in row} for row in rows[offset:offset+limit]],
+            "total":len(rows),"offset":offset,"limit":limit,"has_more":offset+limit<len(rows),
+            "running_count":snapshot.get("running_count",sum(row.get("state")=="running" for row in rows)),
+            "pending_count":snapshot.get("pending_count",sum(row.get("state")=="queued" for row in rows)),
+            "other_count":snapshot.get("other_count",0)}
+
+
+def model_request(request):
+    """Omit repetitive false UI flags without shortening any input text."""
+    return {key:value for key,value in {**request,"controls":[
+        {key:value for key,value in control.items() if not (key in ("disabled","readonly","hidden") and value is False)}
+        for control in request["controls"]]}.items() if key!="effort"}
+
+
 class ProductionAssistant:
     def __init__(self,helper,read_api,queue_snapshot,queue_item,validate_write=None,write_api=None):
         self.helper=helper;self.read_api=read_api;self.queue_snapshot=queue_snapshot;self.queue_item=queue_item;self.validate_write=validate_write;self.write_api=write_api
@@ -232,40 +261,57 @@ class ProductionAssistant:
         with self.helper.lock:
             if self.helper.job and self.helper.job.get("state") in ("starting","generating","reviewing","enriching"): raise ValueError("다른 도우미가 처리 중입니다. 완료하거나 취소한 뒤 요청해 주세요.")
             self.helper.cancel_event=threading.Event();job_id=uuid.uuid4().hex
-            self.helper.job={"id":job_id,"state":"starting","engine":"grok","kind":"production","external":True,"created":time.time()}
+            self.helper.job={"id":job_id,"state":"starting","engine":"grok","kind":"production","external":True,"created":time.time(),"effort":request["effort"],"phase":"prepare","round":0}
             result=dict(self.helper.job)
             threading.Thread(target=self._run,args=(request,job_id,self.helper.cancel_event),daemon=True).start()
             return result
 
     def _run(self,request,job_id,cancel):
         final={}
+        started=time.monotonic()
+        def progress(phase,round_number):
+            with self.helper.lock:
+                if self.helper.job and self.helper.job["id"]==job_id:
+                    self.helper.job.update(phase=phase,round=round_number,elapsed_s=round(time.monotonic()-started,1))
         try:
+            progress("prepare",0)
             queue=self.queue_snapshot()
-            content={**request,"queue":scrub(queue),"read_catalog":READS,"write_catalog":WRITES,"bindings":["$current_settings","$current_generation","$current_prompt","$current_story"]}
+            content={**model_request(request),"queue":queue_page(queue),"read_catalog":READS,"write_catalog":WRITES,"bindings":["$current_settings","$current_generation","$current_prompt","$current_story"]}
+            read_cache={}
             with self.helper.lock:self.helper.job["state"]="generating"
             for iteration in range(5):
                 if cancel.is_set(): raise RuntimeError("제작 도우미 요청을 취소했습니다.")
-                plan=validate_plan(self.helper.grok.complete(SYSTEM,content,SCHEMA,cancel),request)
+                progress("model",iteration+1)
+                plan=validate_plan(self.helper.grok.complete(SYSTEM,content,SCHEMA,cancel,effort=request.get("effort","high")),request)
                 if not plan["reads"]:break
                 if iteration==4: raise ValueError("조회가 길어졌습니다. 필요한 항목 번호를 좁혀 다시 요청해 주세요.")
                 results=[]
+                progress("read",iteration+1)
                 for item in plan["reads"]:
                     args=json_args(item["args"])
+                    cache_key=(item["path"],json.dumps(args,sort_keys=True,separators=(",",":")))
                     try:
-                        value=self.queue_snapshot() if item["path"]=="queue" else self.queue_item(args,queue) if item["path"]=="queue_item" else self.read_api(item["path"],args)
+                        if cache_key in read_cache:
+                            value=read_cache[cache_key]
+                        else:
+                            value=queue_page(queue,args) if item["path"]=="queue" else self.queue_item(args,queue) if item["path"]=="queue_item" else self.read_api(item["path"],args)
                         if item["path"]=="queue_item" and value.get("id") and value.get("prompt_hash"):queue.setdefault("prompt_hashes",{})[value["id"]]=value["prompt_hash"]
                         value=scrub(value)
                         if len(json.dumps(value,ensure_ascii=False))>120000:value={"error":"조회 내용이 너무 큽니다. 항목 ID나 offset/limit로 범위를 줄여 주세요."}
+                        read_cache[cache_key]=value
                     except (OSError,ValueError,KeyError):value={"error":"해당 앱 정보를 가져오지 못했습니다. 대상이나 상태를 다시 확인해 주세요."}
                     results.append({**item,"result":value})
-                content.setdefault("read_results",[]).extend(results)
+                previous=content.setdefault("read_results",[])
+                for result in results:
+                    if result not in previous:previous.append(result)
                 if len(json.dumps(content,ensure_ascii=False))>500000:raise ValueError("조회한 내용이 너무 큽니다. 항목을 나눠 요청해 주세요.")
             if cancel.is_set(): raise RuntimeError("제작 도우미 요청을 취소했습니다.")
+            progress("validate",iteration+1)
             if plan["intent"]=="explain" and plan["actions"]:raise ValueError("설명 요청에는 변경을 실행하지 않습니다. 원하는 변경을 명확히 요청해 주세요.")
             plan_id=uuid.uuid4().hex
             with self.lock:
                 self._expire();self.plans[plan_id]={"created":time.time(),"plan":plan,"request":request,"queue":queue,"claims":{}}
-            final={"state":"done","production":{"plan_id":plan_id,**plan,"auto_eligible":plan["intent"]=="execute" and explicit_command(request["message"])}}
+            final={"state":"done","elapsed_s":round(time.monotonic()-started,1),"production":{"plan_id":plan_id,**plan,"auto_eligible":plan["intent"]=="execute" and explicit_command(request["message"])}}
         except (OSError,ValueError,RuntimeError,KeyError,TypeError) as exc:
             final={"state":"cancelled" if cancel.is_set() else "error","error":"제작 도우미 요청을 취소했습니다." if cancel.is_set() else str(exc) if isinstance(exc,(ValueError,RuntimeError)) else "제작 도우미가 요청을 완료하지 못했습니다. 대상·입력·Grok 로그인 상태를 확인해 주세요."}
         finally:

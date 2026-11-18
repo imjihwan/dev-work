@@ -7,6 +7,7 @@ import tempfile
 import time
 
 CLI_VERSION = "1.0.89"
+EFFORTS = ("low", "medium", "high", "xhigh")
 PROFILE = """---
 name: h3-text-only
 description: Text-only video prompt editor without local tools or file context
@@ -50,14 +51,16 @@ class GrokCLI:
                    GROK_PROMPT_SUGGESTIONS="0")
         return env
 
-    def command(self, work, system, schema):
-        return [str(self.exe), "--model", "grok-4.7", "--cwd", str(work), "--agent", str(work / "agent.md"),
+    def command(self, work, system, schema, effort="high"):
+        if effort not in EFFORTS:
+            raise ValueError("도우미 응답 방식을 확인해 주세요.")
+        return [str(self.exe), "--model", "grok-4.7", "--reasoning-effort", effort, "--cwd", str(work), "--agent", str(work / "agent.md"),
                 "--system-prompt-override", system, "--prompt-file", str(work / "prompt.txt"),
                 "--verbatim", "--output-format", "streaming-messages-json", "--json-schema", json.dumps(schema),
                 "--disallowed-tools", "todo_write", "--permission-mode", "dontAsk", "--deny", "*", "--no-subagents",
                 "--disable-web-search", "--no-plan", "--max-turns", "1"]
 
-    def complete(self, system, content, schema, cancel_event):
+    def complete(self, system, content, schema, cancel_event, effort="high"):
         if not self.ready():
             raise ValueError("Grok CLI 로그인이 필요합니다. PC에서 Connect-Grok.ps1을 실행해 주세요.")
         # A new empty working directory and curated profile prevent project/user
@@ -65,8 +68,8 @@ class GrokCLI:
         with tempfile.TemporaryDirectory(prefix="h3-grok-") as directory:
             work = Path(directory)
             (work / "agent.md").write_text(PROFILE, encoding="utf-8")
-            (work / "prompt.txt").write_text(json.dumps(content, ensure_ascii=False), encoding="utf-8")
-            process = subprocess.Popen(self.command(work, system, schema), cwd=work,
+            (work / "prompt.txt").write_text(json.dumps(content, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+            process = subprocess.Popen(self.command(work, system, schema, effort), cwd=work,
                 env=self.environment(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             deadline = time.monotonic() + 180

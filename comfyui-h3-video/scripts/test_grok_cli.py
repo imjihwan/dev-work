@@ -79,6 +79,30 @@ class GrokTests(unittest.TestCase):
         self.assertIn("agentsMd: false",PROFILE);self.assertIn("injectDefaultTools: false",PROFILE)
         self.assertIn("disallowedTools: [todo_write]",PROFILE)
 
+    def test_explicit_effort_keeps_model_and_execution_restrictions(self):
+        c=GrokCLI("synthetic")
+        levels = ("low","medium","high","xhigh")
+        for effort in levels:
+            cmd=c.command(Path("synthetic"),"Static",helper.GROK_REPLY_SCHEMA,effort)
+            self.assertEqual(cmd[cmd.index("--model")+1],"grok-4.7")
+            self.assertEqual(cmd[cmd.index("--reasoning-effort")+1],effort)
+            self.assertIn("--no-subagents",cmd);self.assertIn("--deny",cmd)
+        cmd=c.command(Path("synthetic"),"Static",helper.GROK_REPLY_SCHEMA)
+        self.assertEqual(cmd[cmd.index("--reasoning-effort")+1],"high")
+        with self.assertRaises(ValueError):c.command(Path("synthetic"),"Static",{},"invented")
+
+    def test_compact_wire_preserves_all_prompt_whitespace(self):
+        c=GrokCLI("synthetic");process=MagicMock();process.poll.return_value=0;process.returncode=0
+        process.communicate.return_value=(wire({"reply":"Synthetic"}),None)
+        content={"idea":"  Exact synthetic text.\n\nKeep spacing.  ","fixed":{"style":"  Same fixed camera.  "}}
+        def launch(command,**kwargs):
+            raw=Path(command[command.index("--prompt-file")+1]).read_text(encoding="utf-8")
+            self.assertEqual(json.loads(raw),content)
+            self.assertLess(len(raw),len(json.dumps(content,ensure_ascii=False)))
+            return process
+        with patch.object(c,"ready",return_value=True),patch("grok_cli.subprocess.Popen",side_effect=launch):
+            c.complete("Static",content,helper.GROK_REPLY_SCHEMA,threading.Event(),effort="low")
+
     def test_transport_rejects_api_fallback_tools_and_malformed_output_without_echo(self):
         c=GrokCLI("synthetic");process=MagicMock();process.poll.return_value=0;process.returncode=0
         good={"reply":"Synthetic"}
