@@ -74,6 +74,7 @@ class QueueEditTests(unittest.TestCase):
         self.assertEqual(self.edit()["prompt_id"], "owned")
         updated = next(x for x in self.backend.pending if x[1] == "owned")
         self.assertEqual(updated[:3], [7, "owned", {"updated": True}])
+        self.assertEqual(updated[3],self.backend.original[3])
         self.assertEqual(self.backend.deleted, ["owned"])
         self.assertTrue(any(x[1] == "other" for x in self.backend.pending))
         self.assertFalse((Path(self.tmp.name) / "queue-edit-recovery/owned.json").exists())

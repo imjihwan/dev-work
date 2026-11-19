@@ -15,6 +15,7 @@ from functools import lru_cache
 from PIL import Image, ImageOps
 from prompt_helper import PromptHelper
 from bulk_progress import BulkProgress
+from queue_bulk import BuildCache, QueueBulkEditor
 from production_chat import ProductionChat
 from production_assistant import ProductionAssistant, READS as PRODUCTION_READS, WRITES as PRODUCTION_WRITES
 from local_translate import LocalTranslator, TranslationBusy
@@ -720,7 +721,7 @@ def replace_queued_prompt(pid, prompt, expected_graph=None):
             raise ValueError("수정하는 동안 생성이 시작됐습니다. 실행 중인 작업은 변경하지 않았습니다.")
         try:
             result = json.load(comfy("/prompt", json.dumps({"number": old[0], "prompt_id": pid,
-                                    "prompt": prompt, "client_id": CLIENT_ID}).encode(), headers))
+                                    "prompt": prompt, "extra_data":old[3], "client_id": CLIENT_ID}).encode(), headers))
         except (urllib.error.URLError, ValueError) as exc:
             try:
                 json.load(comfy("/prompt", json.dumps(original).encode(), headers))
@@ -936,7 +937,7 @@ def release_photo_references(req):
     return {"ok":True}
 
 
-def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
+def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, build_cache=None):
     if "reference_ids" in req:
         if reference or req.get("edit_id") or req.get("photo_sequence") or int(req.get("count") or 1)!=1:
             raise ValueError("폴더별 번갈아 등록은 한 번에 한 작업씩 새로 추가합니다.")
@@ -964,15 +965,18 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
     if not 1 <= duration <= 15:
         raise ValueError("길이는 1~15초 사이로 정해 주세요(H3 최대 15초).")
 
-    with open(TEMPLATE, encoding="utf-8-sig") as handle:
-        p = json.load(handle)
+    def read_template():
+        with open(TEMPLATE, encoding="utf-8-sig") as handle:
+            return json.load(handle)
+    cached = build_cache.get if build_cache is not None else lambda key,read:read()
+    p = cached(("template",TEMPLATE),read_template)
 
     # --- 모델·샘플링·LoRA (값만 바꿈) ---
-    models = set(object_options("UNETLoader", "unet_name"))
+    models = cached(("options","models"),lambda:set(object_options("UNETLoader", "unet_name")))
     model = req.get("model") or p[LOADERS[1]]["inputs"]["unet_name"]
     if model not in models:
         raise ValueError(f"모델 파일이 목록에 없습니다: {model}")
-    mc = card_for("model", model)
+    mc = cached(("model",model),lambda:card_for("model", model))
     if mc["auto"].get("h3") is False or mc["auto"].get("fmt") == "gguf":
         raise ValueError(f"이 화면에서 쓸 수 없는 모델입니다: {mc['auto'].get('note')}")
     for k in LOADERS:
@@ -991,12 +995,12 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
     loras = [x for x in (req.get("loras") or []) if x.get("name")]
     if len(loras) > LORA_SLOTS:
         raise ValueError(f"LoRA 는 최대 {LORA_SLOTS}개까지입니다.")
-    known = set(object_options("LoraLoaderModelOnly", "lora_name"))
+    known = cached(("options","loras"),lambda:set(object_options("LoraLoaderModelOnly", "lora_name")))
     rows = []
     for x in loras:
         if x["name"] not in known:
             raise ValueError(f"LoRA 파일이 목록에 없습니다: {x['name']}")
-        if card_for("lora", x["name"])["auto"].get("h3") is False:
+        if cached(("lora",x["name"]),lambda:card_for("lora", x["name"]))["auto"].get("h3") is False:
             raise ValueError(f"H3 용이 아닌 LoRA 입니다: {x['name']}")
         rows.append({"on": True, "lora": x["name"], "str": float(x.get("strength", 1)), "vs": 1, "as": 1})
     rows += [{"on": True, "lora": "None", "str": 1, "vs": 1, "as": 1}] * (LORA_SLOTS - len(rows))
@@ -1078,9 +1082,13 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
     side_cache = {}
     def face_side_for(index):
         if FACE_SIDE_TOKEN not in text:
-            return None
+            return (reference["entry"].get("face_side") or None) if reference else None
         key = (names[index] if sequence else names[0])
         if key not in side_cache:
+            saved_side = (reference["entry"].get("face_side") or {}) if reference else {}
+            if saved_side.get("used") in ("left","right"):
+                side_cache[key] = dict(saved_side)
+                return side_cache[key]
             if reference:
                 try:
                     picture = input_bytes(imgs[0])
@@ -1131,11 +1139,19 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
                     p[ANCHOR_IMG]["inputs"]["image"] = job_names[0]
             p[SEED]["inputs"]["seed_value"] = s
             if prepare_only:
-                if count != 1 or edit_id:
+                if count != 1 or edit_id and not reference:
                     raise ValueError("별도 워크플로 준비는 한 편씩 진행합니다.")
-                return {"prompt":p,"images":list(names),"width":w,"height":h,"seed":s}
+                prepared = {"prompt":p,"images":list(names),"width":w,"height":h,"seed":s}
+                if edit_id:
+                    job = {"id":edit_id,"seed":s,"width":job_w,"height":job_h,"model":model,"steps":steps,
+                           "anchor":anchor,"face_side":face_side_for(0),"images":list(names),
+                           "sequence_index":reference["entry"].get("sequence_index")}
+                    entry = make_entries([job])[0]
+                    entry.update(t=reference["entry"]["t"],edited_at=time.time())
+                    prepared.update(job=job,entry=entry)
+                return prepared
             if edit_id:
-                r = replace_queued_prompt(edit_id, p)
+                r = replace_queued_prompt(edit_id, p, expected_graph=reference["prompt"] if reference else None)
             elif queue_first:
                 r = queue_prompt_first(p, slots=count, number=priority_number)
                 priority_number = r["number"] + 1
@@ -1189,6 +1205,30 @@ def bulk_queue_context():
     return {"ids": [pid for _, pid in owned], "total": len(owned), "first": first}
 
 
+def commit_bulk_history(changes):
+    with HLOCK:
+        by_id = {entry["id"]:entry for entry in HIST_DB}
+        for change in changes:
+            current = by_id.get(change["id"])
+            if current is None:continue  # Never resurrect deleted history.
+            # Status polling can observe a fast start/finish before this checkpoint.
+            status_keys = ("state","video","error","t_end","generation_started_at","generation_finished_at","generation_seconds")
+            status = {key:current[key] for key in status_keys if key in current} if current.get("state") in ("running","done") else {}
+            current.update(change["entry"])
+            if status:current.update(status)
+            else:current.pop("t_end",None)
+        _save_json(HIST,HIST_DB)
+    with PLOCK:
+        for change in changes:
+            if "prompt" in change:
+                classes = {key:node["class_type"] for key,node in change["prompt"].items() if isinstance(node,dict) and "class_type" in node}
+                if classes:PROGRESS.setdefault(change["id"],{"pct":0.0,"label":"대기"})["classes"] = classes
+
+
+def bulk_queue_editor():
+    return QueueBulkEditor(comfy,QUEUE_EDIT_LOCK,os.path.join(HERE,"queue-edit-recovery"),_save_json,commit_bulk_history)
+
+
 def bulk_edit_queue(req):
     ids = req.get("edit_ids")
     apply_current=req.get("apply_current",False)
@@ -1203,55 +1243,75 @@ def bulk_edit_queue(req):
         raise ValueError("적용할 수정 항목을 선택해 주세요.")
     if "anchor" in fields and not isinstance(req.get("anchor"), bool):
         raise ValueError("첫 장면 고정 상태가 올바르지 않습니다.")
+    incoming=req.get("ui") or {}
+    if not isinstance(incoming,dict) or not isinstance(incoming.get("f",{}),dict):
+        raise ValueError("현재 화면 설정 형식을 확인해 주세요.")
+    if "content" in fields and (not isinstance(req.get("prompt"),str) or not req["prompt"].strip()):
+        raise ValueError("프롬프트가 비어 있습니다.")
     pending = {item[1]: item for item in sorted(json.load(comfy("/queue"))["queue_pending"], key=lambda item: item[0])}
     with HLOCK:
-        entries = {e["id"]: json.loads(json.dumps(e)) for e in HIST_DB}
+        owned = {e["id"]: e for e in HIST_DB}
+        entries = {pid:json.loads(json.dumps(owned[pid])) for pid in (pending if all_pending else dict.fromkeys(ids)) if pid in owned}
     if all_pending:
         ids = [pid for pid in pending if pid in entries]
     with BULK_PROGRESS.operation(len(set(ids)),all_pending=all_pending) as report:
         updated, failed = [], []
+        cache = BuildCache()
+        editor = bulk_queue_editor()
+        staged = []
+        def flush():
+            if not staged:return
+            verified, errors = editor.apply(staged)
+            for change in verified:
+                updated.append(dict(change["job"],prompt_verified=True,loras=change["entry"].get("loras",[])))
+                report.advance(True,verified=True)
+            failed.extend(errors)
+            for error in errors:report.advance(False)
+            staged.clear()
         for pid in dict.fromkeys(ids):
             if pid not in pending or pid not in entries:
                 failed.append({"id": pid, "error": "이미 시작됐거나 대기열에서 빠진 항목입니다."})
                 report.advance(False)
                 continue
-            entry = entries[pid]
-            values = dict(entry, edit_id=pid, count=1, photo_sequence=False)
-            ui = json.loads(json.dumps(entry.get("ui") or {}))
-            form = dict(ui.get("f") or {})
-            incoming = req.get("ui") or {}
-            if "content" in fields:
-                values["prompt"] = req.get("prompt")
-                # 화면은 첫 대상의 사진 수 기준으로 얼굴 참조 문구를 만든다 → 대상의 사진 수에 맞는 버전으로 바꿔 쓴다
-                variants = req.get("prompt_by_count")
-                if isinstance(variants, dict) and entry.get("mode") == "REF2VA":
-                    chosen = variants.get(str(len(entry.get("images") or [])))
-                    if isinstance(chosen, str) and chosen.strip():
-                        values["prompt"] = chosen
-                for key in ("subject", "summary", "style", "keep", "sound", "music"):
-                    if key in incoming.get("f", {}): form[key] = incoming["f"][key]
-                for key in ("shots", "actionMode", "final", "oneTake"):
-                    if key in incoming: ui[key] = incoming[key]
-            if "model" in fields:
-                for key in ("model", "steps", "sampler", "scheduler", "shift_video", "shift_audio", "loras"):
-                    if key in req: values[key] = req[key]
-                if "trig" in incoming: ui["trig"] = incoming["trig"]
-            if "anchor" in fields:
-                values["anchor"] = req["anchor"]
-            if "video" in fields:
-                for key in ("aspect", "resolution", "duration"):
-                    if key in req:
-                        values[key] = req[key]
-                        form[key] = req[key]
-            ui["f"] = form
-            values["ui"] = ui
             try:
-                result = build_and_queue(values, reference={"entry": entry, "prompt": pending[pid][2]})
-                updated.extend(dict(job, loras=values.get("loras", [])) for job in result["jobs"])
-                report.advance(True,verified=bool(result["jobs"]) and all(job.get("prompt_verified") for job in result["jobs"]))
-            except (ValueError, OSError) as exc:
+                entry = entries[pid]
+                values = dict(entry, edit_id=pid, count=1, photo_sequence=False)
+                ui = json.loads(json.dumps(entry.get("ui") or {}))
+                if not isinstance(ui,dict) or not isinstance(ui.get("f",{}),dict):raise ValueError("저장된 화면 설정을 읽지 못했습니다.")
+                form = dict(ui.get("f") or {})
+                incoming = req.get("ui") or {}
+                if "content" in fields:
+                    values["prompt"] = req.get("prompt")
+                    # 화면은 첫 대상의 사진 수 기준으로 얼굴 참조 문구를 만든다 → 대상의 사진 수에 맞는 버전으로 바꿔 쓴다
+                    variants = req.get("prompt_by_count")
+                    if isinstance(variants, dict) and entry.get("mode") == "REF2VA":
+                        chosen = variants.get(str(len(entry.get("images") or [])))
+                        if isinstance(chosen, str) and chosen.strip():
+                            values["prompt"] = chosen
+                    for key in ("subject", "summary", "style", "keep", "sound", "music"):
+                        if key in incoming.get("f", {}): form[key] = incoming["f"][key]
+                    for key in ("shots", "actionMode", "final", "oneTake"):
+                        if key in incoming: ui[key] = incoming[key]
+                if "model" in fields:
+                    for key in ("model", "steps", "sampler", "scheduler", "shift_video", "shift_audio", "loras"):
+                        if key in req: values[key] = req[key]
+                    if "trig" in incoming: ui["trig"] = incoming["trig"]
+                if "anchor" in fields:
+                    values["anchor"] = req["anchor"]
+                if "video" in fields:
+                    for key in ("aspect", "resolution", "duration"):
+                        if key in req:
+                            values[key] = req[key]
+                            form[key] = req[key]
+                ui["f"] = form
+                values["ui"] = ui
+                result = build_and_queue(values, reference={"entry": entry, "prompt": pending[pid][2]},prepare_only=True,build_cache=cache)
+                staged.append({"id":pid,"before":pending[pid][2],"prompt":result["prompt"],"entry":result["entry"],"job":result["job"]})
+            except (ValueError, OSError, KeyError, TypeError, IndexError, AttributeError) as exc:
                 failed.append({"id": pid, "error": str(exc)})
                 report.advance(False)
+            if len(staged)>=25:flush()
+        flush()
         return {"jobs": updated, "failed": failed, "bulk_edit": True, "all_pending": all_pending, "apply_current":apply_current,"target_count": len(set(ids)), "verified_count": sum(bool(job.get("prompt_verified")) for job in updated)}
 
 
@@ -1555,7 +1615,7 @@ def production_write_api(path,args,snapshot):
             raise ValueError("교체할 문구를 확인해 주세요.")
         change={"prompt":full} if "prompt" in args else {"edits":edits}
         # One assistant action can target the whole queue. Keep each graph's own
-        # settings and perform the existing guarded edit for every pending target.
+        # settings; use the same bounded native transactions as the current-form button.
         if "ids" in args or "all_pending" in args:
             all_pending=args.get("all_pending",False);ids=args.get("ids")
             if type(all_pending) is not bool or args.get("id") or all_pending and ids is not None:
@@ -1564,26 +1624,46 @@ def production_write_api(path,args,snapshot):
                 raise ValueError("일괄 수정할 대기 항목을 지정해 주세요.")
             raw=json.load(comfy("/queue"))
             pending={row[1]:row for row in sorted(raw.get("queue_pending",[]),key=lambda row:row[0])}
-            with HLOCK:owned={entry["id"] for entry in HIST_DB}
+            with HLOCK:
+                owned={entry["id"] for entry in HIST_DB}
+                entries={entry["id"]:json.loads(json.dumps(entry)) for entry in HIST_DB if entry["id"] in pending}
             known={row["id"] for row in snapshot["items"] if row["state"]=="queued"}
             if not all_pending and any(pid not in known or pid not in owned for pid in ids):
                 raise ValueError("조회한 대기 항목만 지정 수정할 수 있습니다.")
             targets=[pid for pid in pending if pid in owned] if all_pending else list(dict.fromkeys(ids))
             with BULK_PROGRESS.operation(len(targets),all_pending=all_pending) as report:
-                jobs=[];failed=[]
+                jobs=[];failed=[];staged=[]
+                editor=bulk_queue_editor()
+                def flush():
+                    if not staged:return
+                    verified,errors=editor.apply(staged)
+                    for change in verified:
+                        jobs.append({"ok":True,"id":change["id"],"prompt_verified":True})
+                        report.advance(True,verified=True)
+                    failed.extend(errors)
+                    for error in errors:report.advance(False)
+                    staged.clear()
                 for pid in targets:
                     row=pending.get(pid)
                     if row is None:
                         failed.append({"id":pid,"error":"이미 시작됐거나 대기열에서 빠진 항목입니다."});report.advance(False);continue
-                    original=row[2][DIRECTOR]["inputs"]["prompt"]
-                    digest=snapshot.get("prompt_hashes",{}).get(pid) or hashlib.sha256(original.encode()).hexdigest()
-                    item_snapshot={**snapshot,"prompt_hashes":{pid:digest}}
                     try:
-                        jobs.append(production_write_api(path,{"id":pid,**change},item_snapshot))
-                        report.advance(True,verified=bool(jobs[-1].get("prompt_verified")))
-                    except (ValueError,OSError) as exc:
-                        failed.append({"id":pid,"error":str(exc)})
-                        report.advance(False)
+                        original=row[2][DIRECTOR]["inputs"]["prompt"]
+                        digest=snapshot.get("prompt_hashes",{}).get(pid)
+                        if digest and hashlib.sha256(original.encode()).hexdigest()!=digest:
+                            raise ValueError("조회 후 문구가 바뀌었습니다. 다시 조회해 주세요.")
+                        updated=full if "prompt" in args else original
+                        for edit in edits or []:updated=replacement(updated,edit["before"],edit["after"])
+                        graph=production_prompt_graph(row[2],updated)
+                        entry=json.loads(json.dumps(entries[pid]))
+                        entry.update(prompt=updated,edited_at=time.time())
+                        if not isinstance(entry.get("ui"),dict):entry["ui"]={}
+                        entry["ui"]["final"]=updated
+                        staged.append({"id":pid,"before":row[2],"prompt":graph,"entry":entry})
+                    except (ValueError,OSError,KeyError,TypeError,AttributeError) as exc:
+                        failed.append({"id":pid,"error":str(exc)});report.advance(False)
+                    if len(staged)>=25:flush()
+                flush()
                 return {"ok":not failed,"bulk_edit":True,"all_pending":all_pending,"target_count":len(targets),
                         "updated_count":len(jobs),"jobs":jobs,"failed":failed,
                         "verified_count":sum(bool(job.get("prompt_verified")) for job in jobs)}
@@ -1920,6 +2000,11 @@ class H(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    try:
+        recovered = bulk_queue_editor().recover({entry["id"]:entry for entry in HIST_DB})
+        if recovered:print(f"대기열 수정 이력 복구: {recovered}개",flush=True)
+    except (OSError,ValueError,KeyError,TypeError):
+        print("대기열 수정 이력 복구 보류: 복구 사본을 유지합니다.",flush=True)
     for client_id in set([CLIENT_ID, *RESTART_CLIENT_IDS]):
         threading.Thread(target=ws_loop, args=(client_id,), daemon=True).start()
     threading.Thread(target=fetch_worker, daemon=True).start()

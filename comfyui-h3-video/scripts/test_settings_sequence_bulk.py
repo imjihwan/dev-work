@@ -23,8 +23,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = Path(os.environ.get("REFERENCE_TEST_SOURCE", ROOT / "simple_ui"))
 sys.path.insert(0,str(SOURCE))
 from bulk_progress import BulkProgress
+from queue_bulk import BuildCache, QueueBulkEditor
 TREE = ast.parse((SOURCE / "server.py").read_text(encoding="utf-8"))
-NAMES = {"_load_json", "_save_json", "save_settings", "rename_settings", "delete_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "bulk_edit_queue", "bulk_queue_context", "judge_face_side", "prepare_photo_reference", "pooled_photo_reference", "release_photo_references"}
+NAMES = {"_load_json", "_save_json", "save_settings", "rename_settings", "delete_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "bulk_edit_queue", "bulk_queue_context", "commit_bulk_history", "bulk_queue_editor", "judge_face_side", "prepare_photo_reference", "pooled_photo_reference", "release_photo_references"}
 
 
 class FeatureTests(unittest.TestCase):
@@ -32,7 +33,7 @@ class FeatureTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.sent, self.uploaded, self.edited = [], [], []
-        self.env = {"BULK_PROGRESS":BulkProgress(),"json":json, "os":os, "random":random, "re":re, "time":time, "uuid":uuid, "base64":base64, "io":io,
+        self.env = {"BULK_PROGRESS":BulkProgress(),"BuildCache":BuildCache,"QueueBulkEditor":QueueBulkEditor,"QUEUE_EDIT_LOCK":threading.Lock(),"json":json, "os":os, "random":random, "re":re, "time":time, "uuid":uuid, "base64":base64, "io":io,
                     "urllib":urllib, "Image":Image, "ImageOps":ImageOps, "ROOT":self.tmp.name, "HERE":self.tmp.name, "CLIENT_ID":"test-client",
                     "HLOCK":threading.Lock(), "PLOCK":threading.Lock(), "SETTINGS_LOCK":threading.Lock(), "PHOTO_REFERENCE_LOCK":threading.Lock(),
                     "HIST_DB":[], "HIST_MAX":1000, "PROGRESS":{},
@@ -60,6 +61,8 @@ class FeatureTests(unittest.TestCase):
                 exec(compile(ast.Module(body=[node],type_ignores=[]),"constant","exec"),self.env)
         functions=[n for n in TREE.body if isinstance(n,ast.FunctionDef) and n.name in NAMES]
         exec(compile(ast.Module(body=functions,type_ignores=[]),"features","exec"),self.env)
+        self.real_editor=self.env["bulk_queue_editor"]
+        self.env["bulk_queue_editor"]=lambda:SimpleNamespace(apply=self.bulk_replace)
         self.photos=[]
         for i in range(5):
             output=io.BytesIO();Image.new("RGB",(16+i,8+i),(i*30,20,40)).save(output,format="PNG")
@@ -79,9 +82,20 @@ class FeatureTests(unittest.TestCase):
             return self.response({"queue_pending":[[i,pid,p["prompt"],{},[]] for i,(pid,p) in enumerate(self.sent)],"queue_running":[]})
         raise AssertionError(path)
 
-    def replace(self, pid, prompt):
+    def replace(self, pid, prompt, expected_graph=None):
         self.edited.append((pid,json.loads(json.dumps(prompt))))
         return {"prompt_id":pid,"node_errors":{},"prompt_verified":True}
+
+    def bulk_replace(self, changes):
+        verified,failed=[],[]
+        for change in changes:
+            try:
+                r=self.env['replace_queued_prompt'](change['id'],change['prompt'])
+                if not r.get('prompt_verified'):raise ValueError('Synthetic unverified edit')
+                verified.append(change)
+            except (OSError,ValueError) as exc:failed.append({'id':change['id'],'error':str(exc)})
+        if verified:self.env['commit_bulk_history'](verified)
+        return verified,failed
 
     def request(self, **changes):
         req={"images":self.photos,"prompt":"safe test prompt","mode":"REF2VA","model":"test-model.safetensors",
@@ -303,6 +317,93 @@ class FeatureTests(unittest.TestCase):
             with self.assertRaises(ValueError):self.env['bulk_edit_queue'](request)
         self.assertEqual(self.edited,[])
 
+    def test_full_six_hundred_pipeline_caches_common_options_and_preserves_all_identities(self):
+        import copy
+        from test_queue_bulk import Backend
+        self.sequence(anchor=True)
+        originals=copy.deepcopy(self.env['HIST_DB'])
+        graphs=[copy.deepcopy(body['prompt']) for _,body in self.sent]
+        backend=Backend(0)
+        records=[]
+        for index in range(600):
+            entry=copy.deepcopy(originals[index%5]);entry.update(id=f'synthetic-{index}',seed=1000+index)
+            graph=copy.deepcopy(graphs[index%5]);graph[self.env['SEED']]['inputs']['seed_value']=entry['seed']
+            records.append(entry)
+            backend.pending.append([index,entry['id'],graph,{'synthetic_metadata':index},[]])
+        # One running job and one foreign job must remain completely unchanged.
+        backend.running=[[-1,'running',copy.deepcopy(graphs[0]),{},[]]]
+        backend.pending.append([601,'foreign',copy.deepcopy(graphs[0]),{},[]])
+        self.env['HIST_DB'][:]=copy.deepcopy(records)+[dict(copy.deepcopy(originals[0]),id='running')]
+        before=copy.deepcopy(backend.pending);running=copy.deepcopy(backend.running)
+        self.env.update(comfy=backend.request,bulk_queue_editor=self.real_editor)
+        saves=[];options=[];cards=[]
+        original_save=self.env['_save_json']
+        def save(path,value):
+            if path==self.env['HIST']:saves.append(1)
+            original_save(path,value)
+        def options_for(cls,field):
+            options.append((cls,field))
+            return ['other-model.safetensors'] if cls=='UNETLoader' else ['synthetic-a','synthetic-b','synthetic-c']
+        def card(kind,name):
+            cards.append((kind,name));return {'auto':{'h3':True,'fmt':'int8'}}
+        self.env.update(_save_json=save,object_options=options_for,card_for=card)
+        loras=[{'name':name,'strength':0.5} for name in ['synthetic-a','synthetic-b','synthetic-c']]
+        request=self.request(all_pending=True,apply_current=True,images=[],prompt='Current synthetic action.',
+            anchor=False,model='other-model.safetensors',steps=8,loras=loras,duration=3,seed='999999',
+            ui={'f':{'summary':'Current synthetic action.','style':'Current synthetic camera.','keep':'Current synthetic retention.'},
+                'shots':[[0,'Current synthetic action.']],'final':None,'actionMode':'single','oneTake':True,'trig':True})
+        outcome=self.env['bulk_edit_queue'](request)
+        self.assertEqual(outcome['verified_count'],600);self.assertEqual(outcome['failed'],[])
+        self.assertEqual(outcome['target_count'],600)
+        self.assertEqual(len(saves),24);self.assertEqual(len(options),2);self.assertEqual(len(cards),4)
+        self.assertEqual(sum(path=='/queue' and body is None for path,body in backend.calls),49)
+        rows={row[1]:row for row in backend.pending};saved={e['id']:e for e in self.env['HIST_DB']}
+        for old,prior in zip(records,before):
+            row=rows[old['id']];entry=saved[old['id']]
+            self.assertEqual(row[:2],prior[:2]);self.assertEqual(row[3:],prior[3:])
+            for key in ('images','seed','mode','sequence_index','t'):self.assertEqual(entry[key],old[key])
+            self.assertEqual(entry['prompt'],request['prompt']);self.assertEqual(entry['steps'],8)
+            self.assertEqual(entry['loras'],loras);self.assertFalse(entry['anchor'])
+            director=row[2][self.env['DIRECTOR']]['inputs']
+            self.assertEqual(director['prompt'],request['prompt'])
+            self.assertEqual(json.loads(director['timeline_data'])['resolved_prompt'],request['prompt'])
+            self.assertEqual(row[2][self.env['SEED']]['inputs']['seed_value'],old['seed'])
+            self.assertNotIn(self.env['ANCHOR'],row[2])
+        self.assertEqual(backend.running,running);self.assertEqual(rows['foreign'],before[-1])
+        progress=self.env['BULK_PROGRESS'].snapshot()
+        self.assertEqual(progress['state'],'done');self.assertEqual(progress['verified'],600)
+        self.assertEqual(list(Path(self.tmp.name).glob('queue-edit-recovery/*.json')),[])
+
+    def test_corrupt_saved_ui_fails_only_that_item_and_does_not_abort_other_changes(self):
+        self.sequence();self.env['HIST_DB'][2]['ui']=['invalid']
+        result=self.env['bulk_edit_queue'](self.request(all_pending=True,bulk_fields=['model'],steps=8))
+        self.assertEqual(len(result['jobs']),4);self.assertEqual(len(result['failed']),1)
+        self.assertEqual(self.env['BULK_PROGRESS'].snapshot()['processed'],5)
+
+    def test_bulk_reuses_recorded_direction_without_reading_any_reference_image(self):
+        self.sequence()
+        for entry in self.env['HIST_DB']:entry['face_side']={'side':'left','used':'left','offset':-0.2}
+        def forbidden(name):raise AssertionError('Existing direction must not read an image')
+        self.env['input_bytes']=forbidden
+        result=self.env['bulk_edit_queue'](self.request(all_pending=True,bulk_fields=['content'],prompt='Synthetic {{face_side}} direction.'))
+        self.assertEqual(len(result['jobs']),5)
+        for _,graph in self.edited:self.assertEqual(graph[self.env['DIRECTOR']]['inputs']['prompt'],'Synthetic left direction.')
+
+    def test_model_only_bulk_keeps_recorded_direction_even_without_a_placeholder(self):
+        self.sequence()
+        saved={'side':'left','used':'left','offset':-0.2}
+        for entry in self.env['HIST_DB']:entry['face_side']=dict(saved)
+        result=self.env['bulk_edit_queue'](self.request(all_pending=True,bulk_fields=['model'],steps=8))
+        self.assertEqual(len(result['jobs']),5)
+        for entry in self.env['HIST_DB']:self.assertEqual(entry['face_side'],saved)
+
+    def test_bulk_metadata_checkpoint_keeps_fast_finish_status_and_timing(self):
+        self.sequence();entry=self.env['HIST_DB'][0]
+        entry.update(state='done',video={'synthetic':True},generation_started_at=10,generation_finished_at=15,generation_seconds=5,t_end=15)
+        proposed={**entry,'state':'queued','video':None,'prompt':'New synthetic prompt.'}
+        self.env['commit_bulk_history']([{'id':entry['id'],'entry':proposed}])
+        self.assertEqual(entry['state'],'done');self.assertEqual(entry['video'],{'synthetic':True});self.assertEqual(entry['generation_seconds'],5)
+
     def test_sequence_cannot_replace_one_existing_job(self):
         with self.assertRaises(ValueError): self.env["build_and_queue"](self.request(photo_sequence=True,edit_id="existing"))
         self.assertEqual(self.sent,[])
@@ -372,6 +473,11 @@ class FeatureTests(unittest.TestCase):
             if path=='/queue':
                 pending=[row for row in pending if row[1] not in body['delete']]
                 return io.BytesIO(b'')
+            if path.startswith('/api/jobs/'):
+                pid=path.rsplit('/',1)[1]
+                if any(row[1]==pid for row in running):return self.response({'id':pid,'status':'in_progress'})
+                if any(row[1]==pid for row in pending):return self.response({'id':pid,'status':'pending'})
+                raise urllib.error.HTTPError(path,404,'Absent',{},self.response({'error':'Job not found'}))
             if path.startswith('/history/'):return self.response({})
             if path=='/prompt':
                 graph=originals[bad][2] if body['prompt_id']==bad else body['prompt']
@@ -379,7 +485,7 @@ class FeatureTests(unittest.TestCase):
                 return self.response({'prompt_id':body['prompt_id'],'node_errors':{}})
             raise AssertionError(path)
         function=next(node for node in TREE.body if isinstance(node,ast.FunctionDef) and node.name=='replace_queued_prompt')
-        self.env.update(comfy=native,QUEUE_EDIT_LOCK=threading.Lock())
+        self.env.update(comfy=native,QUEUE_EDIT_LOCK=threading.Lock(),bulk_queue_editor=self.real_editor)
         exec(compile(ast.Module(body=[function],type_ignores=[]),'native-queue-replace','exec'),self.env)
         request=self.request(all_pending=True,bulk_fields=['content'],prompt='New synthetic final action.',
                              ui={'f':{'summary':'New synthetic action.'},'shots':[[0,'New synthetic action.']],'final':None})

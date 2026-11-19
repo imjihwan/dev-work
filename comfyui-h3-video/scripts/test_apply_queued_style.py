@@ -212,7 +212,10 @@ class StyleTests(unittest.TestCase):
         pending = [copy.deepcopy(self.item), [8, "foreign", {"untouched": True}, {}, []]]
         before_foreign = copy.deepcopy(pending[1])
         calls = []
-        env.update(HIST_DB=history, HLOCK=threading.Lock(), PLOCK=threading.Lock(), HIST=str(self.home / "history.json"),
+        from simple_ui.bulk_progress import BulkProgress
+        from simple_ui.queue_bulk import BuildCache
+        from types import SimpleNamespace
+        env.update(BULK_PROGRESS=BulkProgress(),BuildCache=BuildCache,HIST_DB=history, HLOCK=threading.Lock(), PLOCK=threading.Lock(), HIST=str(self.home / "history.json"),
                    PROGRESS={}, time=time)
         def save(path, value):
             Path(path).write_text(json.dumps(value), encoding="utf-8")
@@ -222,11 +225,16 @@ class StyleTests(unittest.TestCase):
         def replace(identity, graph):
             item = next(item for item in pending if item[1] == identity)
             item[2] = copy.deepcopy(graph)
-            return {"prompt_id": identity}
+            return {"prompt_id": identity,"prompt_verified":True}
         env["replace_queued_prompt"] = replace
         tree = ast.parse((self.home / "server.py").read_text(encoding="utf-8"))
-        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "bulk_edit_queue")
-        exec(compile(ast.Module(body=[function], type_ignores=[]), "synthetic-bulk", "exec"), env)
+        functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in ("bulk_edit_queue","commit_bulk_history")]
+        exec(compile(ast.Module(body=functions, type_ignores=[]), "synthetic-bulk", "exec"), env)
+        def apply(changes):
+            for change in changes:replace(change['id'],change['prompt'])
+            env['commit_bulk_history'](changes)
+            return changes,[]
+        env['bulk_queue_editor']=lambda:SimpleNamespace(apply=apply)
         def request(url, body=None):
             calls.append((url, body is not None))
             if url.endswith("/queue"):

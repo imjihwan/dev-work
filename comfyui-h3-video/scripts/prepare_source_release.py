@@ -12,7 +12,7 @@ ROOT_FILES = (
     "Start-H3-Video.ps1", "Stop-H3-Video.ps1", "Restart-H3-UI.ps1", "Complete-Models.ps1", "Connect-Grok.ps1",
 )
 UI_FILES = (
-    "server.py", "index.html", "start.bat", "template_api.json", "bulk_progress.py", "bulk-progress.js",
+    "server.py", "queue_bulk.py", "index.html", "start.bat", "template_api.json", "bulk_progress.py", "bulk-progress.js",
     "cards.seed.json", "presets.seed.json", "prompt_helper.py", "grok_cli.py", "production_assistant.py", "production_assistant.js", "production_chat.py", "local_translate.py", "translation_worker.py",
     "story.py", "story_workflow.py", "story.html", "gallery.py", "gallery.html", "face_references.py",
 )
@@ -31,7 +31,7 @@ SCRIPT_FILES = (
     "test_history_delete.py", "test_gallery_ui.cjs", "test_gallery_thumbnails.cjs", "test_gallery_navigation.cjs", "test_gallery_regenerate.py",
     "test_gallery_progress.py", "test_settings_sequence_bulk.py", "test_generation_timing.py",
     "test_restore_anchored_reference.py", "test_restart_running.py",
-    "test_reference_restore.cjs", "test_queue_edit.py", "test_prompt_sync.cjs", "test_priority_queue.py",
+    "test_reference_restore.cjs", "test_queue_edit.py", "test_queue_bulk.py", "test_prompt_sync.cjs", "test_priority_queue.py",
     "test_ui_features.cjs", "test_story_ui.cjs", "test_story_routes.py", "test_story.py", "test_reference_images.cjs", "test_playback_preferences.cjs",
 )
 PUBLIC_FILES = tuple(ROOT_FILES) + THIRD_PARTY_FILES + tuple("simple_ui/"+name for name in UI_FILES) + tuple(

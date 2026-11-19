@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 import urllib
 from unittest.mock import patch
@@ -54,7 +55,7 @@ class RestartGuardTests(unittest.TestCase):
 
     def test_execution_start_resets_monotonic_old_progress(self):
         functions=[node for node in TREE.body if isinstance(node,ast.FunctionDef) and node.name in ('_bump','_on_message')]
-        self.env.update(PLOCK=threading.Lock(),PROGRESS={'fixture':{'pct':91,'classes':{}}})
+        self.env.update(time=time,HLOCK=threading.Lock(),HIST_DB=[],PLOCK=threading.Lock(),PROGRESS={'fixture':{'pct':91,'classes':{}}})
         exec(compile(ast.Module(body=functions,type_ignores=[]),'<progress>','exec'),self.env)
         self.env['_on_message']({'type':'execution_start','data':{'prompt_id':'fixture'}})
         self.assertEqual(self.env['PROGRESS']['fixture']['pct'],1)

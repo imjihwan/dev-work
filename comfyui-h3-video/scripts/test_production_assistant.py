@@ -368,8 +368,25 @@ class NativeBridgeTests(unittest.TestCase):
         self.replace=MagicMock(return_value={'prompt_verified':True})
         self.env={'json':json,'hashlib':hashlib,'time':__import__('time'),'urllib':urllib,'comfy':comfy,'HLOCK':threading.Lock(),'PLOCK':threading.Lock(),'QUEUE_EDIT_LOCK':threading.Lock(),'HIST_DB':self.db,'PROGRESS':{'b':{'pct':12}},'DIRECTOR':'director','PRODUCTION_READS':P.READS,'PRODUCTION_WRITES':P.WRITES,'_status':lambda pid,queue:{'state':'unknown'},'hist_result':MagicMock(),'replace_queued_prompt':self.replace,'_save_json':MagicMock(),'HIST':'SYNTHETIC','PORT':8190}
         self.env['BULK_PROGRESS']=BulkProgress()
-        source=ast.parse((SOURCE/'server.py').read_text(encoding='utf-8-sig'));functions=[item for item in source.body if isinstance(item,ast.FunctionDef) and item.name.startswith('production_')]
+        source=ast.parse((SOURCE/'server.py').read_text(encoding='utf-8-sig'));functions=[item for item in source.body if isinstance(item,ast.FunctionDef) and (item.name.startswith('production_') or item.name=='commit_bulk_history')]
         exec(compile(ast.Module(body=functions,type_ignores=[]),'<synthetic native bridge>','exec'),self.env)
+        from types import SimpleNamespace
+        self.env['bulk_queue_editor']=lambda:SimpleNamespace(apply=self.apply_bulk)
+
+    def apply_bulk(self, changes):
+        state=json.load(self.env['comfy']('/queue'))
+        pending={row[1]:row for row in state['queue_pending']}
+        verified=[];failed=[]
+        for change in changes:
+            if change['id'] not in pending or pending[change['id']][2]!=change['before']:
+                failed.append({'id':change['id'],'error':'Synthetic race'});continue
+            try:
+                result=self.replace(change['id'],change['prompt'],expected_graph=change['before'])
+                if not result.get('prompt_verified'):raise ValueError('Synthetic verification failed')
+                verified.append(change)
+            except (OSError,ValueError) as exc:failed.append({'id':change['id'],'error':str(exc)})
+        if verified:self.env['commit_bulk_history'](verified)
+        return verified,failed
 
     def with_builder(self):
         text=self.graph['director']['inputs']['prompt']
@@ -468,6 +485,39 @@ class NativeBridgeTests(unittest.TestCase):
             self.assertEqual(call.kwargs['expected_graph']['director']['inputs']['prompt'],f'Unique scene {number}. Common text.')
         self.assertEqual(self.db[0]['images'],['PRIVATE_PHOTO']);self.assertEqual([r[1] for r in self.raw['queue_pending']], [f'job-{n}' for n in range(25)]+['foreign'])
         self.assertEqual(self.raw['queue_running'][0][1],'running')
+
+    def test_real_six_hundred_assistant_batch_uses_shared_editor_and_preserves_graph_settings(self):
+        from queue_bulk import QueueBulkEditor
+        from test_queue_bulk import Backend
+        import tempfile,copy
+        backend=Backend(0);self.db.clear()
+        for index in range(600):
+            graph={'director':{'inputs':{'prompt':f'Synthetic scene {index}. Common text.'}},'other':{'inputs':{'seed':index}}}
+            backend.pending.append([index,f'synthetic-{index}',graph,{'synthetic_metadata':index},[]])
+            self.db.append({'id':f'synthetic-{index}','images':['SYNTHETIC'],'ui':{'f':{'summary':'Synthetic'}},'seed':index})
+        backend.running=[[-1,'running',copy.deepcopy(backend.pending[0][2]),{},[]]]
+        self.env['comfy']=backend.request
+        with tempfile.TemporaryDirectory() as tmp:
+            def save(path,value):
+                from pathlib import Path
+                Path(path).write_text(json.dumps(value),encoding='utf8')
+            self.env['bulk_queue_editor']=lambda:QueueBulkEditor(backend.request,self.env['QUEUE_EDIT_LOCK'],tmp,save,self.env['commit_bulk_history'])
+            snapshot={'items':[],'prompt_hashes':{}}
+            result=self.env['production_write_api']('/api/production-assistant/patch-queue',
+                {'all_pending':True,'edits':[{'before':'Common text.','after':'Updated common text.'}]},snapshot)
+        self.assertEqual(result['verified_count'],600);self.assertEqual(result['failed'],[])
+        self.assertEqual(sum(path=='/queue' and body is None for path,body in backend.calls),49)
+        self.assertEqual(self.env['_save_json'].call_count,24)
+        self.assertEqual(backend.running[0][1],'running')
+        saved={entry['id']:entry for entry in self.db}
+        for row in backend.pending:
+            index=row[0];text=f'Synthetic scene {index}. Updated common text.'
+            self.assertEqual(row[2]['director']['inputs']['prompt'],text)
+            self.assertEqual(row[2]['other']['inputs']['seed'],index)
+            self.assertEqual(saved[row[1]]['seed'],index)
+            self.assertEqual(saved[row[1]]['images'],['SYNTHETIC'])
+            self.assertEqual(saved[row[1]]['ui']['final'],text)
+        self.assertEqual(self.env['BULK_PROGRESS'].snapshot()['verified'],600)
 
     def test_selected_batch_reports_mismatches_and_does_not_touch_foreign_jobs(self):
         self.raw['queue_pending'].append([2,'c',{'director':{'inputs':{'prompt':'Different content.'}}},{},[]]);self.db.append({'id':'c'})
