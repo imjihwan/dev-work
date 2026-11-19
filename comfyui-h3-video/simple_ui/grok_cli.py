@@ -19,6 +19,12 @@ FAILURE_MESSAGES={
     "read_error":"Grok CLI 응답을 읽는 중 연결 오류가 발생했습니다.",
     "stream_size_limit":"Grok 응답이 수신 크기 제한을 넘었습니다.",
     "invalid_init":"Grok CLI의 로그인·도구 실행 환경을 확인하지 못했습니다.",
+    "init_auth_source":"Grok CLI가 구독 OAuth 인증으로 시작되지 않았습니다.",
+    "init_tools_present":"Grok CLI가 앱 전용 연결에 허용되지 않은 도구를 활성화했습니다.",
+    "init_skills_present":"Grok CLI가 앱 전용 연결에 허용되지 않은 스킬을 활성화했습니다.",
+    "init_mcp_present":"Grok CLI가 앱 전용 연결에 허용되지 않은 MCP 연결을 활성화했습니다.",
+    "init_changed":"Grok CLI가 응답 도중 다른 실행 환경으로 전환됐습니다.",
+    "init_after_result":"Grok CLI가 최종 응답 뒤에 시작 알림을 반환했습니다.",
     "provider_error_event":"Grok CLI가 오류 응답을 반환했습니다.",
     "unexpected_user_event":"Grok CLI 응답에 예상하지 않은 중간 대화 이벤트가 포함됐습니다.",
     "tool_event":"Grok이 JSON 변경안 대신 도구 호출 형식으로 응답했습니다.",
@@ -77,7 +83,8 @@ class GrokCLI:
     def _record_metrics(self, metrics):
         """A small numeric-only history. Never persist prompts or raw provider events."""
         allowed = {"at", "model", "effort", "elapsed_s", "limit_s", "request_bytes", "outcome", "exit_code",
-                   "reported_api_ms", "cli_ms", "turns", "input_tokens", "output_tokens", "failure_reason"}
+                   "reported_api_ms", "cli_ms", "turns", "input_tokens", "output_tokens", "failure_reason",
+                   "init_events", "init_tools_count", "init_skills_count", "init_mcp_count", "init_empty_fields_omitted"}
         record = {key: value for key, value in metrics.items() if key in allowed}
         if record.get("failure_reason") not in FAILURE_MESSAGES:record.pop("failure_reason",None)
         if not self.home.is_dir(): return
@@ -197,9 +204,23 @@ class GrokCLI:
                         if not isinstance(event, dict): invalid("event_not_object")
                         event_type = event.get("type")
                         if event_type == "system" and event.get("subtype") == "init":
-                            initial.append(event)
-                            if len(initial) != 1 or results or any(event.get(key) != [] for key in ("tools", "skills", "mcp_servers")) or event.get("apiKeySource") != "oauth": invalid("invalid_init")
-                            stage = "waiting"
+                            if results:invalid("init_after_result")
+                            metrics["init_events"]=metrics.get("init_events",0)+1
+                            metrics["init_empty_fields_omitted"]=sum(event.get(key) is None for key in ("tools","skills","mcp_servers"))
+                            for key,field,reason in (("tools","init_tools_count","init_tools_present"),("skills","init_skills_count","init_skills_present"),("mcp_servers","init_mcp_count","init_mcp_present")):
+                                value=event.get(key)
+                                metrics[field]=len(value) if isinstance(value,(list,dict)) else 0 if value is None else -1
+                                if value not in (None,[],{}):invalid(reason)
+                            if event.get("apiKeySource")!="oauth":invalid("init_auth_source")
+                            # Empty/missing collections express the same no-tools
+                            # environment. Repeated identical init notices are inert.
+                            normalized={"tools":[],"skills":[],"mcp_servers":[],"apiKeySource":"oauth","model":event.get("model")}
+                            if initial:
+                                old_model=initial[0].get("model");new_model=normalized.get("model")
+                                if old_model is not None and new_model is not None and old_model!=new_model:invalid("init_changed")
+                                if old_model is None:initial[0]["model"]=new_model
+                            else:
+                                initial.append(normalized);stage="waiting"
                         elif event_type == "result":
                             results.append(event)
                             if len(results) != 1: invalid("duplicate_result")

@@ -118,6 +118,32 @@ class GrokTests(unittest.TestCase):
         with patch.object(c,"ready",return_value=True),patch("grok_cli.subprocess.Popen",return_value=process):
             self.assertEqual(c.complete("Static",{"idea":"SYNTHETIC"},helper.GROK_REPLY_SCHEMA,threading.Event()),good)
 
+    def test_empty_init_variants_and_identical_duplicate_notices_are_compatible(self):
+        init={'type':'system','subtype':'init','apiKeySource':'oauth','model':'grok-4.7'}
+        result={'type':'result','stop_reason':'end_turn','structured_output':{'reply':'Synthetic'}}
+        cases=[[init,result],[{**init,'tools':None,'skills':{},'mcp_servers':[]},result],
+               [init,{**init,'tools':[],'skills':[],'mcp_servers':[]},result],
+               [{k:v for k,v in init.items() if k!='model'},init,result]]
+        for events in cases:
+            c=GrokCLI('synthetic');process=MagicMock();process.stdout=io.BytesIO(b'\n'.join(json.dumps(e).encode() for e in events));process.poll.return_value=0;process.returncode=0
+            with patch.object(c,'ready',return_value=True),patch.object(c,'_record_metrics') as record,patch('grok_cli.subprocess.Popen',return_value=process):
+                self.assertEqual(c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event()),{'reply':'Synthetic'})
+            self.assertEqual(record.call_args.args[0]['outcome'],'ok')
+
+    def test_init_failure_has_exact_reason_without_auth_or_tool_details(self):
+        first=json.loads(wire({}).splitlines()[0]);result=json.loads(wire({}).splitlines()[1])
+        cases=[([{**first,'tools':['PRIVATE_TOOL']},result],'init_tools_present'),
+               ([{**first,'skills':['PRIVATE_SKILL']},result],'init_skills_present'),
+               ([{**first,'mcp_servers':[{'name':'PRIVATE_MCP'}]},result],'init_mcp_present'),
+               ([{**first,'apiKeySource':'user'},result],'init_auth_source'),
+               ([{**first,'model':'grok-4.7'},{**first,'model':'other-model'},result],'init_changed'),
+               ([first,result,first],'init_after_result')]
+        for events,reason in cases:
+            c=GrokCLI('synthetic');process=MagicMock();process.stdout=io.BytesIO(b'\n'.join(json.dumps(e).encode() for e in events));process.poll.return_value=0;process.returncode=0
+            with patch.object(c,'ready',return_value=True),patch.object(c,'_record_metrics') as record,patch('grok_cli.subprocess.Popen',return_value=process):
+                with self.assertRaises(ValueError) as error:c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event())
+            self.assertEqual(record.call_args.args[0]['failure_reason'],reason);self.assertNotIn('PRIVATE',str(error.exception));self.assertNotIn('PRIVATE',json.dumps(record.call_args.args[0]))
+
     def test_cancelled_response_is_never_returned(self):
         c=GrokCLI("synthetic");cancel=threading.Event();cancel.set();process=MagicMock();process.poll.return_value=None;process.stdout=io.BytesIO(b'')
         with patch.object(c,"ready",return_value=True),patch("grok_cli.subprocess.Popen",return_value=process):
