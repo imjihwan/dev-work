@@ -211,7 +211,6 @@ a{color:var(--acc)}
 .hmeta{font-size:12px;color:var(--mute);margin-top:2px}
 .hmeta .bad{color:var(--warn)}
 .history-time-range{display:block;font-size:13px;line-height:1.5;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-.history-runtime{font-size:12px;color:var(--mute);margin-top:2px;font-variant-numeric:tabular-nums}
 .history-meta-details{margin-top:5px}
 .history-meta-details>summary{font-size:12px;color:var(--mute);cursor:pointer;width:fit-content}
 .history-expanded{font-size:12px;overflow-wrap:anywhere}
@@ -2124,8 +2123,8 @@ const RES_NAME = {draft: "초안", auto: "기본", "720p": "720p", "1080p": "108
 const HSTATE = {queued: "대기", running: "만드는 중", error: "실패", lost: "결과 없음"};
 function generationTimeLabel(seconds){
   if(typeof seconds!=="number"||!Number.isFinite(seconds)||seconds<0)return "";
-  if(seconds<1)return "생성 소요 1초 미만";
-  return "생성 소요 "+Math.round(seconds).toLocaleString("ko-KR")+"초";
+  const n=Math.round(seconds);
+  return String(Math.floor(n/60)).padStart(2,"0")+":"+String(n%60).padStart(2,"0");
 }
 function historyTimeRange(e){
   const format=stamp=>{
@@ -2133,10 +2132,10 @@ function historyTimeRange(e){
     const d=new Date(stamp*1000);if(!Number.isFinite(d.getTime()))return "";
     return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
   };
-  const started=format(e.generation_started_at),finished=format(e.generation_finished_at);
-  const end=finished||({queued:"대기 중",running:"생성 중",done:"완료 시각 기록 없음",error:"종료 시각 기록 없음",lost:"완료 시각 기록 없음"})[e.state]||"완료 시각 기록 없음";
+  const started=format(e.generation_started_at);
+  const end=(["done","error"].includes(e.state)?generationTimeLabel(e.generation_seconds):"")||({queued:"대기 중",running:"생성 중"})[e.state]||"소요 시간 기록 없음";
   return {text:`${started||format(e.t)||"시각 기록 없음"} – ${end}`,
-    title:started?"실제 생성 시작 시각 – 종료 시각":"시작 시각 기록이 없어 등록 시각을 표시합니다. 완료 시각은 실제 실행 기록이 있을 때 표시합니다."};
+    title:started?"실제 생성 시작 시각 – 소요 시간(분:초, 대기 시간 제외)":"시작 시각 기록이 없어 등록 시각을 표시합니다. 소요 시간은 분:초 형식이며 대기 시간은 제외합니다."};
 }
 function histModelName(name){ const m = CAT?.models.find(x => x.name === name); return m ? friendlyModel(m) : base(name); }
 function histTitle(e){ return e.ui?.f?.summary?.trim() || (e.prompt || "").split("\n").find(l => l.startsWith("summary:"))?.slice(8).trim() || "(요약 없음)"; }
@@ -2444,10 +2443,9 @@ function drawHist(){
   $("histList").innerHTML = HIST.items.map((e, i) => {
     const range=historyTimeRange(e);
     const queueLabel = e.state === "queued" ? (e.position ? `대기 ${e.position}번` : "대기 중") : "";
-    const elapsed=["done","error"].includes(e.state)?generationTimeLabel(e.generation_seconds)||"소요 시간 기록 없음":"";
     const err = e.error && e.state !== "done" ? `<br><span class="bad">${esc(e.error)}</span>` : "";
     return `<div class="hrow" data-history-id="${esc(e.id)}">${historyThumb(e)}<div>
-      <strong class="history-time-range" title="${esc(range.title)}">${esc(range.text)}</strong>${elapsed?`<div class="history-runtime">${esc(elapsed)}</div>`:""}
+      <strong class="history-time-range" title="${esc(range.title)}">${esc(range.text)}</strong>
       <div class="htitle">${e.video ? `<label class="compare-choice"><input type="checkbox" data-compare="${esc(e.id)}" aria-label="함께 재생할 영상 선택" ${VIDEO_COMPARE.selected.has(e.id)?"checked":""}></label><button type="button" class="textbtn history-play-selected" data-play-selected="${esc(e.id)}" title="체크한 영상 재생 · 선택이 없으면 이 영상 재생">재생</button>` : ""}${e.state === "queued" ? `<input type="checkbox" data-select="${esc(e.id)}" aria-label="대기 항목 선택" ${HIST.selected.has(e.id) ? "checked" : ""}> ` : ""}${queueLabel ? `<span class="queue-number">${queueLabel}</span>` : ""}</div>${err?`<div class="hmeta">${err}</div>`:""}
       <details class="history-meta-details" ${expanded.has(e.id)?"open":""}><summary data-history-peek>확장 정보</summary><div class="history-expanded">${historySettingsHtml(e)}</div></details>
       <div class="hact">${e.video ? `<a class="textbtn" href="${vurl(e.video,1)}">다운로드</a>` : ""}
