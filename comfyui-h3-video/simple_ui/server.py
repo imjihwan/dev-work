@@ -968,6 +968,14 @@ def person_canvas(aspect,resolution,sizes,items,raws,index,reference,cache=None,
     candidates=[(w,h) for w in range(max(MULT,original[0]-2*MULT),original[0]+2*MULT+1,MULT)
                 for h in range(max(MULT,original[1]-2*MULT),original[1]+2*MULT+1,MULT)
                 if w*h<=original[0]*original[1] and abs((w/h)/(sizes[index][0]/sizes[index][1])-1)<=.025 and safe((w,h))]
+    # A rounded 3:4 canvas can miss the nearest exact 3:4 grid by more than
+    # two cells. Also try the largest exact original ratio within the budget.
+    from math import gcd,isqrt
+    sw,sh=sizes[index];divisor=gcd(sw,sh);uw,uh=sw//divisor,sh//divisor
+    scale=isqrt(original[0]*original[1]//(uw*uh*MULT*MULT))
+    if scale:
+        exact=(uw*scale*MULT,uh*scale*MULT)
+        if safe(exact):candidates.append(exact)
     if candidates:
         chosen=min(candidates,key=lambda size:(abs((size[0]/size[1])/(sizes[index][0]/sizes[index][1])-1),-(size[0]*size[1])))
         return chosen,"auto",True
@@ -1314,12 +1322,12 @@ def bulk_edit_queue(req):
                 updated.append(dict(change["job"],prompt_verified=True,loras=change["entry"].get("loras",[])))
                 report.advance(True,verified=True)
             failed.extend(errors)
-            for error in errors:report.advance(False)
+            for error in errors:report.advance(False,error=error.get("error"))
             staged.clear()
         for pid in dict.fromkeys(ids):
             if pid not in pending or pid not in entries:
                 failed.append({"id": pid, "error": "이미 시작됐거나 대기열에서 빠진 항목입니다."})
-                report.advance(False)
+                report.advance(False,error=failed[-1]["error"])
                 continue
             try:
                 entry = entries[pid]
@@ -1357,10 +1365,10 @@ def bulk_edit_queue(req):
                 staged.append({"id":pid,"before":pending[pid][2],"prompt":result["prompt"],"entry":result["entry"],"job":result["job"]})
             except (ValueError, OSError, KeyError, TypeError, IndexError, AttributeError) as exc:
                 failed.append({"id": pid, "error": str(exc)})
-                report.advance(False)
+                report.advance(False,error=exc)
             if len(staged)>=25:flush()
         flush()
-        return {"jobs": updated, "failed": failed, "bulk_edit": True, "all_pending": all_pending, "apply_current":apply_current,"target_count": len(set(ids)), "verified_count": sum(bool(job.get("prompt_verified")) for job in updated)}
+        return {"jobs": updated, "failed": failed, "failure_reasons":report.snapshot()["failure_reasons"], "bulk_edit": True, "all_pending": all_pending, "apply_current":apply_current,"target_count": len(set(ids)), "verified_count": sum(bool(job.get("prompt_verified")) for job in updated)}
 
 
 def face_detector_ready():
@@ -1689,12 +1697,12 @@ def production_write_api(path,args,snapshot):
                         jobs.append({"ok":True,"id":change["id"],"prompt_verified":True})
                         report.advance(True,verified=True)
                     failed.extend(errors)
-                    for error in errors:report.advance(False)
+                    for error in errors:report.advance(False,error=error.get("error"))
                     staged.clear()
                 for pid in targets:
                     row=pending.get(pid)
                     if row is None:
-                        failed.append({"id":pid,"error":"이미 시작됐거나 대기열에서 빠진 항목입니다."});report.advance(False);continue
+                        failed.append({"id":pid,"error":"이미 시작됐거나 대기열에서 빠진 항목입니다."});report.advance(False,error=failed[-1]["error"]);continue
                     try:
                         original=row[2][DIRECTOR]["inputs"]["prompt"]
                         digest=snapshot.get("prompt_hashes",{}).get(pid)
@@ -1709,11 +1717,11 @@ def production_write_api(path,args,snapshot):
                         entry["ui"]["final"]=updated
                         staged.append({"id":pid,"before":row[2],"prompt":graph,"entry":entry})
                     except (ValueError,OSError,KeyError,TypeError,AttributeError) as exc:
-                        failed.append({"id":pid,"error":str(exc)});report.advance(False)
+                        failed.append({"id":pid,"error":str(exc)});report.advance(False,error=exc)
                     if len(staged)>=25:flush()
                 flush()
                 return {"ok":not failed,"bulk_edit":True,"all_pending":all_pending,"target_count":len(targets),
-                        "updated_count":len(jobs),"jobs":jobs,"failed":failed,
+                        "updated_count":len(jobs),"jobs":jobs,"failed":failed,"failure_reasons":report.snapshot()["failure_reasons"],
                         "verified_count":sum(bool(job.get("prompt_verified")) for job in jobs)}
         pid=args.get("id")
         if not snapshot.get("prompt_hashes",{}).get(pid):raise ValueError("수정 전 해당 대기 항목을 먼저 조회해 주세요.")

@@ -46,7 +46,9 @@ def crop_contains(size, target, bounds):
     ratio=tw/th
     crop_w,crop_h=min(sw,sh*ratio),min(sh,sw/ratio)
     x,y=(sw-crop_w)/2,(sh-crop_h)/2
-    return left*sw>=x and right*sw<=x+crop_w and top*sh>=y and bottom*sh<=y+crop_h
+    # Exact aspect ratios can differ by floating point noise, never a pixel.
+    eps=1e-7
+    return left*sw+eps>=x and right*sw<=x+crop_w+eps and top*sh+eps>=y and bottom*sh<=y+crop_h+eps
 
 
 def detect_bounds(raw, model_path):

@@ -17,6 +17,9 @@ const win={document:doc,clearTimeout(){},setTimeout(fn,delay){delays.push(delay)
   await ui.poll();assert.equal(host.querySelector('progress').value,20);assert(host.querySelector('[data-bulk-counts]').textContent.includes('처리 120/600 · 성공 118 · 실패 2 · 05:00'));assert(delays.includes(1000));
   const other=P.mount(win);await new Promise(setImmediate);assert(!doc.body.host.hidden,'Another page restores the shared progress without resubmitting writes');
   value={...value,state:'done',processed:600,succeeded:598,failed:2,percent:100,finished_age_seconds:0};await ui.poll();assert(host.querySelector('[data-bulk-title]').textContent.includes('일부 미적용'));
+  assert(host.querySelector('[data-bulk-reasons]').textContent.includes('기록'));
+  value={...value,failure_reasons:[{code:'framing',message:'인물 보호: 안전한 크기 없음',count:2}]};await ui.poll();
+  assert.equal(host.querySelector('[data-bulk-reasons]').hidden,false);assert(host.querySelector('[data-bulk-reasons]').textContent.includes('안전한 크기 없음 2건'));
   value={...value,state:'error',processed:121,succeeded:119,percent:20.2};await ui.poll();assert(host.querySelector('[data-bulk-title]').textContent.includes('중단'));
   doc.hidden=true;const before=requests;await ui.poll();assert.equal(requests,before);doc.hidden=false;
   value={...value,state:'done',finished_age_seconds:61};await ui.poll();assert(host.hidden);

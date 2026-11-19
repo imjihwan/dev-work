@@ -34,5 +34,20 @@ class BulkProgressTests(unittest.TestCase):
         with p.operation(0):pass
         self.assertEqual(p.snapshot()['percent'],100);self.assertEqual(p.snapshot()['state'],'done')
 
+    def test_failure_reasons_are_shared_counts_without_arbitrary_error_text(self):
+        p=BulkProgress()
+        with p.operation(4) as report:
+            report.advance(False,error='이 사진 조합은 원본 비율에서도 인물이 잘릴 수 있어 등록하지 않았습니다. 첫·끝 사진을 같은 비율로 맞춰 주세요.')
+            report.advance(False,error='이미 시작됐거나 대기열에서 빠진 항목입니다.')
+            report.advance(False,error=ValueError('PRIVATE PROMPT /private/photo.png'))
+            report.advance(True,verified=True)
+            snapshot=p.snapshot();snapshot['failure_reasons'][0]['count']=999
+        snapshot=p.snapshot()
+        self.assertEqual({r['code']:r['count'] for r in snapshot['failure_reasons']},{'framing':1,'started':1,'other':1})
+        self.assertNotIn('PRIVATE',str(snapshot));self.assertNotIn('photo.png',str(snapshot))
+        self.assertEqual(snapshot['failed'],3)
+        with p.operation(0):pass
+        self.assertEqual(p.snapshot()['failure_reasons'],[])
+
 
 if __name__=='__main__':unittest.main()

@@ -157,6 +157,23 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(len(result['jobs']),20)
         self.assertTrue(all(entry['images']==['reference-1.png'] for entry in self.env['HIST_DB']))
 
+    def test_full_frame_bounds_find_exact_original_ratio_beyond_two_grid_cells(self):
+        from person_framing import crop_contains
+        def forbidden(*args):raise AssertionError('Synthetic cached bounds need no photo')
+        module=SimpleNamespace(detect_bounds=forbidden,crop_contains=crop_contains,MODEL_NAME='synthetic.onnx')
+        with patch.dict(sys.modules,person_framing=module):
+            for source in [(1200,1600),(2100,3100),(3024,4032)]:
+                with self.subTest(source=source):
+                    size,aspect,fallback=self.env['person_canvas']('9:16','720p',[source],[{'value':'synthetic','person_bounds':[0,0,1,1]}],None,0,None)
+                    original=self.env['canvas']('auto','720p',source)
+                    self.assertEqual((aspect,fallback),('auto',True))
+                    self.assertEqual(size[0]*source[1],size[1]*source[0])
+                    self.assertLessEqual(size[0]*size[1],original[0]*original[1])
+                    self.assertTrue(crop_contains(source,size,[0,0,1,1]))
+                    self.assertEqual((size[0]%32,size[1]%32),(0,0))
+            with self.assertRaisesRegex(ValueError,'원본 비율'):
+                self.env['person_canvas']('9:16','720p',[(1000,1501)],[{'value':'synthetic','person_bounds':[0,0,1,1]}],None,0,None)
+
     def test_sequence_person_guard_keeps_order_seed_photos_and_per_photo_fallback(self):
         decisions=[False,True,False,True,True]
         def layout(aspect,resolution,sizes,items,raws,index,reference,cache,mode):

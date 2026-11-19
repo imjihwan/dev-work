@@ -2532,6 +2532,7 @@ async function applyCurrentBulk(all=false){
     if(jobs.length)poll(updated,pollT0||Date.now(),null);
     const failed=result.failed?.length||0,originalRatio=jobs.filter(job=>job.framing_fallback).length;
     $("queueFeedback").textContent=result.target_count===0?"적용할 대기항목이 없습니다. 현재 입력은 그대로 유지했습니다.":`${jobs.length}개에 현재 프롬프트·설정 적용 완료${originalRatio?` · 인물 보호로 ${originalRatio}건 원본 화면비 유지`:""}${failed?` · ${failed}개 미적용`:""}${Number.isInteger(result.verified_count)?` · ComfyUI 반영 ${result.verified_count}개 확인`:""} · 현재 입력은 그대로 유지했습니다.`;
+    if(failed&&result.failure_reasons?.length)$("queueFeedback").textContent+=" · 사유: "+result.failure_reasons.map(item=>`${item.message} ${item.count}건`).join(" / ");
     $("queueFeedback").hidden=false;
     setStatus(result.target_count===0?"적용할 대기항목이 없습니다.":failed?"일부 항목은 적용하지 못했습니다. 진행 결과를 확인해 주세요.":"현재 프롬프트·설정을 대기항목에 적용했습니다.",failed?"err":"ok");
     loadHist(false,true);

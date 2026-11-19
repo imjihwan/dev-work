@@ -43,6 +43,10 @@ class PersonFramingTests(unittest.TestCase):
         for bounds in (None,[],[0,0,1,float('nan')],[1,0,0,1]):
             self.assertFalse(crop_contains((1200,1600),(736,1280),bounds))
 
+    def test_exact_original_ratio_ignores_only_floating_point_noise(self):
+        self.assertTrue(crop_contains((2100,3100),(672,992),[0,0,1,1]))
+        self.assertFalse(crop_contains((2100,3100),(672,991),[0,0,1,1]))
+
     def test_landscape_target_does_not_cut_head_or_feet(self):
         bounds=protected_bounds([[.3,.02,.7,.98,.95]])
         self.assertFalse(crop_contains((1200,1600),(1280,736),bounds))
