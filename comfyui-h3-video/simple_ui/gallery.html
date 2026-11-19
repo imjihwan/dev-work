@@ -19,6 +19,7 @@ main{max-width:1680px;margin:auto;padding:0 18px 40px}.toolbar{position:sticky;t
 @media(min-width:1800px){.grid{grid-template-columns:repeat(6,minmax(0,1fr))}}@media(max-width:900px){.grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}}@media(max-width:600px){main{padding:0 10px calc(24px + env(safe-area-inset-bottom))}.toolbar{padding-top:6px}.toolbar-row{gap:6px}.filters{width:100%;gap:6px}.filters button{flex:1;padding:7px 5px}.search{min-width:120px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;padding-top:10px}.tile-body{padding:8px}.tile-date{font-size:12px}.tile-actions{gap:4px}.tile-actions button,.tile-actions a{font-size:11px}.selection button{font-size:12px;padding:7px 9px}.status{width:100%;margin:0;min-height:18px}.viewer-tools{gap:6px}.viewer-tools button{font-size:12px}.viewer{padding:6px}.players{gap:10px}}
 @media(max-width:330px){.grid{grid-template-columns:1fr}}
 .playback-preference{display:inline-flex;align-items:center;gap:5px;margin:4px 0;font-size:13px;white-space:nowrap}.playback-preference input{width:auto;margin:0}.app-view-options{gap:8px 14px;flex-wrap:wrap}
+.tile-runtime{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -230,15 +231,14 @@ async function submitRegeneration(){
 }
 function generationTimeLabel(seconds){
   if(typeof seconds!=="number"||!Number.isFinite(seconds)||seconds<0)return "";
-  if(seconds<1)return "생성 1초 미만";
-  const n=Math.round(seconds),h=Math.floor(n/3600),m=Math.floor(n%3600/60),s=n%60;
-  return "생성 "+[h?h+"시간":"",m?m+"분":"",s||!h&&!m?s+"초":""].filter(Boolean).join(" ");
+  const n=Math.round(seconds);
+  return "생성 "+String(Math.floor(n/60)).padStart(2,"0")+":"+String(n%60).padStart(2,"0");
 }
 function tileHtml(item){
   const time=dateLabel(item.created_at),size=(item.bytes/1024/1024).toFixed(1)+" MB";
-  const meta=[item.duration?item.duration+"초":"",item.width&&item.height?item.width+"×"+item.height:"",size,generationTimeLabel(item.generation_seconds)].filter(Boolean).join(" · ");
+  const meta=[item.duration?item.duration+"초":"",item.width&&item.height?item.width+"×"+item.height:"",size].filter(Boolean).join(" · ");
   const placeholder=item.thumbnail?"원본 사진 불러오는 중…":"원본 이미지 정보 없음";
-  return `<div class="cover"><button type="button" class="cover-play" data-play="${item.id}" aria-label="${esc(time)} 영상 재생"><span class="placeholder">${placeholder}</span>${item.thumbnail?`<img src="${esc(item.thumbnail)}" alt="생성에 사용한 첫 번째 원본 이미지" loading="lazy" decoding="async">`:""}<span class="source-label">원본 사진 1</span><span class="play-symbol">▶</span></button><label class="pick"><input type="checkbox" data-pick="${item.id}" aria-label="함께 재생할 영상 선택"></label>${item.trashed?"":`<button type="button" class="favorite" data-favorite="${item.id}" aria-pressed="${item.favorite}" aria-label="${item.favorite?"즐겨찾기 해제":"즐겨찾기 추가"}">${item.favorite?"★":"☆"}</button>`}</div><div class="tile-body">${item.regenerated?`<span class="regenerated-badge">${G.focus===item.source_id?"방금 재생성 완료":"재생성 완료"}</span>`:""}<div class="tile-date">${esc(time)}</div><div class="tile-meta">${esc(meta)}</div><div class="tile-meta" title="${esc(base(item.model))}">${esc(base(item.model))}</div><div class="tile-actions"><button type="button" data-play="${item.id}">재생</button><a href="${videoUrl(item,true)}" download>다운로드</a><button type="button" class="danger" data-remove="${item.id}">${item.trashed?"복원":"삭제"}</button></div>${regenerationButton(item)}</div>`;
+  return `<div class="cover"><button type="button" class="cover-play" data-play="${item.id}" aria-label="${esc(time)} 영상 재생"><span class="placeholder">${placeholder}</span>${item.thumbnail?`<img src="${esc(item.thumbnail)}" alt="생성에 사용한 첫 번째 원본 이미지" loading="lazy" decoding="async">`:""}<span class="source-label">원본 사진 1</span><span class="play-symbol">▶</span></button><label class="pick"><input type="checkbox" data-pick="${item.id}" aria-label="함께 재생할 영상 선택"></label>${item.trashed?"":`<button type="button" class="favorite" data-favorite="${item.id}" aria-pressed="${item.favorite}" aria-label="${item.favorite?"즐겨찾기 해제":"즐겨찾기 추가"}">${item.favorite?"★":"☆"}</button>`}</div><div class="tile-body">${item.regenerated?`<span class="regenerated-badge">${G.focus===item.source_id?"방금 재생성 완료":"재생성 완료"}</span>`:""}<div class="tile-date">${esc(time)}</div><div class="tile-meta tile-runtime" title="생성 소요 시간(분:초, 대기 시간 제외)">${esc(generationTimeLabel(item.generation_seconds)||"생성 시간 기록 없음")}</div><div class="tile-meta">${esc(meta)}</div><div class="tile-meta" title="${esc(base(item.model))}">${esc(base(item.model))}</div><div class="tile-actions"><button type="button" data-play="${item.id}">재생</button><a href="${videoUrl(item,true)}" download>다운로드</a><button type="button" class="danger" data-remove="${item.id}">${item.trashed?"복원":"삭제"}</button></div>${regenerationButton(item)}</div>`;
 }
 // Recover transient image failures without rebuilding cards or interrupting playback.
 const GALLERY_THUMBNAILS=new WeakMap();let thumbnailRetrySequence=0;
