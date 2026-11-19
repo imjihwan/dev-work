@@ -9,6 +9,9 @@ import time
 import uuid
 from grok_cli import clean_progress
 
+# Skip this retired app error only in model context, never erase display history.
+LEGACY_COMMON_ERROR="공통 조건은 해당 항목의 변경을 명확히 요청한 경우에만 수정합니다."
+
 
 def display_plan(actions):
     steps=[]
@@ -127,14 +130,17 @@ class ProductionChat:
             self._load();self._check_revision(revision)
             if self.state["active"]:raise ValueError("다른 기기에서 도우미가 처리 중입니다.")
             data=copy.deepcopy(self.state)
-            for row in data["messages"]:
-                if row.get("plan",{}).get("state")=="확인 대기":row["plan"]["state"]="새 요청으로 대체됨"
             turns=[]
             for row in data["messages"][-12:]:
                 text=row["text"]
+                if row["role"]=="assistant" and text.strip()==LEGACY_COMMON_ERROR:continue
                 if row.get("plan"):
                     text+="\n[이전 변경안 기록 · "+row["plan"]["state"]+"]\n"+"\n".join(step["label"]+"\n"+"\n".join("기존: "+change["before"]+"\n변경: "+change["after"] for change in step["changes"]) for step in row["plan"]["steps"])
                 turns.append({"role":row["role"],"text":text[:8000]})
+            # Pass the proposal as it stood when the user replied, then invalidate
+            # the older executable plan. A follow-up must still produce a fresh plan.
+            for row in data["messages"]:
+                if row.get("plan",{}).get("state")=="확인 대기":row["plan"]["state"]="새 요청으로 대체됨"
             entry={"id":uuid.uuid4().hex,"role":"user","text":message[:8000]};data["messages"].append(entry)
             data["active"]={"id":identity,"phase":"prepare","round":0,"created":time.time()};data["latest_turn"]=identity;self._save(data)
             self.live_progress={}

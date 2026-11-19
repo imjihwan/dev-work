@@ -70,12 +70,25 @@ class PlannerTests(unittest.TestCase):
         P.validate_plan(plan([action(before='a',value='b')]),request)
         with self.assertRaises(ValueError):P.validate_plan(plan([action(before='a',value='c')]),request)
 
-    def test_numeric_bounds_and_common_camera_fields_require_explicit_intent(self):
+    def test_numeric_bounds_are_kept_without_common_field_keyword_gate(self):
         request=P.validate_input({'message':'길이를 바꿔줘','controls':[control(value='7',type='number',min='1',max='15')]})
         with self.assertRaises(ValueError):P.validate_plan(plan([action(before='7',value='0')]),request)
-        request=P.validate_input({'message':'동작을 바꿔줘','controls':[dict(control(),id='style')]})
-        with self.assertRaises(ValueError):P.validate_plan(plan([action()]),request)
-        request['message']='카메라 문구를 바꿔줘';P.validate_plan(plan([action()]),request)
+        for field in ('subject','style','keep','oneTake'):
+            source={**control(value='Original'),'id':field}
+            request=P.validate_input({'message':'응, 그렇게 해줘','controls':[source],
+                'conversation':[{'role':'user','text':'이 칸의 합성 문구를 다듬어줘'},{'role':'assistant','text':'Revised로 바꾸겠습니다.'}],
+                'proposal':{'actions':[action()]}})
+            clean=P.validate_plan(plan([action()]),request)
+            self.assertEqual(clean['actions'],[action()]);self.assertTrue(P.execution_requested(request))
+            self.assertEqual(source['value'],'Original','Validation never executes an edit')
+
+    def test_retired_error_does_not_reenter_model_context_or_remove_user_text(self):
+        error=P.LEGACY_COMMON_ERROR
+        clean=P.validate_input({'message':'다시 고쳐줘','controls':[],
+            'conversation':[{'role':'assistant','text':error},{'role':'user','text':error}],
+            'contexts':[{'page':'main','statuses':[{'id':'status','text':error},{'id':'other','text':'Synthetic status'}]}]})
+        self.assertEqual(clean['conversation'],[{'role':'user','text':error}])
+        self.assertEqual(clean['contexts'][0]['statuses'],[{'id':'other','text':'Synthetic status'}])
 
     def test_targeted_read_precedes_plan_and_remembers_native_prompt_version(self):
         read={'path':'queue_item','args':'{"position":2}'}
@@ -89,7 +102,8 @@ class PlannerTests(unittest.TestCase):
     def test_read_write_mix_and_explanation_cannot_execute_actions(self):
         job=self.run_fake([plan([action()],reads=[{'path':'queue','args':'{}'}])]);self.assertEqual(job['state'],'error')
         self.helper.job={'id':'synthetic','state':'starting'}
-        job=self.run_fake([plan([action()],intent='explain')]);self.assertEqual(job['state'],'error')
+        job=self.run_fake([plan([action()],intent='explain')]);self.assertEqual(job['state'],'done')
+        self.assertEqual(job['production']['intent'],'propose');self.assertFalse(job['production']['auto_eligible']);self.writer.assert_not_called()
 
     def test_auto_needs_both_execute_intent_and_direct_command(self):
         for message,intent,eligible in [('문구를 바꿔줘','execute',True),('어떻게 바꿔야 해?','execute',False),('문구를 바꿔줘','propose',False)]:
@@ -97,6 +111,15 @@ class PlannerTests(unittest.TestCase):
             request=P.validate_input({'message':message,'controls':[control()]})
             result=self.run_fake([plan([action()],intent=intent)],request)['production']
             self.assertEqual(result['auto_eligible'],eligible)
+
+    def test_short_approval_uses_dialogue_but_never_approves_advice_or_empty_context(self):
+        for message in ('응','네!','좋아','OK'):
+            for context,intent,expected in (([], 'execute',False),([{'role':'assistant','text':'합성 변경안을 제안합니다.'}], 'execute',True),([{'role':'assistant','text':'합성 조언입니다.'}], 'propose',False)):
+                self.helper.job={'id':'synthetic','state':'starting'}
+                request=P.validate_input({'message':message,'controls':[control()], 'conversation':context})
+                result=self.run_fake([plan([action()],intent=intent)],request)['production']
+                self.assertEqual(result['auto_eligible'],expected)
+                self.writer.assert_not_called()
 
     def test_prior_unapplied_plan_is_context_not_an_automatic_write(self):
         request=P.validate_input({'message':'조금 더 느리게 다듬어줘','controls':[control()],'proposal':{'actions':[action()]}})

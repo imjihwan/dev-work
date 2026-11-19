@@ -11,7 +11,7 @@ from unittest.mock import MagicMock,patch
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'simple_ui'))
-from production_chat import ProductionChat,display_plan,clean_messages
+from production_chat import ProductionChat,display_plan,clean_messages,LEGACY_COMMON_ERROR
 from production_assistant import ProductionAssistant
 
 
@@ -133,6 +133,34 @@ class IntegrationTests(StoreTests):
         manager._run(forwarded,started['id'],helper.cancel_event)
         self.assertEqual(self.chat.snapshot()['messages'][-1]['text'],'Synthetic answer')
         self.assertEqual(helper.job['chat_message_id'],self.chat.snapshot()['messages'][-1]['id'])
+
+    def test_shared_followup_keeps_proposal_context_and_replans_common_edits(self):
+        manager,helper=self.manager()
+        manager.write_api=MagicMock()
+        change={'kind':'set','target':'main:1','before':'Original','value':'Revised','label':'합성 공통 문구 수정','path':'','args':'{}'}
+        helper.grok.complete.return_value={'reply':'이렇게 다듬겠습니다.','intent':'propose','reads':[],'actions':[change]}
+        body={'message':'이 항목을 자연스럽게 다듬어줘','controls':[{'ref':'main:1','id':'style','value':'Original','type':'textarea'}],'chat_revision':0}
+        with patch('production_assistant.threading.Thread') as worker:first=manager.start(body)
+        manager._run(worker.call_args.kwargs['args'][0],first['id'],helper.cancel_event)
+        old_plan=helper.job['production']['plan_id']
+        self.assertEqual(helper.job['state'],'done')
+        helper.grok.complete.return_value={'reply':'합성 변경안입니다.','intent':'execute','reads':[],'actions':[change]}
+        follow={**body,'message':'응','chat_revision':self.chat.snapshot()['revision']}
+        with patch('production_assistant.threading.Thread') as worker:second=manager.start(follow)
+        forwarded=worker.call_args.kwargs['args'][0]
+        self.assertIn('확인 대기',forwarded['conversation'][-1]['text'])
+        manager._run(forwarded,second['id'],helper.cancel_event)
+        self.assertTrue(helper.job['production']['auto_eligible']);helper.grok.complete.assert_called()
+        with self.assertRaises(ValueError):manager.claim({'plan_id':old_plan,'index':0})
+        self.assertNotEqual(old_plan,helper.job['production']['plan_id']);manager.write_api.assert_not_called()
+
+    def test_old_app_error_is_omitted_only_from_forwarded_context(self):
+        saved=self.chat.import_once(0,[{'role':'user','text':'Synthetic edit request'},{'role':'assistant','text':LEGACY_COMMON_ERROR}])
+        self.chat.begin(saved['revision'],'synthetic-followup','다시 해줘')
+        self.assertEqual(self.chat.snapshot()['messages'][1]['text'],LEGACY_COMMON_ERROR)
+        self.chat.complete('synthetic-followup','Synthetic response')
+        follow=self.chat.begin(self.chat.snapshot()['revision'],'synthetic-next','응')
+        self.assertNotIn(LEGACY_COMMON_ERROR,json.dumps(follow['conversation'],ensure_ascii=False))
 
     def test_clear_invalidates_old_unclaimed_plans_and_receipts_are_shared(self):
         manager,helper=self.manager()
