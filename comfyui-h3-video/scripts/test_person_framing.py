@@ -22,6 +22,21 @@ class PersonFramingTests(unittest.TestCase):
         self.assertGreater(bounds[2],.95)
         self.assertFalse(crop_contains((1200,1600),(736,1280),bounds))
 
+    def test_motion_reserve_rejects_a_crop_that_only_fits_the_still_pose(self):
+        # Both stored boxes fit the old crop exactly enough, but leave no room
+        # for a modest sideways/upward movement during generation.
+        self.assertFalse(crop_contains((1200,1600),(736,1280),[.15,.1,.85,.9]))
+        self.assertFalse(crop_contains((1600,1200),(1280,736),[.1,.135,.9,.865]))
+        self.assertTrue(crop_contains((1200,1600),(736,1280),[.3,.15,.7,.85]))
+
+    def test_cached_bounds_remain_unchanged_and_original_canvas_still_fits(self):
+        for bounds in ([.15,.1,.85,.9],[0,0,1,1]):
+            original=list(bounds)
+            for _ in range(3):
+                self.assertFalse(crop_contains((1200,1600),(736,1280),bounds))
+                self.assertTrue(crop_contains((1200,1600),(768,1024),bounds))
+            self.assertEqual(bounds,original)
+
     def test_missing_uncertain_and_invalid_boxes_never_authorize_a_crop(self):
         for boxes in ([],[[.3,.1,.7,.9,.45]],[[float('nan'),0,1,1,.95]],[[.7,0,.3,1,.95]]):
             self.assertIsNone(protected_bounds(boxes))

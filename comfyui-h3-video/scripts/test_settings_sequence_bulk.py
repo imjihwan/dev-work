@@ -135,6 +135,18 @@ class FeatureTests(unittest.TestCase):
             result=self.env['build_and_queue'](self.request(images=self.photos[:1],count=1,aspect='9:16',protect_person=True),prepare_only=True)
             self.assertEqual(result['width']/result['height'],2.0)
 
+    def test_cached_person_bounds_use_motion_reserve_without_reading_the_photo(self):
+        from person_framing import crop_contains
+        def forbidden(*args):raise AssertionError('Cached framing must not read or redetect a photo')
+        module=SimpleNamespace(detect_bounds=forbidden,crop_contains=crop_contains,MODEL_NAME='synthetic.onnx')
+        bounds=[.15,.1,.85,.9]
+        items=[{'value':'synthetic-reference.png','person_bounds':list(bounds)}]
+        with patch.dict(sys.modules,person_framing=module):
+            size,aspect,fallback=self.env['person_canvas']('9:16','720p',[(1200,1600)],items,None,0,None)
+        self.assertEqual(size,self.env['canvas']('auto','720p',(1200,1600)))
+        self.assertEqual((aspect,fallback),('auto',True))
+        self.assertEqual(items[0]['person_bounds'],bounds)
+
     def test_repeats_reuse_person_bounds_without_reading_more_images_or_changing_source_files(self):
         calls=[]
         module=SimpleNamespace(detect_bounds=lambda *args:(calls.append(1) or [.4,.1,.6,.9]),

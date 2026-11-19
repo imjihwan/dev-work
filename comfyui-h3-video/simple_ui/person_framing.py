@@ -29,6 +29,7 @@ def protected_bounds(boxes):
 
 
 def crop_contains(size, target, bounds):
+    """Keep a small motion reserve beyond the stored detection safety margin."""
     if not isinstance(bounds,(list,tuple)) or len(bounds)!=4:
         return False
     if not all(type(v) in (int,float) and math.isfinite(v) for v in bounds):
@@ -36,6 +37,11 @@ def crop_contains(size, target, bounds):
     left,top,right,bottom=bounds
     if not 0<=left<right<=1 or not 0<=top<bottom<=1:
         return False
+    # Apply at crop time so cached bounds also get the reserve without another
+    # image read/detection. Do not mutate them or accumulate margins on reuse.
+    mx,my=max(0.025,(right-left)*0.05),max(0.015,(bottom-top)*0.04)
+    left,right=max(0,left-mx),min(1,right+mx)
+    top,bottom=max(0,top-my),min(1,bottom+my)
     sw,sh=size;tw,th=target
     ratio=tw/th
     crop_w,crop_h=min(sw,sh*ratio),min(sh,sw/ratio)
