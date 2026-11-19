@@ -75,6 +75,9 @@ class GalleryTests(unittest.TestCase):
         self.assertNotEqual(result["items"][0]["id"], other["items"][0]["id"])
         self.assertEqual(self.gallery.list(order="oldest")["items"][0]["id"], other["items"][0]["id"])
         self.assertEqual(self.gallery.list(query="synthetic-model", metadata=metadata)["total"], 1)
+        self.assertEqual(self.gallery.list(query=result['items'][0]['id'],metadata=metadata)['items'][0]['source_id'],'synthetic-source')
+        self.assertEqual(self.gallery.list(query='synthetic-source',metadata=metadata)['total'],1)
+        self.assertEqual(self.gallery.list(query='unknown-source',metadata=metadata)['total'],0)
 
     def test_generation_time_remains_after_history_is_removed(self):
         self.video('video/timed.mp4')

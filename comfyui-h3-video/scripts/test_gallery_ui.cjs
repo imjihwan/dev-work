@@ -31,7 +31,7 @@ class Element{
   focus(options){active=this;this.focusOptions=options;}
 }
 class Player extends Element{
-  constructor(){super();this.tagName='VIDEO';this.currentTime=0;this.playCount=0;this.paused=true;this.loads=0;this.muted=false;this.volume=1;this.parentElement=new Element();this.card=new Element();for(const tag of ['.lora-info','.regeneration-control']){const part=new Element();part.tag=tag;this.card.parts.push(part);}}
+  constructor(){super();this.tagName='VIDEO';this.currentTime=0;this.playCount=0;this.paused=true;this.loads=0;this.muted=false;this.volume=1;this.parentElement=new Element();this.card=new Element();for(const tag of ['.lora-info','.identifier-info','.regeneration-control']){const part=new Element();part.tag=tag;this.card.parts.push(part);}}
   closest(selector){return selector==='.player'?this.card:super.closest(selector);}
   getBoundingClientRect(){return {top:0,bottom:220,left:0,right:640};}
   play(){this.playCount++;this.paused=false;return Promise.resolve();}
@@ -56,6 +56,10 @@ const entries=Array.from({length:60},(_,index)=>({id:`synthetic-${index}`,create
 context.entries=entries;
 assert(run('tileHtml(entries[0])').includes('생성에 사용한 첫 번째 원본 이미지'));
 assert(run('tileHtml(entries[0])').includes('원본 사진 1'));
+assert(run('identifierHtml({...entries[0],source_id:"synthetic-job"})').includes('synthetic-job'));
+assert(run('identifierHtml(entries[0])').includes('연결 기록 없음'));
+assert(run('identifierHtml({id:"bad<img>",source_id:"source<script>"})').includes('bad&lt;img&gt;'));
+assert(!run('identifierHtml({id:"bad<img>"})').includes('<img>'));
 assert(run('tileHtml({...entries[0],thumbnail:null,thumbnail_state:"missing"})').includes('원본 이미지 정보 없음'));
 assert(run('tileHtml({...entries[0],generation_seconds:3661.2})').includes('생성 61:01'));
 assert.equal(run('generationTimeLabel(85.123)'),'생성 01:25');assert.equal(run('generationTimeLabel(.25)'),'생성 00:00');assert.equal(run('generationTimeLabel(undefined)'),'');
@@ -77,6 +81,20 @@ async function swipe(video,x1,y1,x2,y2){
   await settle();return {start,move,end};
 }
 (async()=>{
+  let copied='';context.navigator={clipboard:{writeText:async text=>{copied=text;}}};
+  await context.copyGalleryIds({...entries[0],source_id:'synthetic-job',prompt:'PRIVATE_PROMPT',images:['PRIVATE_IMAGE']});
+  assert.equal(copied,`갤러리 ID: ${entries[0].id}\n작업 ID: synthetic-job`);assert(!copied.includes('PRIVATE'));
+  // Plain HTTP and denied clipboard permission both use a user-gesture fallback.
+  const originalCreate=doc.createElement;let selectedArea,clipboardHost;
+  doc.createElement=()=>{const area=new Element();area.select=()=>selectedArea=area;return area;};
+  const append=host=>area=>{clipboardHost=host;area.parentElement=host;host.children.push(area);};
+  doc.body.appendChild=append(doc.body);get('viewer').appendChild=append(get('viewer'));
+  doc.execCommand=command=>{assert.equal(command,'copy');copied=selectedArea.value;return true;};
+  context.navigator={};await context.copyGalleryIds(entries[0]);assert.equal(copied,`갤러리 ID: ${entries[0].id}`);assert.equal(clipboardHost,doc.body);
+  get('viewer').open=true;context.navigator={clipboard:{writeText:async()=>{throw Error('denied');}}};
+  await context.copyGalleryIds({...entries[0],source_id:'synthetic-job'});assert.equal(clipboardHost,get('viewer'));assert(get('viewerStatus').textContent.includes('복사했습니다'));
+  doc.execCommand=()=>false;await context.copyGalleryIds(entries[0]);assert(get('viewerStatus').textContent.includes('길게 눌러'));get('viewer').open=false;
+  doc.createElement=originalCreate;delete doc.execCommand;context.navigator={clipboard:{writeText:async text=>{copied=text;}}};
   mockPages();await context.loadGallery();
   assert.equal(get('grid').children.length,48);assert.equal(get('countAll').textContent,'60');assert.equal(get('viewer').open,false);
   assert(calls.every(call=>call.url.startsWith('/api/gallery?')),'Listing must never request video streams');

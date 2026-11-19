@@ -151,7 +151,7 @@ class VideoGallery:
                     continue
                 details = saved.get(identity, {})
                 date = datetime.datetime.fromtimestamp(item["created_at"]).strftime("%Y-%m-%d %H:%M:%S")
-                search = f"{date} {details.get('model', '')} {item['video']['filename']}".casefold()
+                search = f"{identity} {details.get('id', '')} {date} {details.get('model', '')} {item['video']['filename']}".casefold()
                 if query.strip().casefold() not in search:
                     continue
                 source = self._source_name(flags.get("source_image"))

@@ -1336,10 +1336,11 @@ def _status(pid, q=None):
     return _queue_state(pid, q) or {"state": "unknown"}
 
 
-def hist_list(offset, limit):
+def hist_list(offset, limit, identity=None):
     """최근 순. 아직 결과가 없는 항목은 지금 상태를 물어 채운다(ComfyUI 가 잊은 작업은 '결과 없음')."""
     with HLOCK:
-        items = list(reversed(HIST_DB))
+        if identity is not None and (not isinstance(identity,str) or not identity or len(identity)>100):raise ValueError("작업 ID를 확인해 주세요.")
+        items = [entry for entry in reversed(HIST_DB) if identity is None or entry["id"]==identity]
     page = items[offset:offset + limit]
     q = None  # 페이지마다 대기열은 한 번만 받는다(대기 수백 건이면 항목마다 받던 것이 수백 번이 됐다)
     for i, e in enumerate(page):
@@ -1661,7 +1662,7 @@ class H(BaseHTTPRequestHandler):
             elif u.path == "/api/status":
                 self._json(status(q["id"]))
             elif u.path == "/api/history":
-                self._json(hist_list(int(q.get("offset") or 0), min(100, int(q.get("limit") or 20))))
+                self._json(hist_list(int(q.get("offset") or 0), min(100, int(q.get("limit") or 20)),q.get("id")))
             elif u.path == "/api/queue/bulk-context":
                 self._json(bulk_queue_context())
             elif u.path == "/api/gallery":

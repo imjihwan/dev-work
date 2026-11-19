@@ -21,7 +21,7 @@ class TimingTests(unittest.TestCase):
         self.env={'json':json,'math':math,'time':time,'urllib':__import__('urllib'),'HLOCK':threading.Lock(),'HIST_DB':[self.row],
                   'HIST':'synthetic-only','_save_json':self.save,'GALLERY':self.gallery,'backend_restart_hold':lambda pid:None,
                   'video_of':lambda entry:{'filename':'synthetic.mp4'},'PROGRESS':{},'PLOCK':threading.Lock()}
-        functions=[n for n in TREE.body if isinstance(n,ast.FunctionDef) and n.name in ('execution_timing','hist_result','_status','_queue_state','_on_message','_bump')]
+        functions=[n for n in TREE.body if isinstance(n,ast.FunctionDef) and n.name in ('execution_timing','hist_result','_status','_queue_state','_on_message','_bump','hist_list')]
         exec(compile(ast.Module(body=functions,type_ignores=[]),'<synthetic timing>','exec'),self.env)
 
     def entry(self,terminal='execution_success',end=85000):
@@ -90,6 +90,15 @@ class TimingTests(unittest.TestCase):
         read.assert_called_once();self.assertEqual(len(env['progress']),610)
         self.assertEqual(env['progress']['synthetic-0']['generation_started_at'],1000)
         self.assertFalse(env['progress']['synthetic-0']['elapsed_estimated']);self.assertEqual(env['progress']['synthetic-609']['pct'],0)
+
+    def test_exact_history_id_returns_only_that_job_and_missing_ids_never_fall_back(self):
+        self.row['state']='done'
+        self.env['HIST_DB'].append({'id':'unrelated','state':'done','prompt':'UNRELATED_PRIVATE_TEXT'})
+        result=self.env['hist_list'](0,20,'synthetic')
+        self.assertEqual(result['total'],1);self.assertEqual(result['items'][0]['id'],'synthetic')
+        self.assertNotIn('UNRELATED_PRIVATE_TEXT',json.dumps(result))
+        self.assertEqual(self.env['hist_list'](0,20,'missing'),{'items':[],'total':0})
+        self.assertEqual(self.env['hist_list'](0,20)['total'],2)
 
 
 if __name__=='__main__':unittest.main()

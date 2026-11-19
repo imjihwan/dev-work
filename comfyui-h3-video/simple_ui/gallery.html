@@ -20,6 +20,7 @@ main{max-width:1680px;margin:auto;padding:0 18px 40px}.toolbar{position:sticky;t
 @media(max-width:330px){.grid{grid-template-columns:1fr}}
 .playback-preference{display:inline-flex;align-items:center;gap:5px;margin:4px 0;font-size:13px;white-space:nowrap}.playback-preference input{width:auto;margin:0}.app-view-options{gap:8px 14px;flex-wrap:wrap}
 .tile-runtime{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.video-ids{font-size:12px;margin:6px 0;overflow-wrap:anywhere}.video-ids>summary{cursor:pointer;color:var(--mute);padding:4px 0}.video-ids dl{margin:7px 0}.video-ids dt{color:var(--mute);margin-top:5px}.video-ids dd{margin:0}.video-ids code{font-size:11px;user-select:all;-webkit-user-select:all;overflow-wrap:anywhere}.video-ids button{font-size:12px}
 </style>
 </head>
 <body>
@@ -234,11 +235,37 @@ function generationTimeLabel(seconds){
   const n=Math.round(seconds);
   return "생성 "+String(Math.floor(n/60)).padStart(2,"0")+":"+String(n%60).padStart(2,"0");
 }
+function galleryIdText(item){
+  return "갤러리 ID: "+item.id+(item.source_id?"\n작업 ID: "+item.source_id:"");
+}
+function identifierHtml(item){
+  return `<details class="video-ids"><summary>영상 정보 · ID</summary><dl><dt>갤러리 ID</dt><dd><code>${esc(item.id)}</code></dd><dt>작업 ID</dt><dd>${item.source_id?`<code>${esc(item.source_id)}</code>`:"연결 기록 없음"}</dd></dl><button type="button" data-copy-ids="${esc(item.id)}">ID 복사</button></details>`;
+}
+async function copyGalleryIds(item){
+  if(!item?.id)return;
+  const text=galleryIdText(item),active=document.activeElement;
+  function fallback(){
+    const area=document.createElement("textarea");area.value=text;area.readOnly=true;
+    area.style.position="fixed";area.style.left="-9999px";area.style.top="0";
+    const host=$("viewer").open?$("viewer"):document.body;host.appendChild(area);
+    try{area.select();if(!document.execCommand("copy"))throw Error("copy unavailable");}
+    finally{area.remove();active?.focus({preventScroll:true});}
+  }
+  try{
+    if(typeof navigator!=="undefined"&&navigator.clipboard?.writeText){try{await navigator.clipboard.writeText(text);}catch{fallback();}}
+    else fallback();
+    if($("viewer").open)$("viewerStatus").textContent="ID를 복사했습니다.";else setStatus("ID를 복사했습니다.");
+  }catch{
+    const message="복사하지 못했습니다. ID 글씨를 선택하거나 길게 눌러 복사해 주세요.";
+    if($("viewer").open)$("viewerStatus").textContent=message;else setStatus(message,true);
+  }
+}
+function copyIdsById(id){const item=G.items.find(item=>item.id===id)||PLAYER.entries.find(item=>item.id===id);return copyGalleryIds(item);}
 function tileHtml(item){
   const time=dateLabel(item.created_at),size=(item.bytes/1024/1024).toFixed(1)+" MB";
   const meta=[item.duration?item.duration+"초":"",item.width&&item.height?item.width+"×"+item.height:"",size].filter(Boolean).join(" · ");
   const placeholder=item.thumbnail?"원본 사진 불러오는 중…":"원본 이미지 정보 없음";
-  return `<div class="cover"><button type="button" class="cover-play" data-play="${item.id}" aria-label="${esc(time)} 영상 재생"><span class="placeholder">${placeholder}</span>${item.thumbnail?`<img src="${esc(item.thumbnail)}" alt="생성에 사용한 첫 번째 원본 이미지" loading="lazy" decoding="async">`:""}<span class="source-label">원본 사진 1</span><span class="play-symbol">▶</span></button><label class="pick"><input type="checkbox" data-pick="${item.id}" aria-label="함께 재생할 영상 선택"></label>${item.trashed?"":`<button type="button" class="favorite" data-favorite="${item.id}" aria-pressed="${item.favorite}" aria-label="${item.favorite?"즐겨찾기 해제":"즐겨찾기 추가"}">${item.favorite?"★":"☆"}</button>`}</div><div class="tile-body">${item.regenerated?`<span class="regenerated-badge">${G.focus===item.source_id?"방금 재생성 완료":"재생성 완료"}</span>`:""}<div class="tile-date">${esc(time)}</div><div class="tile-meta tile-runtime" title="생성 소요 시간(분:초, 대기 시간 제외)">${esc(generationTimeLabel(item.generation_seconds)||"생성 시간 기록 없음")}</div><div class="tile-meta">${esc(meta)}</div><div class="tile-meta" title="${esc(base(item.model))}">${esc(base(item.model))}</div><div class="tile-actions"><button type="button" data-play="${item.id}">재생</button><a href="${videoUrl(item,true)}" download>다운로드</a><button type="button" class="danger" data-remove="${item.id}">${item.trashed?"복원":"삭제"}</button></div>${regenerationButton(item)}</div>`;
+  return `<div class="cover"><button type="button" class="cover-play" data-play="${item.id}" aria-label="${esc(time)} 영상 재생"><span class="placeholder">${placeholder}</span>${item.thumbnail?`<img src="${esc(item.thumbnail)}" alt="생성에 사용한 첫 번째 원본 이미지" loading="lazy" decoding="async">`:""}<span class="source-label">원본 사진 1</span><span class="play-symbol">▶</span></button><label class="pick"><input type="checkbox" data-pick="${item.id}" aria-label="함께 재생할 영상 선택"></label>${item.trashed?"":`<button type="button" class="favorite" data-favorite="${item.id}" aria-pressed="${item.favorite}" aria-label="${item.favorite?"즐겨찾기 해제":"즐겨찾기 추가"}">${item.favorite?"★":"☆"}</button>`}</div><div class="tile-body">${item.regenerated?`<span class="regenerated-badge">${G.focus===item.source_id?"방금 재생성 완료":"재생성 완료"}</span>`:""}<div class="tile-date">${esc(time)}</div><div class="tile-meta tile-runtime" title="생성 소요 시간(분:초, 대기 시간 제외)">${esc(generationTimeLabel(item.generation_seconds)||"생성 시간 기록 없음")}</div><div class="tile-meta">${esc(meta)}</div><div class="tile-meta" title="${esc(base(item.model))}">${esc(base(item.model))}</div>${identifierHtml(item)}<div class="tile-actions"><button type="button" data-play="${item.id}">재생</button><a href="${videoUrl(item,true)}" download>다운로드</a><button type="button" class="danger" data-remove="${item.id}">${item.trashed?"복원":"삭제"}</button></div>${regenerationButton(item)}</div>`;
 }
 // Recover transient image failures without rebuilding cards or interrupting playback.
 const GALLERY_THUMBNAILS=new WeakMap();let thumbnailRetrySequence=0;
@@ -349,9 +376,10 @@ function refreshPlayerLoras(){
   const latest=new Map(G.items.map(item=>[item.id,item])),players=[...$("players").querySelectorAll("video")];let changed=false;
   PLAYER.entries=PLAYER.entries.map((entry,index)=>{
     const item=latest.get(entry.id);
-    if(!item||JSON.stringify(item.loras)===JSON.stringify(entry.loras))return entry;
-    const next={...entry,loras:item.loras},info=players[index]?.closest(".player")?.querySelector(".lora-info");
+    if(!item||JSON.stringify(item.loras)===JSON.stringify(entry.loras)&&item.source_id===entry.source_id)return entry;
+    const next={...entry,loras:item.loras,source_id:item.source_id},card=players[index]?.closest(".player"),info=card?.querySelector(".lora-info");
     if(info)info.innerHTML=loraHtml(next);
+    const ids=card?.querySelector(".identifier-info");if(ids)ids.innerHTML=identifierHtml(next);
     changed=true;return next;
   });
   if(changed)layoutViewer();
@@ -387,9 +415,10 @@ function renderPlayers(entries,sound=null){
     video.parentElement.style.setProperty("--aspect",item.width&&item.height?item.width/item.height:16/9);
     card.querySelector(".lora-info").innerHTML=loraHtml(item);
     card.querySelector(".regeneration-control").innerHTML=regenerationButton(item);
+    const ids=card.querySelector(".identifier-info");if(ids)ids.innerHTML=identifierHtml(item);
   }else{
     releasePlayers();
-    $("players").innerHTML=entries.map((item,index)=>{const aspect=item.width&&item.height?item.width/item.height:16/9;return `<div class="player"><div class="stage" style="--aspect:${aspect}"><video controls loop playsinline preload="metadata" aria-label="영상 ${index+1}" src="${esc(videoUrl(item))}"></video></div><div class="lora-info">${loraHtml(item)}</div><div class="regeneration-control">${regenerationButton(item)}</div></div>`;}).join("");
+    $("players").innerHTML=entries.map((item,index)=>{const aspect=item.width&&item.height?item.width/item.height:16/9;return `<div class="player"><div class="stage" style="--aspect:${aspect}"><video controls loop playsinline preload="metadata" aria-label="영상 ${index+1}" src="${esc(videoUrl(item))}"></video></div><div class="lora-info">${loraHtml(item)}</div><div class="identifier-info">${identifierHtml(item)}</div><div class="regeneration-control">${regenerationButton(item)}</div></div>`;}).join("");
   }
   PLAYER.entries=entries;PLAYER.sizes=[];PLAYER.swipe=null;const mediaToken=++PLAYER.mediaToken;
   $("audio").innerHTML=entries.map((_,index)=>`<option value="${index}">영상 ${index+1} 소리</option>`).join("")+`<option value="none">모두 음소거</option>`;$("audio").value=startMuted?"none":"0";$("viewerTools").hidden=entries.length===1;$("viewerStatus").textContent="";
@@ -474,6 +503,7 @@ function endSwipe(event){
 $("grid").onchange=event=>{const id=event.target.dataset.pick;if(!id)return;if(event.target.checked&&G.selected.size<3)G.selected.add(id);else G.selected.delete(id);selection();};
 $("grid").onclick=event=>{
   const button=event.target.closest("button");if(!button)return;
+  if(button.dataset.copyIds)return copyIdsById(button.dataset.copyIds);
   if(button.dataset.regenerate)return chooseRegeneration(button.dataset.regenerate);
   if(button.dataset.play)return openViewer(button.dataset.play);
   if(button.dataset.remove)return requestDelete([button.dataset.remove]);
@@ -488,7 +518,7 @@ $("cancelDelete").onclick=()=>$("deleteDialog").close();$("confirmDelete").oncli
 $("closeViewer").onclick=closeViewer;$("replay").onclick=replay;$("pause").onclick=pause;$("audio").onchange=audio;
 $("previousVideo").onclick=()=>moveViewer(-1);$("nextVideo").onclick=()=>moveViewer(1);
 $("players").addEventListener("touchstart",startSwipe,{passive:true});
-$("players").onclick=event=>{const button=event.target.closest("[data-regenerate]");if(button)chooseRegeneration(button.dataset.regenerate);};
+$("players").onclick=event=>{const button=event.target.closest("[data-regenerate],[data-copy-ids]");if(button?.dataset.copyIds)return copyIdsById(button.dataset.copyIds);if(button)chooseRegeneration(button.dataset.regenerate);};
 $("players").addEventListener("touchmove",trackSwipe,{passive:false});
 $("players").addEventListener("touchend",endSwipe,{passive:false});
 $("players").addEventListener("touchcancel",()=>{PLAYER.swipe=null;});

@@ -15,9 +15,9 @@ READS = {
     "queue": "현재 실행·대기 순서와 진행률(문구 없음)",
     "queue_item": "지정 대기 항목의 실제 최종 프롬프트와 입력·설정",
     "/api/health": "서버 상태", "/api/catalog": "모델·LoRA·조합 목록",
-    "/api/status": "id 작업 상태", "/api/history": "작업 이력(offset, limit 최대 20)",
+    "/api/status": "id 작업 상태", "/api/history": "작업 이력(id로 특정 작업 직접 조회 또는 offset, limit 최대 20)",
     "/api/queue/bulk-context": "전체 대기 편집의 기준과 ID",
-    "/api/gallery": "갤러리 목록(offset, limit, mode, query)",
+    "/api/gallery": "갤러리 목록(offset, limit, mode, q; q에 갤러리 ID 또는 작업 ID로 검색)",
     "/api/gallery/progress": "현재 생성 진행률", "/api/settings": "저장 설정 묶음",
     "/api/story/project": "id 이어 만들기 프로젝트", "/api/ui-state": "공유 화면 상태",
     "/api/translation/status": "번역 준비 상태", "/api/fetch-state": "모델 카드 조회 상태",
@@ -76,6 +76,11 @@ Initially queue contains only order/IDs/state/progress. Use queue_item {id:...} 
 {position:N} to read a particular pending job's actual final prompt and settings;
 read only needed jobs. The original queue snapshot defines position N, not history
 display order. Completed work is available through paginated history/gallery APIs.
+The user can paste a gallery ID and/or job ID copied from video information.
+Find a video with /api/gallery {q:gallery_or_job_id}; source_id is the generation
+job ID. Read that job's saved prompt/settings directly with /api/history {id:source_id}.
+An empty exact-ID history result means the saved job is unavailable; do not substitute
+a different job or infer its settings from a neighboring entry.
 Reads happen before planning writes. When reads are needed, return reads and NO
 actions. A subsequent turn provides their results; then answer or propose actions.
 The initial queue is a page, not the full list: has_more/total describe omitted rows.
