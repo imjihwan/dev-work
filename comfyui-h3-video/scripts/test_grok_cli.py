@@ -144,6 +144,120 @@ class GrokTests(unittest.TestCase):
                 with self.assertRaises(ValueError) as error:c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event())
             self.assertEqual(record.call_args.args[0]['failure_reason'],reason);self.assertNotIn('PRIVATE',str(error.exception));self.assertNotIn('PRIVATE',json.dumps(record.call_args.args[0]))
 
+    def schema_events(self, *, partial=True, init_tools=None, result=True):
+        init=json.loads(wire({}).splitlines()[0])
+        if init_tools is not None:init['tools']=init_tools
+        tool={'type':'tool_use','id':'synthetic-output-1','name':'StructuredOutput','input':{'reply':'PRIVATE_INPUT'}}
+        events=[init]
+        if partial:
+            events.extend([
+                {'type':'stream_event','event':{'type':'message_start'}},
+                {'type':'stream_event','event':{'type':'content_block_start','index':1,'content_block':{**tool,'input':{}}}},
+                {'type':'stream_event','event':{'type':'content_block_delta','index':1,'delta':{'type':'input_json_delta','partial_json':'{"reply":"PRIVATE_INPUT"}'}}},
+                {'type':'stream_event','event':{'type':'content_block_stop','index':1}},
+                {'type':'stream_event','event':{'type':'message_stop'}}])
+        events.extend([{'type':'assistant','message':{'content':[tool]}},
+            {'type':'user','message':{'content':[{'type':'tool_result','tool_use_id':tool['id'],'content':'PRIVATE_FORMATTER_RESULT'}]}}])
+        if result:events.append({'type':'result','stop_reason':'end_turn','is_error':False,'structured_output':{'reply':'Synthetic final'}})
+        return events
+
+    def run_schema_events(self,events):
+        c=GrokCLI('synthetic');process=MagicMock();process.poll.return_value=0;process.returncode=0
+        process.stdout=io.BytesIO(b'\n'.join(json.dumps(e).encode() for e in events));updates=[]
+        with patch.object(c,'ready',return_value=True),patch.object(c,'_record_metrics') as record,patch('grok_cli.subprocess.Popen',return_value=process) as launch:
+            value=c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event(),on_progress=updates.append)
+        self.assertNotIn('PRIVATE',json.dumps(record.call_args.args[0]));self.assertNotIn('PRIVATE',json.dumps(updates))
+        self.assertEqual(launch.call_count,1)
+        return value,record.call_args.args[0]
+
+    def test_internal_formatter_stream_and_tool_result_reach_validated_final_without_echo(self):
+        value,metrics=self.run_schema_events(self.schema_events())
+        self.assertEqual(value,{'reply':'Synthetic final'});self.assertEqual(metrics['schema_output_calls'],1)
+        self.assertEqual(metrics['outcome'],'ok')
+
+    def test_internal_formatter_can_be_advertised_or_only_appear_as_assistant_frame(self):
+        for tools in (None,['StructuredOutput']):
+            value,metrics=self.run_schema_events(self.schema_events(partial=False,init_tools=tools))
+            self.assertEqual(value,{'reply':'Synthetic final'});self.assertEqual(metrics['schema_output_calls'],1)
+
+    def test_formatter_input_never_substitutes_for_missing_or_failed_final_result(self):
+        for events in (self.schema_events(result=False),
+                       self.schema_events()[:-1]+[{'type':'result','stop_reason':'end_turn','is_error':True,'structured_output':{'reply':'PRIVATE_INPUT'}}],
+                       self.schema_events()[:-1]+[{'type':'result','stop_reason':'max_tokens','structured_output':{'reply':'PRIVATE_INPUT'}}]):
+            with self.assertRaises(ValueError):self.run_schema_events(events)
+
+    def test_formatter_does_not_allow_other_tools_server_tools_or_mixed_init(self):
+        for variant in ('other_tool','server_tool','mixed_init'):
+            events=self.schema_events(partial=False)
+            if variant=='mixed_init':events[0]['tools']=['StructuredOutput','PRIVATE_FILE_TOOL']
+            elif variant=='server_tool':events[1]['message']['content'][0]['type']='server_tool_use'
+            else:events[1]['message']['content'][0]['name']='PRIVATE_FILE_TOOL'
+            with self.assertRaises(ValueError) as error:self.run_schema_events(events)
+            self.assertNotIn('PRIVATE',str(error.exception))
+
+    def test_orphan_input_json_and_unrelated_user_messages_are_not_formatter_results(self):
+        for extra in ({'type':'stream_event','event':{'type':'content_block_delta','index':9,'delta':{'type':'input_json_delta','partial_json':'PRIVATE'}}},
+                      {'type':'user','message':{'content':[{'type':'tool_result','tool_use_id':'unknown','content':'PRIVATE'}]}},
+                      {'type':'user','message':{'content':[{'type':'text','text':'PRIVATE'}]}}):
+            events=self.schema_events();events.insert(-1,extra)
+            with self.assertRaises(ValueError) as error:self.run_schema_events(events)
+            self.assertNotIn('PRIVATE',str(error.exception))
+
+    def test_cli_formatter_correction_stays_in_one_process_and_only_final_object_is_returned(self):
+        first=self.schema_events(result=False)
+        second=self.schema_events(partial=False)[1:]
+        second=json.loads(json.dumps(second).replace('synthetic-output-1','synthetic-output-2'))
+        value,metrics=self.run_schema_events(first+second)
+        self.assertEqual(value,{'reply':'Synthetic final'});self.assertEqual(metrics['schema_output_calls'],2)
+
+    def test_web_search_is_off_for_app_plans_and_on_only_for_isolated_research(self):
+        c=GrokCLI('synthetic')
+        default=c.command(Path('synthetic'),'Static',helper.GROK_REPLY_SCHEMA)
+        research=c.command(Path('synthetic'),'Static',helper.GROK_REPLY_SCHEMA,web_search=True)
+        self.assertIn('--disable-web-search',default);self.assertNotIn('--disable-web-search',research)
+        self.assertEqual(default[default.index('--max-turns')+1],'1');self.assertEqual(research[research.index('--max-turns')+1],'6')
+        for command in (default,research):self.assertIn('--deny',command);self.assertIn('--no-subagents',command)
+
+    def test_hosted_web_search_and_page_read_are_allowed_only_in_research_mode(self):
+        init=json.loads(wire({}).splitlines()[0])
+        search={'type':'server_tool_use','id':'synthetic-search','name':'web_search','input':{'query':'PRIVATE_QUERY'}}
+        page={'type':'tool_use','id':'synthetic-page','name':'Web search:','input':{}}
+        events=[init,{'type':'stream_event','event':{'type':'content_block_start','index':1,'content_block':search}},
+            {'type':'stream_event','event':{'type':'content_block_delta','index':1,'delta':{'type':'input_json_delta','partial_json':'PRIVATE_QUERY'}}},
+            {'type':'stream_event','event':{'type':'content_block_stop','index':1}},
+            {'type':'assistant','message':{'content':[search,{'type':'web_search_tool_result','tool_use_id':'synthetic-search','content':[{'type':'web_search_result','url':'https://docs.python.org/3/','title':'Synthetic public docs'}]},page]}},
+            {'type':'user','message':{'content':[{'type':'tool_result','tool_use_id':'synthetic-page','content':'PRIVATE_PAGE'}]}},
+            {'type':'result','stop_reason':'end_turn','structured_output':{'reply':'Synthetic research'}}]
+        c=GrokCLI('synthetic');process=MagicMock();process.poll.return_value=0;process.returncode=0
+        for enabled in (False,True):
+            process.stdout=io.BytesIO(b'\n'.join(json.dumps(e).encode() for e in events))
+            with patch.object(c,'ready',return_value=True),patch.object(c,'_record_metrics') as record,patch('grok_cli.subprocess.Popen',return_value=process):
+                if enabled:
+                    self.assertEqual(c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event(),web_search=True),{'reply':'Synthetic research'})
+                    self.assertEqual(record.call_args.args[0]['web_search_calls'],1);self.assertEqual(record.call_args.args[0]['web_search_results'],1)
+                else:
+                    with self.assertRaises(ValueError):c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event())
+            self.assertNotIn('PRIVATE',json.dumps(record.call_args.args[0]))
+
+    def test_failed_search_attempt_without_source_results_is_not_completed_research(self):
+        init=json.loads(wire({}).splitlines()[0])
+        events=[init,{'type':'assistant','message':{'content':[
+            {'type':'server_tool_use','id':'synthetic-failed','name':'web_search','input':{}},
+            {'type':'web_search_tool_result','tool_use_id':'synthetic-failed','content':{'type':'web_search_tool_result_error','error_code':'unavailable'}}]}},
+            {'type':'result','stop_reason':'end_turn','structured_output':{'reply':'Synthetic reply'}}]
+        c=GrokCLI('synthetic');process=MagicMock();process.poll.return_value=0;process.returncode=0
+        process.stdout=io.BytesIO(b'\n'.join(json.dumps(e).encode() for e in events))
+        with patch.object(c,'ready',return_value=True),patch.object(c,'_record_metrics') as record,patch('grok_cli.subprocess.Popen',return_value=process):
+            with self.assertRaises(ValueError):c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event(),web_search=True)
+        self.assertEqual(record.call_args.args[0]['failure_reason'],'missing_web_search')
+
+    def test_research_without_actual_search_never_counts_as_searched(self):
+        c=GrokCLI('synthetic');process=MagicMock();process.poll.return_value=0;process.returncode=0
+        process.stdout=io.BytesIO(wire({'reply':'Synthetic unsearched reply'}))
+        with patch.object(c,'ready',return_value=True),patch.object(c,'_record_metrics') as record,patch('grok_cli.subprocess.Popen',return_value=process):
+            with self.assertRaises(ValueError):c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event(),web_search=True)
+        self.assertEqual(record.call_args.args[0]['failure_reason'],'missing_web_search')
+
     def test_cancelled_response_is_never_returned(self):
         c=GrokCLI("synthetic");cancel=threading.Event();cancel.set();process=MagicMock();process.poll.return_value=None;process.stdout=io.BytesIO(b'')
         with patch.object(c,"ready",return_value=True),patch("grok_cli.subprocess.Popen",return_value=process):

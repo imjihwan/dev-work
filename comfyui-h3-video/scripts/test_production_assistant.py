@@ -47,6 +47,43 @@ class PlannerTests(unittest.TestCase):
         self.manager._run(request or self.request,'synthetic',self.helper.cancel_event)
         return self.helper.job
 
+    def research_reply(self):
+        return {'summary':'Synthetic official evidence.','sources':[{'title':'Synthetic official docs','url':'https://docs.python.org/3/','note':'Synthetic supporting note.'}]}
+
+    def test_requested_research_uses_only_generic_query_and_keeps_app_context_out(self):
+        request=P.validate_input({'message':'외부 레퍼런스 찾아서 보완해줘','controls':[control(value='PRIVATE_WORK_CONTENT_NOT_FOR_SEARCH_ENGINE')],
+            'conversation':[{'role':'user','text':'PRIVATE_PAST_CONVERSATION'}]})
+        result=self.run_fake([plan(reads=[{'path':'web_search','args':json.dumps({'query':'MiniMax H3 official reference image workflow'})}]),
+            self.research_reply(),plan(intent='propose')],request)
+        self.assertEqual(result['state'],'done');self.assertEqual(self.helper.grok.complete.call_count,3)
+        call=self.helper.grok.complete.call_args_list[1]
+        self.assertEqual(call.args[1],{'query':'MiniMax H3 official reference image workflow'})
+        self.assertTrue(call.kwargs['web_search']);self.assertNotIn('PRIVATE',json.dumps(call.args[1]))
+        self.assertEqual(call.args[2],P.WEB_RESEARCH_SCHEMA);self.read.assert_not_called();self.writer.assert_not_called()
+        self.assertEqual(self.helper.grok.complete.call_args_list[-1].args[1]['read_results'][0]['result']['sources'][0]['url'],'https://docs.python.org/3/')
+
+    def test_duplicate_research_reads_are_cached_and_never_replay_writes(self):
+        read={'path':'web_search','args':'{"query":"Python official documentation"}'}
+        result=self.run_fake([plan(reads=[read]),self.research_reply(),plan(reads=[read]),plan(intent='explain')])
+        self.assertEqual(result['state'],'done');self.assertEqual(self.helper.grok.complete.call_count,4)
+        self.assertEqual(sum(call.kwargs.get('web_search',False) for call in self.helper.grok.complete.call_args_list),1)
+        self.writer.assert_not_called()
+
+    def test_search_query_rejects_private_form_excerpt_and_local_file_paths_before_network(self):
+        private='PRIVATE_SYNTHETIC_FORM_CONTENT_NOT_FOR_WEB_SEARCH'
+        request=P.validate_input({'message':'외부 레퍼런스 조회','controls':[control(value=private)]})
+        for query in (private,'file:///C:/private/photo.png','C:/private/photo.png','data:image/png;base64,PRIVATE'):
+            with self.assertRaises(ValueError):self.manager.research({'query':query},request,threading.Event(),50,None)
+        self.helper.grok.complete.assert_not_called()
+        self.assertEqual(P.research_query({'query':'DaSiWa face reference identity consistency'},request),'DaSiWa face reference identity consistency')
+
+    def test_failed_research_returns_read_failure_and_does_not_execute_any_action(self):
+        read={'path':'web_search','args':'{"query":"Python official documentation"}'}
+        result=self.run_fake([plan(reads=[read]),ValueError('Synthetic research unavailable'),plan(intent='explain')])
+        self.assertEqual(result['state'],'done')
+        self.assertIn('error',self.helper.grok.complete.call_args_list[-1].args[1]['read_results'][0]['result'])
+        self.writer.assert_not_called()
+
     def test_input_and_read_scrubbing_never_forward_media_or_unknown_properties(self):
         clean=P.validate_input({'message':'Explain','controls':[control()], 'images':['PRIVATE_PHOTO'],'tokens':'PRIVATE_TOKEN'})
         self.assertNotIn('PRIVATE',json.dumps(clean))

@@ -15,6 +15,11 @@ EFFORTS = ("low", "medium", "high", "xhigh")
 TIMEOUT_SECONDS = {"low": 180, "medium": 300, "high": 600, "xhigh": 900}
 MAX_EVENT_BYTES = 1_000_000
 MAX_STREAM_BYTES = 8_000_000
+SCHEMA_OUTPUT_TOOL = "StructuredOutput"
+OUTPUT_TRANSPORT = """Return one final object matching the requested JSON schema. If the CLI asks
+for its internal StructuredOutput formatter, use it to deliver that final object.
+It is an output envelope, not an app action. Encode any proposed app operations
+inside the requested JSON; do not invoke them as CLI tools."""
 FAILURE_MESSAGES={
     "read_error":"Grok CLI 응답을 읽는 중 연결 오류가 발생했습니다.",
     "stream_size_limit":"Grok 응답이 수신 크기 제한을 넘었습니다.",
@@ -29,6 +34,7 @@ FAILURE_MESSAGES={
     "unexpected_user_event":"Grok CLI 응답에 예상하지 않은 중간 대화 이벤트가 포함됐습니다.",
     "tool_event":"Grok이 JSON 변경안 대신 도구 호출 형식으로 응답했습니다.",
     "assistant_tool_event":"Grok이 JSON 변경안 대신 도구 호출 형식으로 응답했습니다.",
+    "missing_web_search":"외부 검색 결과를 확인하지 못했습니다. 검색 없이 찾았다고 답하지 않았습니다.",
     "json_delta_event":"Grok이 JSON 변경안 대신 도구 인수 스트림으로 응답했습니다.",
     "stream_sequence":"Grok CLI 스트림의 응답 순서를 확인하지 못했습니다.",
     "assistant_sequence":"Grok CLI 스트림의 응답 순서를 확인하지 못했습니다.",
@@ -69,7 +75,8 @@ skills: []
 mcpServers: []
 hooks: {}
 ---
-Return only the requested JSON. No tools, file access, repository context or attachments.
+Return only the requested structured answer. The CLI StructuredOutput formatter
+is an output envelope. No app/file tools, repository context or attachments.
 """
 
 
@@ -84,7 +91,7 @@ class GrokCLI:
         """A small numeric-only history. Never persist prompts or raw provider events."""
         allowed = {"at", "model", "effort", "elapsed_s", "limit_s", "request_bytes", "outcome", "exit_code",
                    "reported_api_ms", "cli_ms", "turns", "input_tokens", "output_tokens", "failure_reason",
-                   "init_events", "init_tools_count", "init_skills_count", "init_mcp_count", "init_empty_fields_omitted"}
+                   "init_events", "init_tools_count", "init_skills_count", "init_mcp_count", "init_empty_fields_omitted", "schema_output_calls", "web_search_calls", "web_search_results"}
         record = {key: value for key, value in metrics.items() if key in allowed}
         if record.get("failure_reason") not in FAILURE_MESSAGES:record.pop("failure_reason",None)
         if not self.home.is_dir(): return
@@ -114,16 +121,17 @@ class GrokCLI:
                    GROK_PROMPT_SUGGESTIONS="0")
         return env
 
-    def command(self, work, system, schema, effort="high"):
+    def command(self, work, system, schema, effort="high", web_search=False):
         if effort not in EFFORTS:
             raise ValueError("도우미 응답 방식을 확인해 주세요.")
         return [str(self.exe), "--model", "grok-4.7", "--reasoning-effort", effort, "--cwd", str(work), "--agent", str(work / "agent.md"),
-                "--system-prompt-override", system, "--prompt-file", str(work / "prompt.txt"),
+                "--system-prompt-override", system+"\n\n"+OUTPUT_TRANSPORT, "--prompt-file", str(work / "prompt.txt"),
                 "--verbatim", "--output-format", "streaming-messages-json", "--include-partial-messages", "--json-schema", json.dumps(schema),
                 "--disallowed-tools", "todo_write", "--permission-mode", "dontAsk", "--deny", "*", "--no-subagents",
-                "--disable-web-search", "--no-plan", "--max-turns", "1"]
+                *([] if web_search else ["--disable-web-search"]), "--no-plan", "--max-turns", "6" if web_search else "1"]
 
-    def complete(self, system, content, schema, cancel_event, effort="high", on_progress=None, timeout_s=None):
+    def complete(self, system, content, schema, cancel_event, effort="high", on_progress=None, timeout_s=None, web_search=False):
+        if type(web_search) is not bool:raise ValueError("외부 검색 설정을 확인해 주세요.")
         if effort not in TIMEOUT_SECONDS:
             raise ValueError("도우미 응답 방식을 확인해 주세요.")
         if timeout_s is not None and (type(timeout_s) not in (int,float) or not math.isfinite(timeout_s) or timeout_s<=0):
@@ -142,7 +150,7 @@ class GrokCLI:
             if timeout_s is not None: limit = min(limit,max(1,math.ceil(timeout_s)))
             metrics = {"at": datetime.now(timezone.utc).isoformat(), "model": "grok-4.7", "effort": effort,
                        "limit_s": limit, "request_bytes": len(payload.encode("utf-8")), "outcome": "invalid_response"}
-            process = subprocess.Popen(self.command(work, system, schema, effort), cwd=work,
+            process = subprocess.Popen(self.command(work, system, schema, effort,web_search=web_search), cwd=work,
                 env=self.environment(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             deadline = started + limit
@@ -167,6 +175,40 @@ class GrokCLI:
             reader = threading.Thread(target=read_output, daemon=True)
             reader.start()
             initial, results = [], []
+            # This is the CLI's schema formatter, intercepted by the CLI before
+            # tool execution. Keep only opaque call IDs/block indices, never args.
+            schema_calls, schema_blocks, web_calls, web_search_calls, web_results = set(), {}, set(), set(), set()
+            def schema_tool(block):
+                if block.get("type")!="tool_use" or block.get("name")!=SCHEMA_OUTPUT_TOOL:return False
+                identity=block.get("id")
+                if not isinstance(identity,str) or not 1<=len(identity)<=256:return False
+                schema_calls.add(identity)
+                metrics["schema_output_calls"]=len(schema_calls)
+                return True
+            def web_tool(block):
+                if not web_search:return False
+                search=block.get("type")=="server_tool_use" and block.get("name")=="web_search"
+                # Grok's hosted open-page/read actions use this generic client
+                # frame; they do not activate a local filesystem or shell tool.
+                read=block.get("type")=="tool_use" and block.get("name")=="Web search:"
+                if not (search or read):return False
+                identity=block.get("id")
+                if not isinstance(identity,str) or not 1<=len(identity)<=256:return False
+                web_calls.add(identity)
+                if search:web_search_calls.add(identity)
+                metrics["web_search_calls"]=len(web_search_calls)
+                return True
+            def web_result(block):
+                if not web_search or block.get("type")!="web_search_tool_result":return
+                identity=block.get("tool_use_id");hits=block.get("content")
+                if identity in web_calls and isinstance(hits,list) and any(isinstance(hit,dict) and isinstance(hit.get("url"),str) and hit["url"].startswith(("https://","http://")) for hit in hits):
+                    web_results.add(identity);metrics["web_search_results"]=len(web_results)
+            def schema_tool_result(event):
+                message=event.get("message")
+                if not isinstance(message,dict):return False
+                blocks=message.get("content")
+                return isinstance(blocks,list) and bool(blocks) and all(isinstance(block,dict)
+                    and block.get("type")=="tool_result" and block.get("tool_use_id") in (schema_calls|web_calls) for block in blocks)
             size, signals = 0, 0
             stage, last_signal, eof = "starting", None, False
             def invalid(reason="malformed_event"):
@@ -210,6 +252,7 @@ class GrokCLI:
                             for key,field,reason in (("tools","init_tools_count","init_tools_present"),("skills","init_skills_count","init_skills_present"),("mcp_servers","init_mcp_count","init_mcp_present")):
                                 value=event.get(key)
                                 metrics[field]=len(value) if isinstance(value,(list,dict)) else 0 if value is None else -1
+                                if key=="tools" and isinstance(value,list) and value and all(tool in ([SCHEMA_OUTPUT_TOOL,"web_search"] if web_search else [SCHEMA_OUTPUT_TOOL]) for tool in value):continue
                                 if value not in (None,[],{}):invalid(reason)
                             if event.get("apiKeySource")!="oauth":invalid("init_auth_source")
                             # Empty/missing collections express the same no-tools
@@ -226,15 +269,26 @@ class GrokCLI:
                             if len(results) != 1: invalid("duplicate_result")
                             stage = "check"
                         elif event_type == "error": invalid("provider_error_event")
-                        elif event_type == "user": invalid("unexpected_user_event")
+                        elif event_type == "user":
+                            if not initial or results or not schema_tool_result(event):invalid("unexpected_user_event")
                         elif event_type == "stream_event":
                             if not initial or results: invalid("stream_sequence")
                             frame = event.get("event", {})
                             frame_type = frame.get("type")
                             block = frame.get("content_block", {}) if frame_type == "content_block_start" else frame.get("delta", {})
                             block_type = block.get("type")
-                            if block_type in ("tool_use", "server_tool_use"): invalid("tool_event")
-                            if block_type == "input_json_delta": invalid("json_delta_event")
+                            if frame_type in ("message_start","message_stop"):schema_blocks.clear()
+                            if frame_type == "content_block_start":
+                                web_result(block)
+                                index=frame.get("index")
+                                if block_type in ("tool_use","server_tool_use"):
+                                    if type(index) is not int or index<0 or not (schema_tool(block) or web_tool(block)):invalid("tool_event")
+                                    schema_blocks[index]=block["id"];stage="answer"
+                                else:schema_blocks.pop(index,None)
+                            if block_type == "input_json_delta":
+                                if frame.get("index") not in schema_blocks:invalid("json_delta_event")
+                                stage="answer";signals+=1;last_signal=now
+                            if frame_type == "content_block_stop":schema_blocks.pop(frame.get("index"),None)
                             next_stage = "thinking" if block_type in ("thinking", "thinking_delta", "redacted_thinking") else "answer" if block_type in ("text", "text_delta") else None
                             if next_stage:
                                 stage = next_stage
@@ -242,7 +296,9 @@ class GrokCLI:
                         elif event_type == "assistant":
                             if not initial or results: invalid("assistant_sequence")
                             blocks = event.get("message", {}).get("content", [])
-                            if any(block.get("type") in ("tool_use", "server_tool_use") for block in blocks): invalid("assistant_tool_event")
+                            for block in blocks:
+                                web_result(block)
+                                if block.get("type") in ("tool_use","server_tool_use") and not (schema_tool(block) or web_tool(block)):invalid("assistant_tool_event")
                         # No raw event or raw block survives this iteration.
                         del event, raw
                     except (ValueError, TypeError, AttributeError): invalid("malformed_event")
@@ -268,6 +324,7 @@ class GrokCLI:
                         if type(value) in (int, float): metrics[key] = value
                     if response.get("stop_reason") != "end_turn" or response.get("is_error"):
                         invalid("nonterminal_stop")
+                    if web_search and not web_results:invalid("missing_web_search")
                     draft = response.get("structured_output")
                     if not isinstance(draft, dict):
                         invalid("missing_structured_output")

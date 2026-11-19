@@ -6,7 +6,7 @@
 })(function(){
   'use strict';
   function progressText(state,elapsed,prefix=''){
-    const phases={prepare:'앱 정보 준비',model:'Grok 응답 대기',read:'필요한 정보 조회',resolve:'조작 방법 다시 찾는 중',validate:'변경안 검사'};
+    const phases={prepare:'앱 정보 준비',model:'Grok 응답 대기',read:'필요한 정보 조회',research:'외부 레퍼런스 검색',resolve:'조작 방법 다시 찾는 중',validate:'변경안 검사'};
     const stages={starting:'Grok 연결 준비',waiting:'Grok 응답 대기',thinking:'추론 중',answer:'답변 작성 중',check:'응답 형식 확인'};
     const phase=state.phase==='model'&&Object.hasOwn(stages,state.cli_stage)?stages[state.cli_stage]:phases[state.phase]||'진행 상태 확인';
     const round=Math.min(5,Math.max(0,Number(state.round)||0)),parts=[prefix,phase,round?round+'차 응답':'',Number.isFinite(elapsed)?'전체 '+Math.max(0,Math.floor(elapsed))+'초':''];
