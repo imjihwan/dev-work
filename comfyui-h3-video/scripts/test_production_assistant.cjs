@@ -29,11 +29,17 @@ function app(options={}){
   const win={document:doc,innerWidth:options.width||900,matchMedia:()=>({matches:!!options.coarse}),location:{origin,href:origin+'/'},localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>{if(options.storageFail)throw Error("Storage unavailable");storage.set(key,value);},removeItem:key=>storage.delete(key)},setTimeout:(fn,delay)=>{delays.push(delay);progressText.push(doc.getElementById("h3ProductionThinkingText")?.textContent);fn();return 0;},Event:class{constructor(type){this.type=type;}},fetch:async(url,options)=>{url=url.split('?revision=')[0];const body=options?.body?JSON.parse(options.body):null;if(url==='/api/production-assistant/conversation')return shared?shared.fetch(url,body,handler):{ok:false,status:404,json:async()=>({error:'Legacy synthetic server'})};requests.push({url,body});return shared?shared.fetch(url,body,handler):{ok:true,json:async()=>handler(url,body)};}};win.top=win.self=win;doc.defaultView=win;
   let generationReads=0;
   win.H3ProductionBridge={fingerprint:()=>JSON.stringify({duration:duration.value,final:final.value}),imageRefs:()=>['PRIVATE_PHOTO_BYTES'],bindings:()=>{const value={current_settings:{f:{duration:duration.value},images:['PRIVATE_PHOTO_BYTES']},current_prompt:final.value};Object.defineProperty(value,'current_generation',{enumerable:true,get:()=>{generationReads++;throw Error('Unused photo generation binding must not be read');}});return value;},refresh(){}};
+  let bulkSource=null;const bulkObservers=[];
+  if(options.bulk){
+    bulkSource=new Node('button',doc);bulkSource.id='bulkEditAll';bulkSource.onclick=async()=>{};doc.nodes.set(bulkSource.id,bulkSource);doc.appControls.push(bulkSource);
+    for(const id of ['queueFeedback','status']){const node=new Node('div',doc);node.id=id;node.hidden=id==='queueFeedback';doc.nodes.set(id,node);}
+    win.MutationObserver=class{constructor(callback){this.callback=callback;bulkObservers.push(this);}observe(node,settings){this.node=node;this.settings=settings;}};
+  }
   const edit={kind:'set',target:'main:1',before:'7',value:'5',path:'',args:'{}',label:'길이를 5초로 수정'};
   const mounted=P.mount(win);
   const $=id=>doc.getElementById(id);
   function respond(actions,extra={}){const states=[...(extra.pendingStates||[])];handler=(url,body)=>url.endsWith('/start')?{id:'fake-job'}:url.includes('/status')?(states.length?states.shift():{state:'done',production:{plan_id:'fake-plan',reply:'합성 답변 <img src=x onerror=alert(1)>',intent:'execute',reads:[],actions,auto_eligible:true,...extra}}):url.endsWith('/claim')?{action:actions[body.index]}:{ok:true};}
-  return {win,doc,$,duration,final,button,requests,storage,edit,respond,delays,progressText,mounted,getGenerationReads:()=>generationReads};
+  return {win,doc,$,duration,final,button,bulkSource,bulkObservers,requests,storage,edit,respond,delays,progressText,mounted,getGenerationReads:()=>generationReads};
 }
 class SharedServer{
   constructor(){this.data={revision:0,session_id:'synthetic-session',messages:[],active:null};this.next=0;this.blocked=false;}
@@ -68,6 +74,24 @@ class SharedServer{
   }
 }
 (async()=>{
+  const bulkApp=app({bulk:true,width:390});await bulkApp.mounted.ready;
+  const bulkButton=bulkApp.$('h3ProductionApplyAll');assert(!bulkButton.hidden);assert(!bulkButton.disabled);
+  let releaseBulk,calls=0;const bulkWait=new Promise(resolve=>releaseBulk=resolve);
+  bulkApp.bulkSource.onclick=async()=>{calls++;bulkApp.bulkSource.disabled=true;await bulkWait;bulkApp.$('queueFeedback').hidden=false;bulkApp.$('queueFeedback').textContent='600개 적용 완료 · 인물 보호 2건 미적용';bulkApp.bulkSource.disabled=false;};
+  bulkApp.$('h3ProductionInput').value='보내지 않은 합성 초안';
+  const requestsBefore=bulkApp.requests.length,bulkAction=bulkButton.click();
+  assert(bulkButton.disabled);assert(bulkApp.$('h3ProductionBulkStatus').textContent.includes('적용 중'));
+  await bulkButton.click();assert.equal(calls,1,'Repeated taps cannot submit another bulk edit');
+  releaseBulk();await bulkAction;
+  assert.equal(bulkApp.requests.length,requestsBefore,'The shortcut must not ask Grok to run the edit');
+  assert.equal(bulkApp.$('h3ProductionBulkStatus').textContent,bulkApp.$('queueFeedback').textContent);
+  assert.equal(bulkApp.$('h3ProductionInput').value,'보내지 않은 합성 초안');assert.equal(bulkApp.getGenerationReads(),0);assert(!bulkButton.disabled);
+  bulkApp.bulkSource.disabled=true;bulkApp.bulkObservers[0].callback();assert(bulkButton.disabled);assert.equal(bulkApp.bulkObservers[0].node,bulkApp.bulkSource);
+  bulkApp.bulkSource.disabled=false;bulkApp.bulkObservers[0].callback();assert(!bulkButton.disabled);
+  bulkApp.bulkSource.onclick=async()=>{bulkApp.$('status').textContent='현재 최종 프롬프트를 먼저 작성해 주세요.';};await bulkButton.click();
+  assert.equal(bulkApp.$('h3ProductionBulkStatus').textContent,'현재 최종 프롬프트를 먼저 작성해 주세요.','Validation failure must not repeat a stale success summary');
+  bulkApp.bulkSource.onclick=async()=>{throw Error('Synthetic apply failure');};await bulkButton.click();assert(bulkApp.$('h3ProductionBulkStatus').textContent.includes('Synthetic apply failure'));assert(!bulkButton.disabled);
+  assert(app().$('h3ProductionApplyAll').hidden,'Standalone pages without the current editor hide the shortcut');
   assert.equal(P.replaceOne('  Before.\nKeep this.  ','Before','After'),'  After.\nKeep this.  ');
   assert.throws(()=>P.replaceOne('same same','same','other'));assert.throws(()=>P.replaceOne('not empty','','other'));
   for(const name of ['index.html','story.html','gallery.html']){
