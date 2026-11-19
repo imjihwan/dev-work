@@ -120,7 +120,7 @@ const REGEN={target:null,source:null,requestId:null,busy:false};
 const ACTIVITY={timer:null,clockTimer:null,clock:null,loading:false,states:new Map(),waiting:new Set(),ready:null};
 const REGEN_WAIT_KEY="h3simple.gallery.regeneration.waiting.v1";
 const PAGE=48,LORA_KEY="h3simple.loraOverlay.v1";
-const dateLabel=value=>new Date(value*1000).toLocaleString("ko-KR",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit"});
+const dateLabel=value=>new Date(value*1000).toLocaleString("ko-KR",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"});
 function setStatus(message,error=false){$("status").textContent=message;$("status").classList.toggle("error",error);}
 async function api(url,body){
   const response=await fetch(url,{cache:"no-store",...(body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{})});
