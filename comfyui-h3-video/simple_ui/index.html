@@ -2032,6 +2032,12 @@ function poll(jobs, t0, info, t1){
 const HIST = {items: [], rendered: [], selected:new Set(), total: 0, offset: 0, loading: false, error: false, pending: null, t: null};
 const RES_NAME = {draft: "초안", auto: "기본", "720p": "720p", "1080p": "1080p"};
 const HSTATE = {queued: "대기", running: "만드는 중", error: "실패", lost: "결과 없음"};
+function generationTimeLabel(seconds){
+  if(typeof seconds!=="number"||!Number.isFinite(seconds)||seconds<0)return "";
+  if(seconds<1)return "생성 1초 미만";
+  const n=Math.round(seconds),h=Math.floor(n/3600),m=Math.floor(n%3600/60),s=n%60;
+  return "생성 "+[h?h+"시간":"",m?m+"분":"",s||!h&&!m?s+"초":""].filter(Boolean).join(" ");
+}
 function histModelName(name){ const m = CAT?.models.find(x => x.name === name); return m ? friendlyModel(m) : base(name); }
 function histTitle(e){ return e.ui?.f?.summary?.trim() || (e.prompt || "").split("\n").find(l => l.startsWith("summary:"))?.slice(8).trim() || "(요약 없음)"; }
 async function loadHist(more, force=false){
@@ -2336,7 +2342,8 @@ function drawHist(){
     const d = new Date(e.t * 1000), when = `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
     const queueLabel = e.state === "queued" ? (e.position ? `대기 ${e.position}번` : "대기 중") : "";
     const lo = (e.loras?.length ? ` · LoRA ${e.loras.length}개` : "") + (e.anchor ? " · 첫 장면 고정" : "") + (e.sequence_index ? ` · 원본 사진 ${e.sequence_index}번을 첫 장면으로` : "");
-    const meta = `${when} · ${e.mode === "REF2VA" ? "참조" : "첫·끝"} · ${esc(histModelName(e.model))} · ${e.steps}스텝${lo}<br>${RES_NAME[e.resolution] || esc(e.resolution)} ${e.width}×${e.height} · ${e.duration}초 · 시드 ${e.seed}`;
+    const elapsed=generationTimeLabel(e.generation_seconds);
+    const meta = `${when} · ${e.mode === "REF2VA" ? "참조" : "첫·끝"} · ${esc(histModelName(e.model))} · ${e.steps}스텝${lo}<br>${RES_NAME[e.resolution] || esc(e.resolution)} ${e.width}×${e.height} · ${e.duration}초 · 시드 ${e.seed}${elapsed?' · '+elapsed:''}`;
     const err = e.error && e.state !== "done" ? `<br><span class="bad">${esc(e.error)}</span>` : "";
     return `<div class="hrow" data-history-id="${esc(e.id)}">${historyThumb(e)}<div>
       <div class="htitle">${e.video ? `<label class="compare-choice"><input type="checkbox" data-compare="${esc(e.id)}" aria-label="함께 재생할 영상 선택" ${VIDEO_COMPARE.selected.has(e.id)?"checked":""}></label><button type="button" class="textbtn history-play-selected" data-play-selected="${esc(e.id)}" title="체크한 영상 재생 · 선택이 없으면 이 영상 재생">재생</button>` : ""}${e.state === "queued" ? `<input type="checkbox" data-select="${esc(e.id)}" aria-label="대기 항목 선택" ${HIST.selected.has(e.id) ? "checked" : ""}> ` : ""}${queueLabel ? `<span class="queue-number">${queueLabel}</span>` : ""}${esc(histTitle(e))}</div><div class="hmeta">${meta}${err}</div>

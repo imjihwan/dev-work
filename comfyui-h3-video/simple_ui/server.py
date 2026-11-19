@@ -7,7 +7,7 @@ template_api.json = 원본 DaSiWa 워크플로를 ComfyUI 에서 한 번 실행�
 모델·LoRA 목록은 ComfyUI 가 보는 models 폴더 목록을 그대로 쓰고, 파일마다 '카드'(cards.json)에
 자동 판정(파일 헤더)·Civitai 정보(해시 조회)·사용자 기본값을 모아 둔다. 조합은 presets.json.
 """
-import base64, datetime, hashlib, html, io, json, os, queue, random, re, struct, threading, time
+import base64, datetime, hashlib, html, io, json, math, os, queue, random, re, struct, threading, time
 import urllib.error, urllib.parse, urllib.request, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from functools import lru_cache
@@ -343,7 +343,7 @@ def delete_history(req):
     with QUEUE_EDIT_LOCK:
         with HLOCK:
             ids = list(dict.fromkeys(e["id"] for e in HIST_DB if req.get("all") or e["id"] in requested))
-            links = [{**{key: e[key] for key in ("video", "images") if key in e},
+            links = [{**{key: e[key] for key in ("video", "images", "generation_seconds") if key in e},
                       "regenerated": bool(e.get("regenerated") or (e.get("ui") or {}).get("regeneration"))}
                      for e in HIST_DB if e["id"] in ids and e.get("video")]
         # Preserve the first-input association before removing its last history record.
@@ -376,12 +376,14 @@ def hist_result(pid, st):
     with HLOCK:
         for e in HIST_DB:
             if e["id"] == pid:
-                update = e.get("state") != st["state"] or (st.get("video") and e.get("video") != st["video"])
+                timing={key:st[key] for key in ("generation_started_at","generation_finished_at","generation_seconds") if key in st}
+                update = e.get("state") != st["state"] or (st.get("video") and e.get("video") != st["video"]) or any(e.get(key)!=value for key,value in timing.items())
                 if update:
                     e.update(state=st["state"], video=st.get("video") or e.get("video"), error=st.get("error"), t_end=time.time())
+                    e.update(timing)
                     _save_json(HIST, HIST_DB)
                 if e.get("video"):
-                    changed = {key: e[key] for key in ("video", "images", "regenerated") if key in e}
+                    changed = {key: e[key] for key in ("video", "images", "regenerated", "generation_seconds") if key in e}
                     changed["regenerated"] = bool(e.get("regenerated") or (e.get("ui") or {}).get("regeneration"))
                 break
     if changed is not None:
@@ -1211,6 +1213,20 @@ def _queue_state(pid, q):
     return None
 
 
+def execution_timing(entry):
+    """Native execution timestamps only; never infer runtime from queue/file dates."""
+    started=finished=None
+    for message in (entry.get("status") or {}).get("messages",[]):
+        if not isinstance(message,(list,tuple)) or len(message)!=2 or not isinstance(message[1],dict):continue
+        kind,data=message;stamp=data.get("timestamp")
+        if type(stamp) not in (int,float) or not math.isfinite(stamp) or stamp<0:continue
+        stamp=stamp/1000
+        if kind=="execution_start":started=stamp;finished=None
+        elif kind in ("execution_success","execution_error","execution_interrupted") and started is not None and stamp>=started:finished=stamp
+    if started is None or finished is None:return {}
+    return {"generation_started_at":started,"generation_finished_at":finished,"generation_seconds":round(finished-started,3)}
+
+
 def _status(pid, q=None):
     held = backend_restart_hold(pid)
     if held:
@@ -1228,14 +1244,14 @@ def _status(pid, q=None):
         e = h[pid]
         st = e.get("status", {})
         if st.get("status_str") == "success":
-            return {"state": "done", "video": video_of(e)}
+            return {"state": "done", "video": video_of(e), **execution_timing(e)}
         msg = ""
         for m in st.get("messages", []):
             if m[0] == "execution_error":
                 msg = m[1].get("exception_message", "")
             elif m[0] == "execution_interrupted":
                 msg = "중지됨(이 화면의 중지 버튼이나 ComfyUI 화면에서 멈춤)"
-        return {"state": "error", "error": msg or st.get("status_str", "error")}
+        return {"state": "error", "error": msg or st.get("status_str", "error"), **execution_timing(e)}
     if q is None:
         q = json.load(comfy("/queue"))
     return _queue_state(pid, q) or {"state": "unknown"}
@@ -1502,7 +1518,7 @@ class H(BaseHTTPRequestHandler):
                 self._json(bulk_queue_context())
             elif u.path == "/api/gallery":
                 with HLOCK:
-                    metadata = [{**{key: entry[key] for key in ("id", "mode", "video", "images", "width", "height", "duration", "model", "steps", "seed", "loras") if key in entry},
+                    metadata = [{**{key: entry[key] for key in ("id", "mode", "video", "images", "width", "height", "duration", "model", "steps", "seed", "loras", "generation_seconds") if key in entry},
                                  "regenerated": bool((entry.get("ui") or {}).get("regeneration"))}
                                 for entry in HIST_DB if entry.get("video")]
                 self._json(GALLERY.list(q.get("offset", 0), q.get("limit", 48), q.get("mode", "all"),

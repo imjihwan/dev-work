@@ -76,6 +76,14 @@ class GalleryTests(unittest.TestCase):
         self.assertEqual(self.gallery.list(order="oldest")["items"][0]["id"], other["items"][0]["id"])
         self.assertEqual(self.gallery.list(query="synthetic-model", metadata=metadata)["total"], 1)
 
+    def test_generation_time_remains_after_history_is_removed(self):
+        self.video('video/timed.mp4')
+        metadata=[{'video':{'filename':'timed.mp4','subfolder':'video','type':'output'},'images':['synthetic-input.png'],'generation_seconds':85.123}]
+        first=self.gallery.list(metadata=metadata)
+        self.assertEqual(first['items'][0]['generation_seconds'],85.123)
+        restored=MODULE.VideoGallery(self.output,self.home)
+        self.assertEqual(restored.list()['items'][0]['generation_seconds'],85.123)
+
     def test_favorites_trash_and_restore_persist_without_touching_files(self):
         path = self.video()
         original = (path.read_bytes(), path.stat().st_mtime_ns)

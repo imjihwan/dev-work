@@ -213,9 +213,15 @@ async function submitRegeneration(){
   }catch(error){$("regenerationError").textContent=error.message;}
   finally{REGEN.busy=false;$("confirmRegeneration").disabled=false;$("changeRegenerationSource").disabled=false;$("cancelRegeneration").disabled=false;$("confirmRegeneration").textContent="우선 재생성";}
 }
+function generationTimeLabel(seconds){
+  if(typeof seconds!=="number"||!Number.isFinite(seconds)||seconds<0)return "";
+  if(seconds<1)return "생성 1초 미만";
+  const n=Math.round(seconds),h=Math.floor(n/3600),m=Math.floor(n%3600/60),s=n%60;
+  return "생성 "+[h?h+"시간":"",m?m+"분":"",s||!h&&!m?s+"초":""].filter(Boolean).join(" ");
+}
 function tileHtml(item){
   const time=dateLabel(item.created_at),size=(item.bytes/1024/1024).toFixed(1)+" MB";
-  const meta=[item.duration?item.duration+"초":"",item.width&&item.height?item.width+"×"+item.height:"",size].filter(Boolean).join(" · ");
+  const meta=[item.duration?item.duration+"초":"",item.width&&item.height?item.width+"×"+item.height:"",size,generationTimeLabel(item.generation_seconds)].filter(Boolean).join(" · ");
   const placeholder=item.thumbnail?"원본 사진 불러오는 중…":"원본 이미지 정보 없음";
   return `<div class="cover"><button type="button" class="cover-play" data-play="${item.id}" aria-label="${esc(time)} 영상 재생"><span class="placeholder">${placeholder}</span>${item.thumbnail?`<img src="${esc(item.thumbnail)}" alt="생성에 사용한 첫 번째 원본 이미지" loading="lazy" decoding="async">`:""}<span class="source-label">원본 사진 1</span><span class="play-symbol">▶</span></button><label class="pick"><input type="checkbox" data-pick="${item.id}" aria-label="함께 재생할 영상 선택"></label>${item.trashed?"":`<button type="button" class="favorite" data-favorite="${item.id}" aria-pressed="${item.favorite}" aria-label="${item.favorite?"즐겨찾기 해제":"즐겨찾기 추가"}">${item.favorite?"★":"☆"}</button>`}</div><div class="tile-body">${item.regenerated?`<span class="regenerated-badge">${G.focus===item.source_id?"방금 재생성 완료":"재생성 완료"}</span>`:""}<div class="tile-date">${esc(time)}</div><div class="tile-meta">${esc(meta)}</div><div class="tile-meta" title="${esc(base(item.model))}">${esc(base(item.model))}</div><div class="tile-actions"><button type="button" data-play="${item.id}">재생</button><a href="${videoUrl(item,true)}" download>다운로드</a><button type="button" class="danger" data-remove="${item.id}">${item.trashed?"복원":"삭제"}</button></div>${regenerationButton(item)}</div>`;
 }

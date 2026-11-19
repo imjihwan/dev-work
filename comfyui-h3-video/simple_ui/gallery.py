@@ -2,6 +2,7 @@
 import datetime
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -96,7 +97,7 @@ class VideoGallery:
             for entry in entries:
                 video, images = entry.get("video") or {}, entry.get("images") or []
                 name = self._source_name(images[0]) if isinstance(images, list) and images else None
-                if not name or video.get("type", "output") != "output":
+                if not video.get("filename") or video.get("type", "output") != "output":
                     continue
                 try:
                     relative = Path(video.get("subfolder", "")) / video.get("filename", "")
@@ -105,7 +106,10 @@ class VideoGallery:
                     continue
                 identity = hashlib.sha256(relative.as_posix().encode()).hexdigest()
                 flags = self.state.setdefault(identity, {})
-                if flags.get("source_image") != name:
+                seconds=entry.get("generation_seconds")
+                if type(seconds) in (int,float) and math.isfinite(seconds) and seconds>=0 and flags.get("generation_seconds")!=seconds:
+                    flags["generation_seconds"]=seconds;changed=True
+                if name and flags.get("source_image") != name:
                     flags["source_image"] = name
                     changed = True
                 if (entry.get("regenerated") or (entry.get("ui") or {}).get("regeneration")) and not flags.get("regenerated"):
@@ -156,6 +160,8 @@ class VideoGallery:
                               thumbnail=f"/api/gallery/thumbnail?id={identity}&v={self._source_version(source)}" if source else None,
                               thumbnail_kind="source", thumbnail_state="ready" if source else "missing")
                 result.update({key: details[key] for key in ("width", "height", "duration", "model", "steps", "seed", "loras") if key in details})
+                seconds=details.get("generation_seconds",flags.get("generation_seconds"))
+                if type(seconds) in (int,float) and math.isfinite(seconds) and seconds>=0:result["generation_seconds"]=seconds
                 result["source_id"] = details.get("id") if details.get("mode") in ("REF2VA", "I2VA", "FL2VA") else None
                 result["regenerated"] = bool(flags.get("regenerated") or details.get("regenerated"))
                 results.append(result)

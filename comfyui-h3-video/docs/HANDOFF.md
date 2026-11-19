@@ -163,3 +163,7 @@ production_assistant.js는 활성 쓰기 가능 입력의 수정에 표시 여�
 가상 DOM과 합성 Python 검증을 수행했다. 실제 Grok도 가짜 hidden 입력을 수정하는 한 동작 계획을 5.5초에 반환했다. 실제 앱 쓰기·대화/작업/사진/결과물 조회는 없었다.
 
 배포 확인: 도우미 Python 59개 테스트와 가상 DOM 검증을 통과했다. 실행 소스 3개/제공 JS 해시와 건강 상태를 확인했고 UI 서버만 재시작했다. 영상 생성 서버와 대기열은 유지했다.
+
+## 실제 생성 소요 시간
+
+server.execution_timing은 native history의 실행 시작/성공·오류·중단 timestamp만 읽어 generation_started_at/generation_finished_at/generation_seconds를 만든다. 등록일이나 파일 수정일로 추정하지 않는다. hist_result가 이력과 갤러리 메타데이터에 저장하고 index/gallery는 생성 시간으로 표시한다. 갤러리는 이력을 지운 뒤에도 소요 시간을 유지한다. 합성 시간 6개 + 갤러리 37개 Python 검사와 가상 갤러리 UI 검증을 통과했다. 새 시험 파일은 소스 릴리스 허용 목록에 포함했다.

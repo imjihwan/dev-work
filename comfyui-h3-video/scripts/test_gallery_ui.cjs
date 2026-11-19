@@ -57,6 +57,11 @@ context.entries=entries;
 assert(run('tileHtml(entries[0])').includes('생성에 사용한 첫 번째 원본 이미지'));
 assert(run('tileHtml(entries[0])').includes('원본 사진 1'));
 assert(run('tileHtml({...entries[0],thumbnail:null,thumbnail_state:"missing"})').includes('원본 이미지 정보 없음'));
+assert(run('tileHtml({...entries[0],generation_seconds:3661.2})').includes('생성 1시간 1분 1초'));
+assert.equal(run('generationTimeLabel(85.123)'),'생성 1분 25초');assert.equal(run('generationTimeLabel(.25)'),'생성 1초 미만');assert.equal(run('generationTimeLabel(undefined)'),'');
+const mainTimingHtml=fs.readFileSync(path.join(__dirname,'../simple_ui/index.html'),'utf8'),mainTiming=vm.createContext({});
+vm.runInContext(mainTimingHtml.match(/function generationTimeLabel\(seconds\)\{[\s\S]*?\n\}/)[0],mainTiming);
+assert.equal(vm.runInContext('generationTimeLabel(85.123)',mainTiming),'생성 1분 25초');assert.equal(vm.runInContext('generationTimeLabel(null)',mainTiming),'');
 assert(html.includes('object-fit:contain}.source-label'));
 function mockPages(revision='one'){
   context.fetch=async(url,options)=>{calls.push({url,options});const q=new URL(url,'http://synthetic.local').searchParams;const offset=Number(q.get('offset')),limit=Number(q.get('limit'));return {ok:true,json:async()=>({items:q.get('known')===revision?[]:entries.slice(offset,offset+limit),total:entries.length,counts:{all:60,favorites:0,trash:0},revision,unchanged:q.get('known')===revision})};};
