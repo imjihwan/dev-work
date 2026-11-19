@@ -1450,10 +1450,69 @@ def production_validate_write(action,snapshot):
         if path in ("/api/cancel","/api/queue/restart","/api/production-assistant/patch-queue") and pid not in previous:raise ValueError("조회한 작업만 제어할 수 있습니다.")
 
 
+def production_prompt_graph(graph,text):
+    """Keep the Director widget and its model-effective simple builder in sync."""
+    if not isinstance(text,str) or len(text)>80000:raise ValueError("프롬프트 형식을 확인해 주세요.")
+    graph=json.loads(json.dumps(graph));d=graph[DIRECTOR]["inputs"]
+    def object_value(raw):
+        try:value=json.loads(raw or "{}")
+        except (TypeError,ValueError):raise ValueError("프롬프트 구성 정보 형식을 확인해 주세요.") from None
+        if not isinstance(value,dict):raise ValueError("프롬프트 구성 정보 형식을 확인해 주세요.")
+        return value
+    builder=object_value(d.get("builder_state"))
+    builder.update(prompt_mode="simple",simple_prompt=text)
+    if "timeline_data" in d:
+        timeline=object_value(d["timeline_data"])
+        embedded=timeline.get("builder_state",{})
+        if not isinstance(embedded,dict):raise ValueError("프롬프트 구성 정보 형식을 확인해 주세요.")
+        embedded.update(prompt_mode="simple",simple_prompt=text)
+        timeline.update(builder_state=embedded,resolved_prompt=text)
+        if "continuity" in timeline:
+            if not isinstance(timeline["continuity"],dict):raise ValueError("프롬프트 구성 정보 형식을 확인해 주세요.")
+            timeline["continuity"]["continuation_prompt"]=text
+        d["timeline_data"]=json.dumps(timeline,ensure_ascii=False)
+    override=d.get("external_prompt_overwrite")
+    if override and not isinstance(override,str):raise ValueError("연결된 외부 프롬프트 입력은 이 방식으로 수정할 수 없습니다.")
+    if override:d["external_prompt_overwrite"]=text
+    d.update(prompt=text,builder_state=json.dumps(builder,ensure_ascii=False))
+    return graph
+
+
+def production_repair_prompt_state(dry_run=True):
+    """Align previously saved edits only; expose counts, never work text or IDs."""
+    if type(dry_run) is not bool:raise ValueError("검사 옵션을 확인해 주세요.")
+    raw=json.load(comfy("/queue"))
+    with HLOCK:entries={e["id"]:json.loads(json.dumps(e)) for e in HIST_DB}
+    counts={"checked":0,"eligible":0,"repaired":0,"failed":0,"dry_run":dry_run}
+    for row in raw.get("queue_pending",[]):
+        entry=entries.get(row[1]);d=row[2].get(DIRECTOR,{}).get("inputs",{})
+        if not entry or not isinstance(d.get("prompt"),str):continue
+        counts["checked"]+=1
+        try:builder=json.loads(d.get("builder_state") or "{}")
+        except (ValueError,TypeError):continue
+        if not isinstance(builder,dict) or builder.get("prompt_mode")!="simple" or not isinstance(builder.get("simple_prompt"),str) or builder["simple_prompt"]==d["prompt"]:continue
+        if not entry.get("edited_at") or entry.get("prompt")!=d["prompt"] or (entry.get("ui") or {}).get("final")!=d["prompt"]:continue
+        counts["eligible"]+=1
+        if dry_run:continue
+        try:
+            graph=production_prompt_graph(row[2],d["prompt"])
+            result=replace_queued_prompt(row[1],graph,expected_graph=row[2])
+            if not result.get("prompt_verified"):raise ValueError("반영 확인 실패")
+            counts["repaired"]+=1
+        except (OSError,ValueError):counts["failed"]+=1
+    return counts
+
+
 def production_write_api(path,args,snapshot):
     if path not in PRODUCTION_WRITES:raise ValueError("허용되지 않은 앱 실행입니다.")
     if path=="/api/production-assistant/patch-queue":
         from production_assistant import replacement
+        edits=args.get("edits");full=args.get("prompt")
+        if "prompt" in args:
+            if "edits" in args or not isinstance(full,str) or not full.strip() or len(full)>80000:raise ValueError("교체할 최종 프롬프트를 확인해 주세요.")
+        elif not isinstance(edits,list) or not 1<=len(edits)<=12 or any(not isinstance(edit,dict) or not isinstance(edit.get("before"),str) or not isinstance(edit.get("after"),str) for edit in edits):
+            raise ValueError("교체할 문구를 확인해 주세요.")
+        change={"prompt":full} if "prompt" in args else {"edits":edits}
         # One assistant action can target the whole queue. Keep each graph's own
         # settings and perform the existing guarded edit for every pending target.
         if "ids" in args or "all_pending" in args:
@@ -1462,9 +1521,6 @@ def production_write_api(path,args,snapshot):
                 raise ValueError("일괄 수정할 범위를 확인해 주세요.")
             if not all_pending and (not isinstance(ids,list) or not ids or any(not isinstance(pid,str) or not pid for pid in ids)):
                 raise ValueError("일괄 수정할 대기 항목을 지정해 주세요.")
-            edits=args.get("edits")
-            if not isinstance(edits,list) or not 1<=len(edits)<=12 or any(not isinstance(edit,dict) or not isinstance(edit.get("before"),str) or not isinstance(edit.get("after"),str) for edit in edits):
-                raise ValueError("일괄 교체할 문구를 확인해 주세요.")
             raw=json.load(comfy("/queue"))
             pending={row[1]:row for row in sorted(raw.get("queue_pending",[]),key=lambda row:row[0])}
             with HLOCK:owned={entry["id"] for entry in HIST_DB}
@@ -1481,23 +1537,22 @@ def production_write_api(path,args,snapshot):
                 digest=snapshot.get("prompt_hashes",{}).get(pid) or hashlib.sha256(original.encode()).hexdigest()
                 item_snapshot={**snapshot,"prompt_hashes":{pid:digest}}
                 try:
-                    jobs.append(production_write_api(path,{"id":pid,"edits":edits},item_snapshot))
+                    jobs.append(production_write_api(path,{"id":pid,**change},item_snapshot))
                 except (ValueError,OSError) as exc:
                     failed.append({"id":pid,"error":str(exc)})
             return {"ok":not failed,"bulk_edit":True,"all_pending":all_pending,"target_count":len(targets),
                     "updated_count":len(jobs),"jobs":jobs,"failed":failed,
                     "verified_count":sum(bool(job.get("prompt_verified")) for job in jobs)}
-        pid=args.get("id");edits=args.get("edits")
-        if not isinstance(edits,list) or not 1<=len(edits)<=12 or not snapshot.get("prompt_hashes",{}).get(pid):raise ValueError("수정 전 해당 대기 항목을 먼저 조회해 주세요.")
+        pid=args.get("id")
+        if not snapshot.get("prompt_hashes",{}).get(pid):raise ValueError("수정 전 해당 대기 항목을 먼저 조회해 주세요.")
         raw=json.load(comfy("/queue"));row=next((item for item in raw.get("queue_pending",[]) if item[1]==pid),None)
         if row is None:raise ValueError("대기 상태가 바뀌었습니다. 실행 중인 작업은 수정하지 않았습니다.")
         original=row[2][DIRECTOR]["inputs"]["prompt"]
         if hashlib.sha256(original.encode()).hexdigest()!=snapshot["prompt_hashes"][pid]:raise ValueError("조회 후 문구가 바뀌었습니다. 다시 조회해 주세요.")
-        updated=original
-        for edit in edits:
-            if not isinstance(edit,dict):raise ValueError("교체할 문구를 확인해 주세요.")
-            updated=replacement(updated,edit.get("before"),edit.get("after"))
-        graph=json.loads(json.dumps(row[2]));graph[DIRECTOR]["inputs"]["prompt"]=updated
+        updated=full if "prompt" in args else original
+        for edit in edits or []:
+            updated=replacement(updated,edit["before"],edit["after"])
+        graph=production_prompt_graph(row[2],updated)
         result=replace_queued_prompt(pid,graph,expected_graph=row[2])
         with HLOCK:
             for entry in HIST_DB:
@@ -1702,6 +1757,8 @@ class H(BaseHTTPRequestHandler):
                 self._json(PRODUCTION_ASSISTANT.conversation(body))
             elif self.path == "/api/production-assistant/start":
                 self._json(PRODUCTION_ASSISTANT.start(body))
+            elif self.path == "/api/production-assistant/repair-prompt-state":
+                self._json(production_repair_prompt_state(body.get("dry_run",True)))
             elif self.path == "/api/production-assistant/claim":
                 self._json(PRODUCTION_ASSISTANT.claim(body))
             elif self.path == "/api/production-assistant/finish":

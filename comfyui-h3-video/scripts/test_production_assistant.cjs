@@ -80,6 +80,16 @@ class SharedServer{
   assert(snapshot.controls.some(item=>item.id==='final'),'Final prompt remains available even inside collapsed UI');
   assert(!JSON.stringify(snapshot.controls).includes('PRIVATE'),'Passwords, photo bytes and file-picker names never go into model context');
   assert.equal(snapshot.controls.find(item=>item.type==='file').value,'');
+  // Hidden duplicate action editors must never be targets: render copies the
+  // active editor over them. Only the canonical active input is exposed.
+  const editor=app(),mode=new Node('select',editor.doc),joined=new Node('textarea',editor.doc),shots=new Node('div',editor.doc),shot=new Node('div',editor.doc),shotText=new Node('textarea',editor.doc),shotTime=new Node('input',editor.doc);
+  mode.id='actionMode';mode.value='single';joined.id='actionText';joined.value='Current joined action.';shots.id='shots';shots.appendChild(shot);shot.appendChild(shotTime);shot.appendChild(shotText);shotText.value='Shadow action.';shotTime.type='number';
+  for(const node of [shotText,shotTime])node.closest=selector=>selector==='#shots'?shots:selector==='.shot'?shot:null;
+  editor.doc.nodes.set('actionMode',mode);editor.doc.nodes.set('actionText',joined);editor.doc.appControls.push(mode,joined,shotText,shotTime);
+  let editorSnapshot=P.collect(editor.win,{map:new WeakMap(),next:0});
+  assert(editorSnapshot.controls.some(item=>item.id==='actionText'));assert(!editorSnapshot.controls.some(item=>item.id.startsWith('shot-')));assert.equal(editorSnapshot.contexts[0].action_mode,'single');
+  mode.value='timeline';editorSnapshot=P.collect(editor.win,{map:new WeakMap(),next:0});
+  assert(!editorSnapshot.controls.some(item=>item.id==='actionText'));assert(editorSnapshot.controls.some(item=>item.id==='shot-1-action'&&item.label.includes('동작')));assert(editorSnapshot.controls.some(item=>item.id==='shot-1-time'));
   let hiddenPage=app();hiddenPage.duration.hidden=true;
   let hiddenSnapshot=P.collect(hiddenPage.win,{map:new WeakMap(),next:0});
   let hiddenRecord=[...hiddenSnapshot.nodes.values()].find(record=>record.entry.id==='duration');
@@ -121,6 +131,16 @@ class SharedServer{
   assert(!JSON.stringify(a.requests.find(item=>item.url.endsWith('/start')).body).includes('PRIVATE_PHOTO_BYTES'));
   a=app();a.respond([a.edit]);a.$('h3ProductionInput').value='길이를 바꿔줘';await a.$('h3ProductionSend').click();a.respond([],{intent:'explain'});a.$('h3ProductionInput').value='이 수정안을 더 보완해줘';await a.$('h3ProductionSend').click();assert(a.requests.filter(item=>item.url.endsWith('/start')).at(-1).body.proposal.actions.length===1,'Follow-up carries the latest unapplied proposal');
   await a.$('h3ProductionNew').click();assert.equal(a.duration.value,'7');assert(a.$('h3ProductionPlan').hidden);
+  // New prompt bindings are resolved after each preceding input edit, and again
+  // on the next request. No first-request prompt is cached for whole-queue apply.
+  const bulkPage=app();bulkPage.$('h3ProductionAuto').checked=true;
+  for(const revised of ['First revised scene.','Second revised scene.','Third revised scene.']){
+    const promptRef=P.collect(bulkPage.win,{map:new WeakMap(),next:0}).controls.find(item=>item.id==='final').ref;
+    const edits=[{...bulkPage.edit,target:promptRef,before:bulkPage.final.value,value:revised},{...bulkPage.edit,kind:'api',target:'',before:'',value:'',path:'/api/production-assistant/patch-queue',args:JSON.stringify({all_pending:true,prompt:'$current_prompt'})}];
+    bulkPage.respond(edits);bulkPage.$('h3ProductionInput').value='수정하고 전체 반영';await bulkPage.$('h3ProductionSend').click();
+    const applied=bulkPage.requests.filter(item=>item.url.endsWith('/execute')).at(-1);
+    assert.equal(bulkPage.final.value,revised);assert.deepEqual(applied.body.args,{all_pending:true,prompt:revised});
+  }
   a=app();a.respond([{...a.edit,kind:'click',target:'main:3',before:'',value:'',label:'대기열 추가'}]);a.$('h3ProductionInput').value='대기열에 추가해줘';await a.$('h3ProductionSend').click();await a.$('h3ProductionExecute').click();assert.equal(a.button.clicks,1);
   a=app({width:1440});assert(!a.$('h3ProductionPanel').hidden,'Desktop opens as an embedded chat sidebar');assert(a.doc.body.classList.contains('h3pa-open'));
   a.$('h3ProductionClose').click();assert(a.$('h3ProductionPanel').hidden);assert(!a.doc.body.classList.contains('h3pa-open'));assert(!a.$('h3ProductionToggle').hidden);

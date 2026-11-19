@@ -45,7 +45,7 @@ WRITES = {
 }
 READ_SCHEMA = {"type":"object","properties":{"path":{"type":"string","enum":list(READS)},"args":{"type":"string"}},"required":["path","args"],"additionalProperties":False}
 ACTION_SCHEMA = {"type":"object","properties":{
-    "kind":{"type":"string","enum":["set","click","api"]},
+    "kind":{"type":"string","enum":["set","replace","click","api"]},
     **{key:{"type":"string"} for key in ("target","before","value","path","args","label")}},
     "required":["kind","target","before","value","path","args","label"],"additionalProperties":False}
 SCHEMA = {"type":"object","properties":{
@@ -95,10 +95,11 @@ or special identity/camera fields. Honor limits the user actually states, includ
 their latest corrections. Do not recite generic permission warnings or ask again
 for permission the conversation already provides.
 For set actions target is a supplied control ref: before is ONE unique exact
-substring, value is its replacement. For a full rewrite, before is the complete
-current input and value is the new text. Exact matching checks for stale content;
-it does not restrict how much wording you may revise. Empty before works only
-for an empty input.
+substring, value is its replacement. For a full field rewrite prefer kind:replace,
+target:the supplied ref, value:the new complete text and before:"". The host captures
+the exact original for review and stale-content checks; do not repeat long originals.
+Use the active action editor: actionText in single mode, shot-N-action in timeline
+mode. summary is only a one-line overview, not the detailed scene actions.
 For checkboxes, numbers and selects before/value are their complete string values.
 For click target is a supplied button/link ref. Never invent selectors or JavaScript.
 An enabled writable input can be edited even in a collapsed panel or inactive tab;
@@ -121,6 +122,11 @@ owned pending queue, not only the initial page or jobs already read.
 Use /api/queue/bulk-edit for shared settings or a shared full prompt, with
 all_pending:true or edit_ids:[...], bulk_fields containing content/model/video/anchor,
 and the requested values. Content uses prompt:new_final and ui:{...ui,final:new_final}.
+To apply the current final prompt to all pending jobs without changing their other
+settings, use ONE /api/production-assistant/patch-queue action with
+{all_pending:true,prompt:"$current_prompt"}. This binding is resolved AFTER earlier
+input edits in the same plan, so edit the screen first, then apply. If you compose
+a new full prompt directly, prompt can instead contain that complete text.
 For the same text change in different prompts, use ONE
 /api/production-assistant/patch-queue action with {all_pending:true,edits:[{before,after}]}
 or {ids:[...],edits:[{before,after}]}. The server handles all targets and returns counts
@@ -197,7 +203,7 @@ def validate_input(body):
     clean["contexts"]=[]
     for context in contexts:
         if not isinstance(context,dict):raise ValueError("현재 화면 정보를 확인해 주세요.")
-        clean["contexts"].append({key:value for key,value in context.items() if key in ("page","mode","photo_count","final_mode","editing_queue","project_id") and type(value) in (str,bool,int)})
+        clean["contexts"].append({key:value for key,value in context.items() if key in ("page","mode","action_mode","photo_count","final_mode","editing_queue","project_id") and type(value) in (str,bool,int)})
         statuses=context.get("statuses",[])
         if isinstance(statuses,list):clean["contexts"][-1]["statuses"]=[{"id":str(item.get("id",""))[:100],"text":scrub(str(item.get("text",""))[:2000])} for item in statuses[:20] if isinstance(item,dict) and str(item.get("text","")).strip() not in LEGACY_APP_ERRORS]
     proposal=body.get("proposal")
@@ -206,7 +212,7 @@ def validate_input(body):
         try:
             validated=validate_plan({"reply":"이전 미적용 제안","intent":"propose","reads":[],"actions":proposal.get("actions",[])},clean)
             clean["pending_proposal"]={"actions":validated["actions"]}
-        except UnavailableTarget:
+        except (UnavailableTarget,InvalidEdit):
             pass  # A stale display proposal must not prevent a new request.
     if len(json.dumps(clean,ensure_ascii=False))>240000: raise ValueError("화면 내용이 너무 큽니다. 필요한 탭이나 항목만 열어 다시 요청해 주세요.")
     return clean
@@ -229,6 +235,12 @@ class UnavailableTarget(ValueError):
                   "readonly":"도우미가 읽기 전용 입력을 수정하려 했습니다."}
         super().__init__(messages[reason]+" 다른 앱 API나 조작 방법이 필요합니다.")
         self.feedback={"type":"unavailable_target","reason":reason,"target":action["target"][:120],"kind":action["kind"],"executed":False}
+
+
+class InvalidEdit(ValueError):
+    def __init__(self,action,reason):
+        super().__init__("입력 수정 계획이 현재 값과 맞지 않습니다. 변경 방법을 다시 선택해야 합니다.")
+        self.feedback={"type":"invalid_edit","reason":reason,"target":action["target"][:120],"kind":action["kind"],"executed":False}
 
 
 def validate_plan(output,request):
@@ -256,12 +268,15 @@ def validate_plan(output,request):
         if action["kind"]=="click":
             if control["type"] not in ("button","link"): raise ValueError("클릭할 버튼을 찾지 못했습니다.")
             if control.get("hidden") and not control.get("revealable"):raise UnavailableTarget(action,"hidden")
-        elif action["kind"]=="set":
+        elif action["kind"] in ("set","replace"):
             if control.get("readonly"):raise UnavailableTarget(action,"readonly")
             if control["type"] in ("button","link","file"): raise ValueError("이 입력은 자동으로 바꿀 수 없습니다.")
             field=control.get("id","")
             text_ids.add(field)
-            value=replacement(control.get("value",""),action["before"],action["value"])
+            if action["kind"]=="replace":
+                action.update(kind="set",before=control.get("value",""))
+            try:value=replacement(control.get("value",""),action["before"],action["value"])
+            except ValueError:raise InvalidEdit(action,"original_mismatch_use_replace") from None
             if control["type"] in ("checkbox","radio") and value not in ("true","false"): raise ValueError("체크 상태가 올바르지 않습니다.")
             if control["type"]=="number" and value!="":
                 try:
@@ -272,7 +287,7 @@ def validate_plan(output,request):
             if control["type"]=="select" and value not in [option["value"] for option in control.get("options",[]) if not option.get("disabled")]: raise ValueError("선택 목록에 없는 값입니다.")
             control["value"]=value
         else: raise ValueError("허용되지 않은 화면 동작입니다.")
-    if "final" in text_ids and text_ids.intersection({"subject","summary","style","keep","sound","music","actionText"}):raise ValueError("최종 프롬프트 직접 수정과 원본 칸 수정은 나눠 적용해 주세요.")
+    if "final" in text_ids and (text_ids.intersection({"subject","summary","style","keep","sound","music","actionText"}) or any(field.startswith("shot-") for field in text_ids)):raise InvalidEdit(next(action for action in actions if action["kind"]=="set"),"final_and_sources_conflict_choose_one")
     return {"reply":output["reply"][:8000],"intent":output["intent"],"reads":reads,"actions":actions}
 
 
@@ -363,7 +378,7 @@ class ProductionAssistant:
                 output=self.helper.grok.complete(SYSTEM,content,SCHEMA,cancel,effort=request.get("effort","high"),on_progress=cli_progress,timeout_s=remaining)
                 try:
                     plan=validate_plan(output,request)
-                except UnavailableTarget as exc:
+                except (UnavailableTarget,InvalidEdit) as exc:
                     if target_repairs or iteration==4:raise
                     target_repairs+=1;content["action_feedback"]=exc.feedback
                     progress("resolve",iteration+1)

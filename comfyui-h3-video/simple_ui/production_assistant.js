@@ -72,9 +72,12 @@
     }
     const bridges=[],contexts=[];
     for(const doc of documents){
+      const actionMode=doc.page==='main'?doc.win.document.getElementById('actionMode')?.value:null;
       if(doc.win.H3ProductionBridge){doc.win.H3ProductionBridge.beforeSnapshot?.();bridges.push({page:doc.page,bridge:doc.win.H3ProductionBridge});contexts.push({page:doc.page,...(doc.win.H3ProductionBridge.context?.()||{}),statuses:[...doc.scope.querySelectorAll('[role=status],.status,#queueFeedback')].filter(node=>!node.closest('#h3ProductionPanel')&&!blocked(node,doc.win)).slice(0,20).map(node=>({id:node.id||'',text:tidy(node.textContent).slice(0,2000)}))});}
       for(const node of doc.scope.querySelectorAll('input,textarea,select,button,a[href]')){
         if(node.closest('#h3ProductionPanel,#h3ProductionToggle')||node.type==='password'||node.type==='hidden'||['cancel','restartCurrent','histClear'].includes(node.id))continue;
+        const shot=node.closest('.shot'),inShots=!!node.closest('#shots');
+        if(doc.page==='main'&&(actionMode==='single'&&(inShots||node.id==='addShot')||actionMode==='timeline'&&node.id==='actionText'))continue;
         const tag=node.tagName.toLowerCase();
         let type=tag==='textarea'?'textarea':tag==='select'?'select':tag==='button'?'button':tag==='a'?'link':node.type||'text';
         if(['submit','reset'].includes(type))type='button';
@@ -87,15 +90,20 @@
         if(!refs.map.has(node))refs.map.set(node,++refs.next);
         const ref=doc.page+':'+refs.map.get(node);
         const labels=node.labels?[...node.labels].map(label=>tidy(label.textContent)).join(' '):'';
-        const label=(labels||node.getAttribute('aria-label')||node.title||(type==='button'||type==='link'?tidy(node.textContent):node.id||node.placeholder||type)).slice(0,200);
+        const fieldLabels={subject:'1. 기본적으로 누가/무엇이 나오나',summary:'2. 내용 한 줄 요약',actionText:'2. 내용·장면별 동작 (통합 입력)',style:'장소·분위기·카메라',keep:'사진에서 그대로 유지할 것',final:'최종 프롬프트'};
+        const shotNumber=shot?[...shot.parentElement.children].indexOf(shot)+1:0;
+        const fieldId=node.id||(shotNumber?'shot-'+shotNumber+'-'+(type==='textarea'?'action':type==='number'?'time':'delete'):'');
+        const shotLabel=shotNumber?'2. 장면 '+shotNumber+' '+(type==='textarea'?'동작':type==='number'?'시작 시각(초)':'삭제'):'';
+        const label=(shotLabel||fieldLabels[fieldId]||labels||node.getAttribute('aria-label')||node.title||(type==='button'||type==='link'?tidy(node.textContent):node.id||node.placeholder||type)).slice(0,200);
         const row=node.closest('[data-l],[data-m],[data-id]');
         const itemId=node.getAttribute('data-id')||row?.getAttribute('data-l')||row?.getAttribute('data-m')||row?.getAttribute('data-id')||'';
-        const entry={ref,id:node.id||'',item_id:itemId,action:node.getAttribute('data-action')||'',page:doc.page,type,label,value:['button','link','file'].includes(type)?'':valueOf(node),readonly:!!node.readOnly,disabled:!!node.disabled,hidden:blocked(node,doc.win)};
+        const entry={ref,id:fieldId,item_id:itemId,action:node.getAttribute('data-action')||'',page:doc.page,type,label,value:['button','link','file'].includes(type)?'':valueOf(node),readonly:!!node.readOnly,disabled:!!node.disabled,hidden:blocked(node,doc.win)};
         if(['button','link'].includes(type)&&entry.hidden&&canReveal(node,doc.win))entry.revealable=true;
         if(type==='number')for(const key of ['min','max','step'])if(node.getAttribute(key)!==null)entry[key]=node.getAttribute(key);
         if(type==='select')entry.options=[...node.options].map(option=>({value:String(option.value),label:tidy(option.textContent).slice(0,120),disabled:!!option.disabled}));
         controls.push(entry);nodes.set(ref,{node,entry,win:doc.win});
       }
+      if(actionMode&&contexts.at(-1)?.page===doc.page)contexts.at(-1).action_mode=actionMode;
     }
     if(controls.length>1500)throw Error('화면에 조작 항목이 많습니다. 필요한 탭이나 목록 범위를 줄여 주세요.');
     return {controls,nodes,bridges,contexts};

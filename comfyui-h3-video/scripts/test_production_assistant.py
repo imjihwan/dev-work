@@ -74,6 +74,28 @@ class PlannerTests(unittest.TestCase):
         request=P.validate_input({'message':'수정해줘','controls':[control(),control(ref='main:2')]})
         with self.assertRaises(P.UnavailableTarget):P.validate_plan(plan([action(target='summary')]),request)
 
+    def test_whole_field_replace_captures_original_and_repeated_edits_use_fresh_values(self):
+        original='  Long synthetic scene.\nSecond line.  '
+        for revised in ('First revision.','Second revision.','Third revision.'):
+            request=P.validate_input({'message':'수정 후 전체 반영','controls':[control(value=original)]})
+            source=action(kind='replace',before='',value=revised)
+            validated=P.validate_plan(plan([source]),request)['actions'][0]
+            self.assertEqual(validated['kind'],'set');self.assertEqual(validated['before'],original)
+            self.assertEqual(P.replacement(original,validated['before'],validated['value']),revised)
+            self.assertEqual(source['kind'],'replace');original=revised
+
+    def test_failed_exact_edit_replans_as_whole_replacement_without_writes(self):
+        job=self.run_fake([plan([action(before='wrong original')]),plan([action(kind='replace',before='',value='New synthetic action.')])])
+        self.assertEqual(job['state'],'done');self.assertEqual(self.helper.grok.complete.call_count,2)
+        self.assertEqual(job['production']['actions'][0]['before'],self.request['controls'][0]['value'])
+        self.writer.assert_not_called()
+
+    def test_stale_text_proposal_does_not_block_new_request_or_mix_final_with_shots(self):
+        request=P.validate_input({'message':'다시 수정','controls':[control()], 'proposal':{'actions':[action(before='old original')]}})
+        self.assertNotIn('pending_proposal',request)
+        request=P.validate_input({'message':'수정','controls':[{**control(),'id':'final'},{**control(ref='main:2'),'id':'shot-1-action'}]})
+        with self.assertRaises(P.InvalidEdit):P.validate_plan(plan([action(),action(target='main:2')]),request)
+
     def test_bad_target_is_replanned_as_an_api_without_any_write(self):
         bulk=action(kind='api',target='',before='',value='',path='/api/production-assistant/patch-queue',args='{"all_pending":true,"edits":[{"before":"slow","after":"fast"}]}')
         answers=iter([plan([action(target='old:99')]),plan([bulk])]);feedback=[]
@@ -294,6 +316,64 @@ class NativeBridgeTests(unittest.TestCase):
         self.env={'json':json,'hashlib':hashlib,'time':__import__('time'),'urllib':urllib,'comfy':comfy,'HLOCK':threading.Lock(),'PLOCK':threading.Lock(),'QUEUE_EDIT_LOCK':threading.Lock(),'HIST_DB':self.db,'PROGRESS':{'b':{'pct':12}},'DIRECTOR':'director','PRODUCTION_READS':P.READS,'PRODUCTION_WRITES':P.WRITES,'_status':lambda pid,queue:{'state':'unknown'},'hist_result':MagicMock(),'replace_queued_prompt':self.replace,'_save_json':MagicMock(),'HIST':'SYNTHETIC','PORT':8190}
         source=ast.parse((SOURCE/'server.py').read_text(encoding='utf-8-sig'));functions=[item for item in source.body if isinstance(item,ast.FunctionDef) and item.name.startswith('production_')]
         exec(compile(ast.Module(body=functions,type_ignores=[]),'<synthetic native bridge>','exec'),self.env)
+
+    def with_builder(self):
+        text=self.graph['director']['inputs']['prompt']
+        builder={'prompt_mode':'simple','simple_prompt':text,'mode':'REF2VA','duration':8,'unchanged':'KEEP'}
+        timeline={'builder_state':dict(builder),'resolved_prompt':text,'continuity':{'continuation_prompt':text,'keep':'KEEP'},'items':[{'synthetic_reference':'KEEP'}]}
+        self.graph['director']['inputs'].update(builder_state=json.dumps(builder),timeline_data=json.dumps(timeline),external_prompt_overwrite='')
+
+    def assert_mirrors(self,graph,text):
+        d=graph['director']['inputs'];b=json.loads(d['builder_state']);tl=json.loads(d['timeline_data'])
+        self.assertEqual(d['prompt'],text);self.assertEqual(b['simple_prompt'],text);self.assertEqual(b['prompt_mode'],'simple')
+        self.assertEqual(tl['builder_state']['simple_prompt'],text);self.assertEqual(tl['resolved_prompt'],text);self.assertEqual(tl['continuity']['continuation_prompt'],text)
+        self.assertEqual(b['unchanged'],'KEEP');self.assertEqual(tl['continuity']['keep'],'KEEP');self.assertEqual(tl['items'],[{'synthetic_reference':'KEEP'}])
+
+    def test_repeated_whole_queue_apply_updates_actual_dasiwa_builder_and_all_mirrors(self):
+        self.with_builder()
+        def apply(pid,graph,expected_graph):
+            self.assertEqual(self.raw['queue_pending'][0][2],expected_graph)
+            self.raw['queue_pending'][0][2]=graph
+            return {'prompt_verified':True}
+        self.replace.side_effect=apply
+        helper_path=ROOT/'ComfyUI/custom_nodes/ComfyUI-DaSiWa-Nodes/nodes/helper_minimax_h3_prompt_builder.py'
+        native=None
+        if helper_path.exists():
+            spec=importlib.util.spec_from_file_location('synthetic_native_prompt_helper',helper_path);native=importlib.util.module_from_spec(spec);spec.loader.exec_module(native)
+        for text in ('summary: First revision.','summary: Second revision.','summary: Third revision.'):
+            snapshot=self.env['production_queue_snapshot']()
+            result=self.env['production_write_api']('/api/production-assistant/patch-queue',{'all_pending':True,'prompt':text},snapshot)
+            self.assertEqual(result['verified_count'],1);graph=self.raw['queue_pending'][0][2]
+            self.assert_mirrors(graph,text)
+            if native:self.assertEqual(native.build_prompt(json.loads(graph['director']['inputs']['builder_state'])),text)
+            self.assertEqual(graph['other'],self.graph['other']);self.assertEqual(self.db[0]['ui']['final'],text)
+        self.assertEqual(self.raw['queue_pending'][0][0:2],[1,'b']);self.assertEqual(self.replace.call_count,3)
+
+    def test_partial_patch_updates_native_mirrors_and_external_literal(self):
+        self.with_builder();self.graph['director']['inputs']['external_prompt_overwrite']=self.graph['director']['inputs']['prompt']
+        snapshot=self.env['production_queue_snapshot']();snapshot['prompt_hashes']={'b':hashlib.sha256(self.graph['director']['inputs']['prompt'].encode()).hexdigest()}
+        self.env['production_write_api']('/api/production-assistant/patch-queue',{'id':'b','edits':[{'before':'slowly','after':'quickly'}]},snapshot)
+        graph=self.replace.call_args.args[1];self.assert_mirrors(graph,graph['director']['inputs']['prompt'])
+        self.assertEqual(graph['director']['inputs']['external_prompt_overwrite'],graph['director']['inputs']['prompt'])
+
+    def test_invalid_builder_or_connected_override_never_submits_or_changes_original(self):
+        for bad in ({'builder_state':'bad json'},{'builder_state':'[]'},{'timeline_data':'[]'},{'external_prompt_overwrite':['linked',0]}):
+            graph=json.loads(json.dumps(self.graph));graph['director']['inputs'].update(bad);before=json.loads(json.dumps(graph))
+            with self.assertRaises(ValueError):self.env['production_prompt_graph'](graph,'New synthetic prompt.')
+            self.assertEqual(graph,before)
+        self.replace.assert_not_called()
+
+    def test_repair_only_confirmed_saved_pending_edits_and_dry_run_has_no_effect(self):
+        self.with_builder();old=self.graph['director']['inputs']['prompt'];new='summary: Saved revision.'
+        self.graph['director']['inputs']['prompt']=new;self.db[0].update(prompt=new,edited_at=1);self.db[0]['ui']['final']=new
+        running=json.loads(json.dumps(self.graph));self.raw['queue_running']=[[0,'running',running,{},[]]];self.db.append({'id':'running','prompt':new,'edited_at':1,'ui':{'final':new}})
+        result=self.env['production_repair_prompt_state']();self.assertEqual(result['eligible'],1);self.replace.assert_not_called()
+        result=self.env['production_repair_prompt_state'](False);self.assertEqual(result['repaired'],1)
+        self.assertEqual(self.replace.call_args.args[0],'b');self.assert_mirrors(self.replace.call_args.args[1],new)
+        self.assertEqual(json.loads(running['director']['inputs']['builder_state'])['simple_prompt'],old)
+        self.assertFalse(any(key in result for key in ('prompt','id','images')))
+        self.replace.reset_mock();self.db[0]['ui']['final']='Different edit.'
+        self.assertEqual(self.env['production_repair_prompt_state'](False)['eligible'],0);self.replace.assert_not_called()
 
     def test_queue_snapshot_has_only_status_and_native_prompt_read_is_targeted(self):
         snapshot=self.env['production_queue_snapshot']();self.assertNotIn('PRIVATE',json.dumps(snapshot));self.assertNotIn('prompt',json.dumps(snapshot))
