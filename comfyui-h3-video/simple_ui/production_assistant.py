@@ -5,7 +5,7 @@ import re
 import threading
 import time
 import uuid
-from production_chat import display_plan, LEGACY_COMMON_ERROR
+from production_chat import display_plan, LEGACY_APP_ERRORS, LEGACY_COMMON_ERROR
 from grok_cli import clean_progress
 
 REQUEST_TIMEOUT_SECONDS=900
@@ -99,7 +99,14 @@ it does not restrict how much wording you may revise. Empty before works only
 for an empty input.
 For checkboxes, numbers and selects before/value are their complete string values.
 For click target is a supplied button/link ref. Never invent selectors or JavaScript.
-Do not operate hidden or disabled controls. Use navigation/API when needed.
+An enabled writable input can be edited even in a collapsed panel or inactive tab;
+it does not need to be visible. Buttons with revealable:true can be opened by the
+host. Use app APIs for app operations regardless of which tab is open. For disabled,
+read-only or unavailable targets choose another available control or API. Use only
+current supplied refs (a unique supplied DOM id is also accepted), never old refs
+from conversation. action_feedback reports a rejected plan before any execution;
+choose a different valid method instead of repeating the failed target or asking
+the user to keep panels open. No write has happened during this correction step.
 File selection requires the user: explain it instead of pretending to pick a file.
 Prefer existing UI buttons for generation with current photos/settings. Never edit
 photo/file inputs. Existing UI may ask its own confirmation.
@@ -171,7 +178,7 @@ def validate_input(body):
             raise ValueError("화면 조작 대상을 확인해 주세요.")
         seen.add(item["ref"])
         if item.get("type") not in ("text","textarea","number","checkbox","radio","select","button","link","file"): raise ValueError("지원하지 않는 입력 종류입니다.")
-        clean={key:item[key] for key in ("ref","id","item_id","action","label","value","type","page","readonly","disabled","hidden","min","max","step","options") if key in item}
+        clean={key:item[key] for key in ("ref","id","item_id","action","label","value","type","page","readonly","disabled","hidden","revealable","min","max","step","options") if key in item}
         if any(not isinstance(clean.get(key,""),str) for key in ("id","label","value","page")) or len(clean.get("value",""))>80000: raise ValueError("현재 입력 내용이 너무 깁니다.")
         if clean["type"]=="file": clean["value"]=""
         controls.append(scrub(clean))
@@ -180,7 +187,7 @@ def validate_input(body):
     turns=[]
     for turn in conversation:
         if not isinstance(turn,dict) or turn.get("role") not in ("user","assistant") or not isinstance(turn.get("text"),str) or len(turn["text"])>8000: raise ValueError("대화 형식을 확인해 주세요.")
-        if turn["role"]!="assistant" or turn["text"].strip()!=LEGACY_COMMON_ERROR:
+        if turn["role"]!="assistant" or turn["text"].strip() not in LEGACY_APP_ERRORS:
             turns.append({"role":turn["role"],"text":turn["text"]})
     clean={"message":scrub(message.strip()),"controls":controls,"conversation":scrub(turns),"effort":effort}
     contexts=body.get("contexts",[])
@@ -190,12 +197,15 @@ def validate_input(body):
         if not isinstance(context,dict):raise ValueError("현재 화면 정보를 확인해 주세요.")
         clean["contexts"].append({key:value for key,value in context.items() if key in ("page","mode","photo_count","final_mode","editing_queue","project_id") and type(value) in (str,bool,int)})
         statuses=context.get("statuses",[])
-        if isinstance(statuses,list):clean["contexts"][-1]["statuses"]=[{"id":str(item.get("id",""))[:100],"text":scrub(str(item.get("text",""))[:2000])} for item in statuses[:20] if isinstance(item,dict) and str(item.get("text","")).strip()!=LEGACY_COMMON_ERROR]
+        if isinstance(statuses,list):clean["contexts"][-1]["statuses"]=[{"id":str(item.get("id",""))[:100],"text":scrub(str(item.get("text",""))[:2000])} for item in statuses[:20] if isinstance(item,dict) and str(item.get("text","")).strip() not in LEGACY_APP_ERRORS]
     proposal=body.get("proposal")
     if proposal is not None:
         if not isinstance(proposal,dict):raise ValueError("이전 변경안을 확인해 주세요.")
-        validated=validate_plan({"reply":"이전 미적용 제안","intent":"propose","reads":[],"actions":proposal.get("actions",[])},clean)
-        clean["pending_proposal"]={"actions":validated["actions"]}
+        try:
+            validated=validate_plan({"reply":"이전 미적용 제안","intent":"propose","reads":[],"actions":proposal.get("actions",[])},clean)
+            clean["pending_proposal"]={"actions":validated["actions"]}
+        except UnavailableTarget:
+            pass  # A stale display proposal must not prevent a new request.
     if len(json.dumps(clean,ensure_ascii=False))>240000: raise ValueError("화면 내용이 너무 큽니다. 필요한 탭이나 항목만 열어 다시 요청해 주세요.")
     return clean
 
@@ -209,6 +219,16 @@ def replacement(original,before,after):
     return original.replace(before,after,1)
 
 
+class UnavailableTarget(ValueError):
+    def __init__(self,action,reason):
+        messages={"missing":"도우미가 현재 목록에 없는 조작 대상을 지정했습니다.",
+                  "disabled":"도우미가 현재 비활성화된 항목을 조작하려 했습니다.",
+                  "hidden":"도우미가 직접 열 수 없는 버튼을 조작하려 했습니다.",
+                  "readonly":"도우미가 읽기 전용 입력을 수정하려 했습니다."}
+        super().__init__(messages[reason]+" 다른 앱 API나 조작 방법이 필요합니다.")
+        self.feedback={"type":"unavailable_target","reason":reason,"target":action["target"][:120],"kind":action["kind"],"executed":False}
+
+
 def validate_plan(output,request):
     if not isinstance(output,dict) or not isinstance(output.get("reply"),str) or output.get("intent") not in ("explain","propose","execute"): raise ValueError("도우미 응답 형식을 확인하지 못했습니다.")
     reads=output.get("reads");actions=output.get("actions")
@@ -216,6 +236,7 @@ def validate_plan(output,request):
     for item in reads:
         if not isinstance(item,dict) or item.get("path") not in READS or not isinstance(json_args(item.get("args")),dict): raise ValueError("허용되지 않은 조회입니다.")
     controls={item["ref"]:dict(item) for item in request["controls"]}
+    actions=[dict(action) if isinstance(action,dict) else action for action in actions]
     text_ids=set()
     for action in actions:
         if not isinstance(action,dict) or any(not isinstance(action.get(key),str) for key in ("kind","target","before","value","path","args","label")): raise ValueError("도우미 변경안 형식을 확인해 주세요.")
@@ -225,11 +246,17 @@ def validate_plan(output,request):
             json_args(action["args"])
             continue
         control=controls.get(action["target"])
-        if control is None or control.get("disabled") or control.get("hidden"): raise ValueError("현재 화면에서 사용할 수 없는 대상입니다.")
+        if control is None:
+            matches=[item for item in controls.values() if item.get("id") and item["id"]==action["target"]]
+            if len(matches)==1:control=matches[0];action["target"]=control["ref"]
+        if control is None:raise UnavailableTarget(action,"missing")
+        if control.get("disabled"):raise UnavailableTarget(action,"disabled")
         if action["kind"]=="click":
             if control["type"] not in ("button","link"): raise ValueError("클릭할 버튼을 찾지 못했습니다.")
+            if control.get("hidden") and not control.get("revealable"):raise UnavailableTarget(action,"hidden")
         elif action["kind"]=="set":
-            if control.get("readonly") or control["type"] in ("button","link","file"): raise ValueError("이 입력은 자동으로 바꿀 수 없습니다.")
+            if control.get("readonly"):raise UnavailableTarget(action,"readonly")
+            if control["type"] in ("button","link","file"): raise ValueError("이 입력은 자동으로 바꿀 수 없습니다.")
             field=control.get("id","")
             text_ids.add(field)
             value=replacement(control.get("value",""),action["before"],action["value"])
@@ -325,12 +352,21 @@ class ProductionAssistant:
             content={**model_request(request),"queue":queue_page(queue),"read_catalog":READS,"write_catalog":WRITES,"bindings":["$current_settings","$current_generation","$current_prompt","$current_story"]}
             read_cache={}
             with self.helper.lock:self.helper.job["state"]="generating"
+            target_repairs=0
             for iteration in range(5):
                 if cancel.is_set(): raise RuntimeError("제작 도우미 요청을 취소했습니다.")
                 remaining=REQUEST_TIMEOUT_SECONDS-(time.monotonic()-started)
                 if remaining<=0:raise RuntimeError("Grok 요청 전체 대기 시간(900초)이 초과됐습니다. 앱에서 자동 재요청하지 않았습니다.")
                 progress("model",iteration+1)
-                plan=validate_plan(self.helper.grok.complete(SYSTEM,content,SCHEMA,cancel,effort=request.get("effort","high"),on_progress=cli_progress,timeout_s=remaining),request)
+                output=self.helper.grok.complete(SYSTEM,content,SCHEMA,cancel,effort=request.get("effort","high"),on_progress=cli_progress,timeout_s=remaining)
+                try:
+                    plan=validate_plan(output,request)
+                except UnavailableTarget as exc:
+                    if target_repairs or iteration==4:raise
+                    target_repairs+=1;content["action_feedback"]=exc.feedback
+                    progress("resolve",iteration+1)
+                    continue  # Validation only: no UI/API action has run.
+                content.pop("action_feedback",None)
                 if not plan["reads"]:break
                 if iteration==4: raise ValueError("조회가 길어졌습니다. 필요한 항목 번호를 좁혀 다시 요청해 주세요.")
                 results=[]

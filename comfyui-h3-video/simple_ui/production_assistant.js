@@ -6,7 +6,7 @@
 })(function(){
   'use strict';
   function progressText(state,elapsed,prefix=''){
-    const phases={prepare:'앱 정보 준비',model:'Grok 응답 대기',read:'필요한 정보 조회',validate:'변경안 검사'};
+    const phases={prepare:'앱 정보 준비',model:'Grok 응답 대기',read:'필요한 정보 조회',resolve:'조작 방법 다시 찾는 중',validate:'변경안 검사'};
     const stages={starting:'Grok 연결 준비',waiting:'Grok 응답 대기',thinking:'추론 중',answer:'답변 작성 중',check:'응답 형식 확인'};
     const phase=state.phase==='model'&&Object.hasOwn(stages,state.cli_stage)?stages[state.cli_stage]:phases[state.phase]||'진행 상태 확인';
     const round=Math.min(5,Math.max(0,Number(state.round)||0)),parts=[prefix,phase,round?round+'차 응답':'',Number.isFinite(elapsed)?'전체 '+Math.max(0,Math.floor(elapsed))+'초':''];
@@ -45,11 +45,29 @@
     }
     return false;
   }
+  function canReveal(node,win){
+    for(let parent=node;parent;parent=parent.parentElement){
+      if(parent.id==='singleApp')continue;
+      if(parent.hidden)return false;
+      if(win.getComputedStyle&&win.getComputedStyle(parent).display==='none'&&!parent.classList?.contains('make-col')&&!parent.classList?.contains('hist-col'))return false;
+    }
+    return true;
+  }
+  function revealControl(record){
+    const {node,win,entry}=record;
+    let root=win;try{if(win.top?.location?.origin===win.location.origin)root=win.top;}catch{}
+    if(entry.page==='story'||entry.page==='gallery')root.document.getElementById(entry.page+'Tab')?.click();
+    for(let parent=node.parentElement;parent;parent=parent.parentElement){
+      if(parent.id==='singleApp'&&parent.hidden)win.document.getElementById('singleTab')?.click();
+      if(parent.tagName==='DETAILS')parent.open=true;
+      const view=parent.classList?.contains('make-col')?'make':parent.classList?.contains('hist-col')?'hist':null;
+      if(view&&win.getComputedStyle?.(parent).display==='none')win.document.querySelector('#mobileViews [data-view="'+view+'"]')?.click();
+    }
+  }
   function collect(win,refs){
     const controls=[],nodes=new Map(),documents=[{win,page:'main',scope:win.document.body}];
     // Main controls remain addressable when a gallery/story tab is active.
     for(const frame of win.document.querySelectorAll('iframe')){
-      if(frame.hidden)continue;
       try{if(frame.contentWindow.location.origin===win.location.origin&&frame.contentDocument?.body)documents.push({win:frame.contentWindow,page:frame.id==='storyFrame'?'story':'gallery',scope:frame.contentDocument.body});}catch{}
     }
     const bridges=[],contexts=[];
@@ -73,6 +91,7 @@
         const row=node.closest('[data-l],[data-m],[data-id]');
         const itemId=node.getAttribute('data-id')||row?.getAttribute('data-l')||row?.getAttribute('data-m')||row?.getAttribute('data-id')||'';
         const entry={ref,id:node.id||'',item_id:itemId,action:node.getAttribute('data-action')||'',page:doc.page,type,label,value:['button','link','file'].includes(type)?'':valueOf(node),readonly:!!node.readOnly,disabled:!!node.disabled,hidden:blocked(node,doc.win)};
+        if(['button','link'].includes(type)&&entry.hidden&&canReveal(node,doc.win))entry.revealable=true;
         if(type==='number')for(const key of ['min','max','step'])if(node.getAttribute(key)!==null)entry[key]=node.getAttribute(key);
         if(type==='select')entry.options=[...node.options].map(option=>({value:String(option.value),label:tidy(option.textContent).slice(0,120),disabled:!!option.disabled}));
         controls.push(entry);nodes.set(ref,{node,entry,win:doc.win});
@@ -96,13 +115,13 @@
     for(const action of actions){
       if(action.kind==='api')continue;
       const record=snapshot.nodes.get(action.target);
-      if(!record||record.node.isConnected===false||record.node.disabled||blocked(record.node,record.win))throw Error('화면의 대상이 바뀌었습니다. 다시 요청해 주세요.');
+      if(!record||record.node.isConnected===false||record.node.disabled||action.kind==='click'&&blocked(record.node,record.win)&&!canReveal(record.node,record.win))throw Error('조작 대상이 없어졌거나 비활성화됐습니다. 현재 상태로 다시 요청해 주세요.');
       if(action.kind==='set'&&valueOf(record.node)!==record.entry.value)throw Error('수정할 원문이 바뀌었습니다. 다시 요청해 주세요.');
     }
   }
   function setControl(record,action){
     const {node,win,entry}=record;
-    if(node.isConnected===false||node.disabled||node.readOnly||blocked(node,win))throw Error('입력 대상이 바뀌었습니다.');
+    if(node.isConnected===false||node.disabled||node.readOnly)throw Error('입력 대상이 없어졌거나 수정할 수 없는 상태입니다.');
     const original=valueOf(node),value=replaceOne(original,action.before,action.value);
     if(entry.type==='number'&&value!==''&&!Number.isFinite(Number(value)))throw Error('숫자 입력 형식을 확인해 주세요.');
     if(['checkbox','radio'].includes(entry.type)){
@@ -117,8 +136,8 @@
   }
   function clickControl(record){
     const {node,win}=record;
+    revealControl(record);
     if(node.isConnected===false||node.disabled||blocked(node,win))throw Error('버튼 대상이 바뀌었습니다.');
-    for(let parent=node.parentElement;parent;parent=parent.parentElement){if(parent.id==='singleApp'&&parent.hidden)win.document.getElementById('singleTab')?.click();if(parent.tagName==='DETAILS')parent.open=true;}
     node.click(); // The app's own validation and any native confirmation remain intact.
   }
   function mount(win){

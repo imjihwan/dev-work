@@ -63,6 +63,48 @@ class PlannerTests(unittest.TestCase):
         request=P.validate_input({'message':'Synthetic','controls':[dict(control(),readonly=True)]})
         with self.assertRaises(ValueError):P.validate_plan(plan([action()]),request)
 
+    def test_hidden_writable_inputs_and_unique_dom_ids_remain_addressable(self):
+        request=P.validate_input({'message':'수정해줘','controls':[{**control(),'hidden':True}]})
+        original=action(target='summary')
+        result=P.validate_plan(plan([original]),request)
+        self.assertEqual(result['actions'][0]['target'],'main:1');self.assertEqual(original['target'],'summary')
+        for flags in ({'disabled':True},{'readonly':True}):
+            request=P.validate_input({'message':'수정해줘','controls':[{**control(),**flags}]})
+            with self.assertRaises(P.UnavailableTarget):P.validate_plan(plan([action()]),request)
+        request=P.validate_input({'message':'수정해줘','controls':[control(),control(ref='main:2')]})
+        with self.assertRaises(P.UnavailableTarget):P.validate_plan(plan([action(target='summary')]),request)
+
+    def test_bad_target_is_replanned_as_an_api_without_any_write(self):
+        bulk=action(kind='api',target='',before='',value='',path='/api/production-assistant/patch-queue',args='{"all_pending":true,"edits":[{"before":"slow","after":"fast"}]}')
+        answers=iter([plan([action(target='old:99')]),plan([bulk])]);feedback=[]
+        def answer(system,content,*args,**kwargs):
+            feedback.append(json.loads(json.dumps(content.get('action_feedback'))))
+            return next(answers)
+        job=self.run_fake(answer)
+        self.assertEqual(job['state'],'done');self.assertEqual(self.helper.grok.complete.call_count,2)
+        self.assertIsNone(feedback[0]);self.assertEqual(feedback[1]['reason'],'missing');self.assertFalse(feedback[1]['executed'])
+        self.assertEqual(job['production']['actions'][0]['path'],bulk['path']);self.writer.assert_not_called()
+
+    def test_target_repair_is_bounded_and_timeouts_are_not_retried(self):
+        job=self.run_fake([plan([action(target='old:99')]),plan([action(target='old:99')])])
+        self.assertEqual(job['state'],'error');self.assertEqual(self.helper.grok.complete.call_count,2)
+        self.assertNotIn('현재 화면에서 사용할 수 없는 대상',job['error']);self.writer.assert_not_called()
+        self.helper.job={'id':'synthetic','state':'starting'};self.helper.grok.complete.reset_mock()
+        job=self.run_fake([RuntimeError('Synthetic provider timeout')])
+        self.assertEqual(job['state'],'error');self.assertEqual(self.helper.grok.complete.call_count,1)
+
+    def test_stale_proposal_target_does_not_prevent_a_new_request(self):
+        request=P.validate_input({'message':'다시 해줘','controls':[control()], 'proposal':{'actions':[action(target='old:99')]}})
+        self.assertNotIn('pending_proposal',request)
+
+    def test_hidden_buttons_need_a_known_reveal_path(self):
+        click=action(kind='click',before='',value='')
+        for revealable in (False,True):
+            request=P.validate_input({'message':'실행해줘','controls':[{**control(type='button'),'hidden':True,'revealable':revealable}]})
+            if revealable:self.assertEqual(P.validate_plan(plan([click]),request)['actions'],[click])
+            else:
+                with self.assertRaises(P.UnavailableTarget):P.validate_plan(plan([click]),request)
+
     def test_text_patches_preserve_unrelated_bytes_and_select_membership(self):
         text='  First action.\nSecond action.  '
         self.assertEqual(P.replacement(text,'Second','Slower second'),'  First action.\nSlower second action.  ')

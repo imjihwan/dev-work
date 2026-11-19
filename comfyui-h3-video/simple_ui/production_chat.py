@@ -11,6 +11,7 @@ from grok_cli import clean_progress
 
 # Skip this retired app error only in model context, never erase display history.
 LEGACY_COMMON_ERROR="공통 조건은 해당 항목의 변경을 명확히 요청한 경우에만 수정합니다."
+LEGACY_APP_ERRORS={LEGACY_COMMON_ERROR,"현재 화면에서 사용할 수 없는 대상입니다."}
 
 
 def display_plan(actions):
@@ -133,7 +134,7 @@ class ProductionChat:
             turns=[]
             for row in data["messages"][-12:]:
                 text=row["text"]
-                if row["role"]=="assistant" and text.strip()==LEGACY_COMMON_ERROR:continue
+                if row["role"]=="assistant" and text.strip() in LEGACY_APP_ERRORS:continue
                 if row.get("plan"):
                     text+="\n[이전 변경안 기록 · "+row["plan"]["state"]+"]\n"+"\n".join(step["label"]+"\n"+"\n".join("기존: "+change["before"]+"\n변경: "+change["after"] for change in step["changes"]) for step in row["plan"]["steps"])
                 turns.append({"role":row["role"],"text":text[:8000]})

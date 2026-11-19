@@ -18,7 +18,7 @@ class Node{
   querySelectorAll(){return this.ownerDocument.appControls;}
 }
 function app(options={}){
-  const doc={nodes:new Map(),appControls:[],createElement(tag){return new Node(tag,this);},getElementById(id){return this.nodes.get(id)||null;},querySelectorAll(selector){return selector==='iframe'?[]:this.appControls;},querySelector(){return null;}};
+  const doc={nodes:new Map(),appControls:[],frames:[],createElement(tag){return new Node(tag,this);},getElementById(id){return this.nodes.get(id)||null;},querySelectorAll(selector){return selector==='iframe'?this.frames:this.appControls;},querySelector(){return null;}};
   doc.head=new Node('head',doc);doc.body=new Node('body',doc);
   function field(id,type,value,label){const node=new Node(type==='textarea'?'textarea':type==='select'?'select':'input',doc);node.id=id;node.type=type;node.value=value;node.labels=[{textContent:label||id}];doc.nodes.set(id,node);doc.appControls.push(node);return node;}
   const duration=field('duration','number','7','영상 길이'),final=field('final','textarea','summary: Synthetic block slides.','최종 프롬프트');
@@ -80,6 +80,28 @@ class SharedServer{
   assert(snapshot.controls.some(item=>item.id==='final'),'Final prompt remains available even inside collapsed UI');
   assert(!JSON.stringify(snapshot.controls).includes('PRIVATE'),'Passwords, photo bytes and file-picker names never go into model context');
   assert.equal(snapshot.controls.find(item=>item.type==='file').value,'');
+  let hiddenPage=app();hiddenPage.duration.hidden=true;
+  let hiddenSnapshot=P.collect(hiddenPage.win,{map:new WeakMap(),next:0});
+  let hiddenRecord=[...hiddenSnapshot.nodes.values()].find(record=>record.entry.id==='duration');
+  let hiddenAction={...hiddenPage.edit,target:hiddenRecord.entry.ref};
+  assert(hiddenRecord.entry.hidden);P.preflight([hiddenAction],hiddenSnapshot,[]);P.setControl(hiddenRecord,hiddenAction);
+  assert.equal(hiddenPage.duration.value,'5');assert(hiddenPage.duration.hidden,'A writable background field need not be forcibly unhidden');
+
+  const mobile=app({width:390});const main=new Node('div',mobile.doc);main.id='singleApp';main.hidden=true;main.classList.toggle('view-hist',true);
+  const makeColumn=new Node('div',mobile.doc);makeColumn.classList.toggle('make-col',true);main.appendChild(makeColumn);makeColumn.appendChild(mobile.button);
+  const mainTab=new Node('button',mobile.doc);mainTab.onclick=()=>{main.hidden=false;};mobile.doc.nodes.set('singleTab',mainTab);
+  const makeTab=new Node('button',mobile.doc);makeTab.onclick=()=>main.classList.toggle('view-hist',false);
+  mobile.doc.querySelector=selector=>selector.includes('[data-view="make"]')?makeTab:null;
+  mobile.win.getComputedStyle=node=>({display:node.classList?.contains('make-col')&&main.classList.contains('view-hist')?'none':'block'});
+  const mobileSnapshot=P.collect(mobile.win,{map:new WeakMap(),next:0}),mobileRecord=[...mobileSnapshot.nodes.values()].find(record=>record.entry.id==='go');
+  assert(mobileRecord.entry.hidden&&mobileRecord.entry.revealable);P.preflight([{...mobile.edit,kind:'click',target:mobileRecord.entry.ref}],mobileSnapshot,[]);P.clickControl(mobileRecord);
+  assert(!main.hidden);assert(!main.classList.contains('view-hist'));assert.equal(mobile.button.clicks,1);
+
+  const host=app(),embedded=app();embedded.win.top=host.win;
+  const frame={id:'storyFrame',hidden:true,contentWindow:embedded.win,contentDocument:embedded.doc};host.doc.frames.push(frame);
+  const storyTab=new Node('button',host.doc);storyTab.onclick=()=>{frame.hidden=false;};host.doc.nodes.set('storyTab',storyTab);
+  const crossSnapshot=P.collect(host.win,{map:new WeakMap(),next:0}),crossRecord=[...crossSnapshot.nodes.values()].find(record=>record.entry.page==='story'&&record.entry.id==='go');
+  assert(crossRecord,'Already-loaded inactive tabs stay addressable');P.clickControl(crossRecord);assert(!frame.hidden);assert.equal(embedded.button.clicks,1);
   const slider=new Node('input',a.doc);slider.type='range';slider.value='0.5';slider.title='강도';slider.setAttribute('min','0');slider.setAttribute('max','2');slider.setAttribute('step','0.05');slider.closest=selector=>selector.includes('[data-l]')?{getAttribute:key=>key==='data-l'?'SyntheticLoRA.safetensors':null}:null;a.doc.appControls.push(slider);
   const lora=P.collect(a.win,{map:new WeakMap(),next:0}).controls.find(item=>item.item_id==='SyntheticLoRA.safetensors');assert(lora&&lora.type==='number');assert.equal(lora.step,'0.05');assert.equal(lora.max,'2');
 
