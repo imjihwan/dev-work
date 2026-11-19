@@ -1,7 +1,9 @@
 """Windows backend restart with opaque local backups and guarded queue replay.
 
 Never prints prompts, job identifiers, source/result filenames or model settings.
-Running work restarts from the beginning. Requires the guarded UI server.
+Running work restarts from the beginning unless --after-current is selected.
+--after-current --pause-after installs the queue gate without interrupting a job.
+Requires the guarded UI server.
 """
 import argparse
 import copy
@@ -104,7 +106,24 @@ def listener_pid(port):
     if len(pids)!=1 or None in pids:raise ValueError('Expected a single owned listener')
     return pids.pop()
 
-def perform(comfy,resume=None):
+def wait_for_idle(ids,after_current=False,initial_running=()):
+    """Opaque queue bookkeeping only; after-current never sends interrupt."""
+    seen=set(initial_running);deadline=time.monotonic()+(86400 if after_current else 60)
+    if after_current:emit('waiting_for_current_completion',running=len(seen))
+    while True:
+        current=api(COMFY_URL,'/queue');current_items=ordered_items(current)
+        if any(item[1] not in ids for item in current_items):raise ValueError('New work arrived while quiescing')
+        if current['queue_pending']:
+            api(COMFY_URL,'/queue',{'delete':[item[1] for item in current['queue_pending']]})
+        running=current['queue_running'];seen.update(item[1] for item in running)
+        if not running:return seen
+        if not after_current:
+            for item in running:api(COMFY_URL,'/interrupt',{'prompt_id':item[1]})
+        if time.monotonic()>deadline:raise ValueError('Running work did not quiesce; backend was not terminated')
+        time.sleep(1)
+
+
+def perform(comfy,resume=None,after_current=False,pause_after=False):
     import psutil
     ui=comfy/'simple_ui';hold=ui/'backend-restart.tmp'
     if hold.exists() and resume is None:raise ValueError('A restart marker already exists; recover that operation first')
@@ -113,6 +132,7 @@ def perform(comfy,resume=None):
         if not resume.is_relative_to((ui/'restart_backups').resolve()):raise ValueError('Recovery path is outside private restart backups')
     health=api(UI_URL,'/api/health')
     if not health.get('backend_restart_guard'):raise ValueError('UI restart guard is not installed')
+    if api(UI_URL,'/api/queue/bulk-progress').get('state')=='running':raise ValueError('A queue edit is active; no work was stopped')
     for path in (ui/'story_data').glob('*/project.json'):
         if json.loads(path.read_bytes()).get('active'):raise ValueError('A UI-owned operation is active')
     old=psutil.Process(listener_pid(8188))
@@ -124,10 +144,12 @@ def perform(comfy,resume=None):
     backup=resume or (ui/'restart_backups'/time.strftime('%Y%m%d-%H%M%S'))
     if resume is None:
         backup.mkdir(parents=True,exist_ok=False)
-        receipt={'complete':False,'backend_stopped':False,'restored_count':0,'private_content_printed':False}
+        receipt={'complete':False,'backend_stopped':False,'restored_count':0,'private_content_printed':False,
+                 'after_current':after_current,'pause_after':pause_after}
         snapshot=api(COMFY_URL,'/queue')
     else:
         receipt=json.loads((backup/'receipt.json').read_bytes())
+        after_current=receipt.get('after_current',after_current);pause_after=receipt.get('pause_after',pause_after)
         if receipt.get('complete') or receipt.get('backend_stopped') or receipt.get('restored_count'):
             raise ValueError('This recovery mode requires the original backend to still be running')
         snapshot=json.loads((backup/'queue.json').read_bytes())
@@ -137,7 +159,8 @@ def perform(comfy,resume=None):
         emit('resuming_verified_backup',count=len(original_ids))
     items=ordered_items(snapshot)
     if not items:emit('empty_queue')
-    def set_hold(values):atomic_json(hold,{'jobs':{item[1]:index+1 for index,item in enumerate(values)}})
+    initial_running={item[1] for item in snapshot['queue_running']} if after_current else set()
+    def set_hold(values):atomic_json(hold,{'jobs':{item[1]:index+1 for index,item in enumerate(values) if item[1] not in initial_running}})
     try:
         set_hold(items)
         assert api(UI_URL,'/api/health').get('backend_restarting') is True
@@ -146,7 +169,10 @@ def perform(comfy,resume=None):
         except urllib.error.HTTPError as exc:
             if exc.code!=503:raise ValueError('UI write guard did not engage')
         else:raise ValueError('UI write guard did not engage')
-        if resume is None:snapshot=api(COMFY_URL,'/queue');items=ordered_items(snapshot);set_hold(items)
+        if resume is None:
+            snapshot=api(COMFY_URL,'/queue');items=ordered_items(snapshot)
+            if after_current:initial_running={item[1] for item in snapshot['queue_running']}
+            set_hold(items)
         ids={item[1] for item in items}
         if resume is None:
             atomic_json(backup/'queue.json',snapshot)
@@ -155,34 +181,34 @@ def perform(comfy,resume=None):
             assert (backup/'history.json').read_bytes()==history_bytes
         assert ordered_items(json.loads((backup/'queue.json').read_bytes()))==items
         emit('backup_verified',running=len(snapshot['queue_running']),pending=len(snapshot['queue_pending']))
-        # Confirm held statuses prevent stale/missing-job transitions and clear old progress.
-        for item in items:
-            held=api(UI_URL,'/api/status?'+urllib.parse.urlencode({'id':item[1]}))
-            if held.get('state')!='queued' or held.get('pct')!=0:raise ValueError('UI status guard did not engage')
+        atomic_json(backup/'receipt.json',receipt)
         atomic_json(backup/'launch.json',{'arguments':command[1:]})
         pending=[item[1] for item in snapshot['queue_pending']]
         if pending:api(COMFY_URL,'/queue',{'delete':pending})
-        # Pending work is safe on disk. Interrupt only known running identities.
-        deadline=time.monotonic()+60
-        while True:
-            current=api(COMFY_URL,'/queue');current_items=ordered_items(current)
-            if any(item[1] not in ids for item in current_items):raise ValueError('New work arrived while quiescing')
-            if current['queue_pending']:
-                api(COMFY_URL,'/queue',{'delete':[item[1] for item in current['queue_pending']]})
-            running=current['queue_running']
-            if not running:break
-            for item in running:api(COMFY_URL,'/interrupt',{'prompt_id':item[1]})
-            if time.monotonic()>deadline:raise ValueError('Running work did not quiesce; backend was not terminated')
-            time.sleep(1)
+        # Confirm held statuses prevent stale/missing-job transitions and clear old progress.
+        for item in items:
+            if item[1] in initial_running:continue
+            held=api(UI_URL,'/api/status?'+urllib.parse.urlencode({'id':item[1]}))
+            if held.get('state')!='queued' or held.get('pct')!=0:raise ValueError('UI status guard did not engage')
+        seen_running=wait_for_idle(ids,after_current,initial_running)
         # A job may have naturally finished while pending work was being detached.
         finished={}
-        for item in items:
-            found=api(COMFY_URL,'/history/'+urllib.parse.quote(item[1]))
-            if found.get(item[1],{}).get('status',{}).get('status_str')=='success':finished.update(found)
+        if after_current:
+            # No result lookup: vanished running items have ended and must not
+            # be replayed, regardless of their success/error outcome.
+            finished={pid:{'finished_before_restart':True} for pid in seen_running}
+        else:
+            for item in items:
+                found=api(COMFY_URL,'/history/'+urllib.parse.quote(item[1]))
+                if found.get(item[1],{}).get('status',{}).get('status_str')=='success':finished.update(found)
         atomic_json(backup/'finished-before-restart.json',finished)
         replay=[item for item in items if item[1] not in finished];set_hold(replay)
         for pid in finished:api(UI_URL,'/api/status?'+urllib.parse.urlencode({'id':pid}))
         emit('quiesced',naturally_completed=len(finished),to_restore=len(replay))
+        if pause_after:
+            extension=comfy/'custom_nodes/H3VideoQueuePause'
+            if not (extension/'control.py').is_file():raise ValueError('Queue pause extension is not installed')
+            atomic_json(extension/'pause-state.json',{'paused':True})
         # The owned, now-idle backend is the only process stopped here.
         old.terminate();old.wait(timeout=15);receipt['backend_stopped']=True
         emit('backend_stopped')
@@ -202,6 +228,9 @@ def perform(comfy,resume=None):
             time.sleep(1)
         if ordered_items(api(COMFY_URL,'/queue')):raise ValueError('Fresh backend already contains unexpected work')
         emit('backend_ready')
+        if pause_after:
+            state=api(COMFY_URL,'/h3-video/queue-pause')
+            if state.get('paused') is not True:raise ValueError('Queue pause gate was not activated; no work was replayed')
         time.sleep(3) # Existing UI websocket clients reconnect without changing client IDs.
         for index,item in enumerate(replay):
             response=api(COMFY_URL,'/prompt',replay_body(item),timeout=60)
@@ -213,6 +242,8 @@ def perform(comfy,resume=None):
         for item in replay:
             if item[1] not in present:completed.update(api(COMFY_URL,'/history/'+urllib.parse.quote(item[1])))
         active_count,complete_count=verify_replay(replay,live,completed)
+        if pause_after and (live['queue_running'] or not api(COMFY_URL,'/h3-video/queue-pause').get('paused')):
+            raise ValueError('Restored queue did not remain paused')
         receipt.update(complete=True,restored_count=len(replay),active_count=active_count,
                        completed_during_restore=complete_count,identities_preserved=True,order_preserved=True,
                        graph_and_settings_preserved=True,progress_reset=True)
@@ -220,7 +251,7 @@ def perform(comfy,resume=None):
         hold.unlink()
         assert api(UI_URL,'/api/health').get('backend_restarting') is False
         emit('restart_complete',restored_count=len(replay),active_count=active_count,
-             completed_during_restore=complete_count,ids_order_data_verified=True)
+             completed_during_restore=complete_count,ids_order_data_verified=True,paused=pause_after)
     except Exception as exc:
         receipt['error_type']=type(exc).__name__
         if type(exc) is ValueError:receipt['safe_error_reason']=str(exc)
@@ -233,10 +264,12 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--comfy',type=Path,default=ROOT/'ComfyUI')
     parser.add_argument('--resume-backup',type=Path,help='Verified private backup to resume before the original backend was stopped')
     parser.add_argument('--verify-restored-backup',type=Path,help='Reverify a fully replayed backup and release UI protection without resubmitting')
+    parser.add_argument('--after-current',action='store_true',help='Let running work finish without interruption before restarting')
+    parser.add_argument('--pause-after',action='store_true',help='Activate the installed pause gate before restoring the queue')
     args=parser.parse_args()
     try:
         if args.verify_restored_backup:finalize_restored(args.comfy.resolve(),args.verify_restored_backup)
-        else:perform(args.comfy.resolve(),args.resume_backup)
+        else:perform(args.comfy.resolve(),args.resume_backup,args.after_current,args.pause_after)
     except SystemExit:raise
     except Exception as exc:
         emit('restart_preflight_failed',error_type=type(exc).__name__,backend_stopped=False)

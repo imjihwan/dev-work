@@ -69,6 +69,26 @@ class RestartGuardTests(unittest.TestCase):
         h.do_POST();self.assertEqual(h.result[1],503);self.assertEqual(h.rfile.tell(),0)
 
 class ReplayTests(unittest.TestCase):
+    def test_after_current_wait_never_interrupts_or_fetches_results(self):
+        a=item(0,1);b=item(1,2);states=iter([
+            {'queue_running':[a],'queue_pending':[b]},
+            {'queue_running':[a],'queue_pending':[]},
+            {'queue_running':[],'queue_pending':[]}])
+        calls=[]
+        def api(base,path,body=None):
+            calls.append((path,body))
+            if path!='/queue':self.fail('No interrupt or result lookup is allowed')
+            return next(states) if body is None else {}
+        with patch.object(RESTART,'api',side_effect=api),patch.object(RESTART.time,'sleep'),patch.object(RESTART,'emit'):
+            seen=RESTART.wait_for_idle({a[1],b[1]},after_current=True,initial_running={a[1]})
+        self.assertEqual(seen,{a[1]});self.assertIn(('/queue',{'delete':[b[1]]}),calls)
+
+    def test_after_current_rejects_foreign_work_without_interrupting_it(self):
+        a=item(0,1);foreign=item(1,2)
+        with patch.object(RESTART,'api',return_value={'queue_running':[foreign],'queue_pending':[]}) as api,patch.object(RESTART,'emit'):
+            with self.assertRaisesRegex(ValueError,'New work'):RESTART.wait_for_idle({a[1]},after_current=True)
+        self.assertEqual(api.call_count,1)
+
     def test_queue_and_interrupt_endpoints_allow_empty_success_responses(self):
         for data,expected in ((b'',{}),(b'  ',{}),(b'{"ok":true}',{'ok':True})):
             with patch.object(RESTART.urllib.request,'urlopen',return_value=io.BytesIO(data)):
