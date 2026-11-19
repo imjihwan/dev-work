@@ -120,7 +120,7 @@
     let conversation=[],job=null,pending=null,busy=false,executing=false;
     const chatKey='h3simple.productionAssistant.chat.v1',draftKey=chatKey+'.draft',rowEntries=new WeakMap();
     let transcript=[],restoring=false;
-    let sharedMode=null,sharedRevision=null,sharedSession=null,remoteBusy=false,syncPromise=null;
+    let sharedMode=null,sharedRevision=null,sharedSession=null,remoteBusy=false,syncPromise=null,sharedActiveId=null;
     const readKey='h3simple.productionAssistant.read.v1';
     let readMarker=null,pointerInside=false,localMessageId=0;
     function loadReadMarker(){try{const value=JSON.parse(win.localStorage.getItem(readKey)||'null');readMarker=value&&typeof value.id==='string'&&typeof value.session==='string'?value:null;}catch{readMarker=null;}}
@@ -258,10 +258,20 @@
       showSharedActive(data.active);saveChat();scrollChat();replyArrived();
     }
     function showSharedActive(active){
+      const wasBusy=remoteBusy;
+      sharedActiveId=active&&typeof active.id==='string'?active.id:null;
       remoteBusy=!!active&&!busy&&!executing;
       if(!busy&&!executing){
         $('h3ProductionThinking').hidden=!remoteBusy;
-        if(remoteBusy){$('h3ProductionLog').appendChild($('h3ProductionThinking'));$('h3ProductionThinkingText').textContent='다른 기기의 요청을 처리하고 있어요';say('같은 대화의 응답을 기다리고 있습니다. 완료되면 자동으로 표시합니다.');}
+        $('h3ProductionCancel').hidden=!remoteBusy||!sharedActiveId;
+        if(remoteBusy){
+          const phase={prepare:'앱 정보 준비',model:'Grok 응답 대기',read:'필요한 정보 조회',validate:'변경안 검사'}[active.phase]||'진행 상태 확인';
+          const created=Number(active.created),elapsed=Number.isFinite(created)&&created>0?Math.max(0,Math.floor(Date.now()/1000-created)):null;
+          const round=Math.min(5,Math.max(0,Number(active.round)||0));
+          $('h3ProductionLog').appendChild($('h3ProductionThinking'));
+          $('h3ProductionThinkingText').textContent=`진행 중인 요청 이어보기 · ${phase}${round?' · '+round+'차 응답':''}${elapsed!==null?' · 전체 '+elapsed+'초':''}`;
+          say('이전에 시작한 요청을 이어서 확인하고 있습니다. 완료되면 답변을 자동으로 표시합니다.');
+        }else if(wasBusy)say('요청 처리가 끝났습니다. 대화에서 결과를 확인하고 이어서 요청하세요.');
         for(const id of ['h3ProductionSend','h3ProductionNew','h3ProductionExecute','h3ProductionEffort'])$(id).disabled=remoteBusy;
       }
     }
@@ -282,7 +292,7 @@
           try{data=await post('/api/production-assistant/conversation',{operation:'import',revision:0,messages:transcript});}
           catch{data=await getShared();if(!data)throw Error('공유 대화를 불러오지 못했습니다.');}
         }
-        renderShared(data);say('서버의 공통 대화를 불러왔습니다. 다른 기기에서도 이어서 볼 수 있습니다.');
+        renderShared(data);if(!data.active)say('서버의 공통 대화를 불러왔습니다. 다른 기기에서도 이어서 볼 수 있습니다.');
       }catch{sharedMode=true;$('h3ProductionStorage').textContent='공유 대화를 불러오지 못했습니다. 연결되면 다시 동기화합니다.';}
     }
     async function syncShared(){
@@ -349,7 +359,7 @@
       }
       archivePlan();conversation=[];transcript=[];pending=null;$('h3ProductionInput').value='';resizeComposer();saveChat();$('h3ProductionLog').replaceChildren($('h3ProductionWelcome'),$('h3ProductionThinking'));$('h3ProductionWelcome').hidden=false;follow=true;$('h3ProductionLatest').hidden=true;say('새 대화를 시작합니다. 화면 입력과 대기열은 그대로입니다.');
     };
-    $('h3ProductionCancel').onclick=async()=>{if(job){$('h3ProductionCancel').disabled=true;try{await post('/api/prompt-helper/cancel',{id:job});say('도우미 요청을 취소하고 있습니다.');}catch(error){say(error.message);}finally{$('h3ProductionCancel').disabled=false;}}};
+    $('h3ProductionCancel').onclick=async()=>{const id=job||sharedActiveId;if(id){$('h3ProductionCancel').disabled=true;try{await post('/api/prompt-helper/cancel',{id});say('도우미 요청을 취소하고 있습니다. 영상 생성은 유지합니다.');if(!busy&&!executing)await syncShared();}catch(error){say(error.message);}finally{$('h3ProductionCancel').disabled=false;}}};
     async function execute(){
       if(!pending||busy||executing)return;
       await sharedInit;if(sharedMode&&!(await syncShared()))return say('공유 대화를 확인한 뒤 다시 실행해 주세요.');

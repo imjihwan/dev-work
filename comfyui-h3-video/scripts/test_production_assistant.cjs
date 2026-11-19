@@ -154,5 +154,13 @@ class SharedServer{
   const marker=JSON.parse(receiver.storage.get('h3simple.productionAssistant.read.v1'));assert.equal(marker.id,'reply-one');assert(!JSON.stringify(marker).includes('합성'),'Read markers contain IDs only, not conversation text');
   receiver=app({width:390,shared:unreadServer,storage:receiver.storage});await receiver.mounted.ready;assert.equal(receiver.$('h3ProductionToggle').getAttribute('data-unread'),'false','An acknowledged shared reply stays read after reload');
   unreadServer.data.messages.push({id:'reply-two',role:'assistant',text:'다른 기기에서 도착한 합성 답변'});unreadServer.data.revision++;await receiver.mounted.sync();assert.equal(receiver.$('h3ProductionToggle').getAttribute('data-unread'),'true','A new shared reply creates an unread dot');
-  console.log('Production assistant UI passed: unread reply notifications, shared devices, migration, private drafts, conflict protection, literal rendering and non-replayed actions.');
+  const resumedServer=new SharedServer();resumedServer.data.revision=1;resumedServer.data.active={id:'synthetic-existing-job',phase:'model',round:2,created:Date.now()/1000-181};
+  const resumedPage=app({shared:resumedServer,width:390});await resumedPage.mounted.ready;
+  assert(resumedPage.$('h3ProductionThinkingText').textContent.includes('Grok 응답 대기'));assert(resumedPage.$('h3ProductionThinkingText').textContent.includes('2차 응답'));assert(resumedPage.$('h3ProductionThinkingText').textContent.includes('초'));
+  assert(!resumedPage.$('h3ProductionThinkingText').textContent.includes('다른 기기'));assert(!resumedPage.$('h3ProductionCancel').hidden);assert(resumedPage.$('h3ProductionSend').disabled);assert(resumedPage.$('h3ProductionStatus').textContent.includes('이어서 확인'));
+  assert(!resumedPage.requests.some(item=>item.url.endsWith('/start')||item.url.endsWith('/claim')),'Refreshing follows the existing request without replay');
+  await resumedPage.$('h3ProductionCancel').click();assert.equal(resumedPage.requests.find(item=>item.url.endsWith('/cancel')).body.id,'synthetic-existing-job','Reloaded page cancellation targets only the known helper request');
+  resumedServer.data.active=null;resumedServer.data.messages.push({id:'restored-completion',role:'assistant',text:'새로고침 후 완료된 합성 답변'});resumedServer.data.revision++;await resumedPage.mounted.sync();
+  assert(resumedPage.$('h3ProductionThinking').hidden);assert(resumedPage.$('h3ProductionCancel').hidden);assert(!resumedPage.$('h3ProductionSend').disabled);assert(resumedPage.$('h3ProductionStatus').textContent.includes('처리가 끝났'));assert(resumedPage.$('h3ProductionLog').textContent.includes('완료된 합성 답변'));
+  console.log('Production assistant UI passed: resumed request progress/cancel/completion, unread notifications, shared devices, migration, private drafts and non-replayed actions.');
 })().catch(error=>{console.error(error);process.exitCode=1;});
