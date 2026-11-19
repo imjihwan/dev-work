@@ -210,6 +210,16 @@ a{color:var(--acc)}
 .htitle{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .hmeta{font-size:12px;color:var(--mute);margin-top:2px}
 .hmeta .bad{color:var(--warn)}
+.history-time-range{display:block;font-size:13px;line-height:1.5;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.history-runtime{font-size:12px;color:var(--mute);margin-top:2px;font-variant-numeric:tabular-nums}
+.history-meta-details{margin-top:5px}
+.history-meta-details>summary{font-size:12px;color:var(--mute);cursor:pointer;width:fit-content}
+.history-expanded{font-size:12px;overflow-wrap:anywhere}
+.history-expanded h3{font-size:12px;margin:10px 0 5px}
+.history-expanded dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px}
+.history-expanded dt{color:var(--mute)}.history-expanded dd{margin:0}
+.history-expanded ul{padding-left:16px}.history-expanded li{margin-bottom:5px}
+.history-expanded li b{display:block;font-weight:400;color:var(--mute)}
 .hact{display:flex;gap:12px;margin-top:6px;flex-wrap:wrap}
 .hact .del{color:var(--warn)}
 .queue-number{display:inline-block;padding:1px 6px;margin-right:6px;border-radius:6px;background:var(--acc-soft);color:var(--acc);font-size:12px;font-weight:600}
@@ -2114,9 +2124,19 @@ const RES_NAME = {draft: "초안", auto: "기본", "720p": "720p", "1080p": "108
 const HSTATE = {queued: "대기", running: "만드는 중", error: "실패", lost: "결과 없음"};
 function generationTimeLabel(seconds){
   if(typeof seconds!=="number"||!Number.isFinite(seconds)||seconds<0)return "";
-  if(seconds<1)return "생성 1초 미만";
-  const n=Math.round(seconds),h=Math.floor(n/3600),m=Math.floor(n%3600/60),s=n%60;
-  return "생성 "+[h?h+"시간":"",m?m+"분":"",s||!h&&!m?s+"초":""].filter(Boolean).join(" ");
+  if(seconds<1)return "생성 소요 1초 미만";
+  return "생성 소요 "+Math.round(seconds).toLocaleString("ko-KR")+"초";
+}
+function historyTimeRange(e){
+  const format=stamp=>{
+    if(typeof stamp!=="number"||!Number.isFinite(stamp)||stamp<0)return "";
+    const d=new Date(stamp*1000);if(!Number.isFinite(d.getTime()))return "";
+    return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+  };
+  const started=format(e.generation_started_at),finished=format(e.generation_finished_at);
+  const end=finished||({queued:"대기 중",running:"생성 중",done:"완료 시각 기록 없음",error:"종료 시각 기록 없음",lost:"완료 시각 기록 없음"})[e.state]||"완료 시각 기록 없음";
+  return {text:`${started||format(e.t)||"시각 기록 없음"} – ${end}`,
+    title:started?"실제 생성 시작 시각 – 종료 시각":"시작 시각 기록이 없어 등록 시각을 표시합니다. 완료 시각은 실제 실행 기록이 있을 때 표시합니다."};
 }
 function histModelName(name){ const m = CAT?.models.find(x => x.name === name); return m ? friendlyModel(m) : base(name); }
 function histTitle(e){ return e.ui?.f?.summary?.trim() || (e.prompt || "").split("\n").find(l => l.startsWith("summary:"))?.slice(8).trim() || "(요약 없음)"; }
@@ -2182,7 +2202,8 @@ function historySettingsHtml(e){
   const loras = Array.isArray(e.loras) ? e.loras.length
     ? `<ul>${e.loras.map(l => `<li><span>${esc(value(l.name))}</span><b>강도 ${esc(value(l.strength))}</b></li>`).join("")}</ul>`
     : `<div class="hint">사용한 LoRA 없음</div>` : `<div class="hint">LoRA 기록 없음</div>`;
-  return `<h3>LoRA · ${Array.isArray(e.loras) ? e.loras.length+"개" : "기록 없음"}</h3>${loras}<h3>생성할 때 저장된 설정</h3><dl>${settings.map(([label,text]) => `<dt>${esc(label)}</dt><dd>${esc(text)}</dd>`).join("")}</dl>`;
+  if(e.sequence_index)settings.push(["순차 등록",`원본 사진 ${e.sequence_index}번을 첫 장면으로`]);
+  return `<h3>${esc(histTitle(e))}</h3><h3>LoRA · ${Array.isArray(e.loras) ? e.loras.length+"개" : "기록 없음"}</h3>${loras}<h3>생성할 때 저장된 설정</h3><dl>${settings.map(([label,text]) => `<dt>${esc(label)}</dt><dd>${esc(text)}</dd>`).join("")}</dl>`;
 }
 const HISTORY_DETAILS = {id:null,row:null,pinned:false,timer:null};
 function hideHistoryDetails(){
@@ -2219,10 +2240,10 @@ function leaveHistoryDetails(){
   // 버튼에서 옆의 설정 창으로 마우스를 옮길 시간
   if(!HISTORY_DETAILS.pinned)HISTORY_DETAILS.timer=setTimeout(hideHistoryDetails,350);
 }
-// 마우스를 올려 설정 창을 여는 곳은 '설정' 버튼뿐이다(항목 전체로 잡으면 목록을 훑을 때마다 창이 떠서 가린다)
+// 설정 버튼이나 확장 정보에만 반응한다. 목록을 훑는 동안 팝업이 뜨지 않는다.
 $("histList").addEventListener("pointerover",ev => {
   if(ev.pointerType==="touch" || HISTORY_DETAILS.pinned)return;
-  const button=ev.target.closest("[data-history-settings]");if(!button)return;
+  const button=ev.target.closest("[data-history-settings],[data-history-peek]");if(!button || button.hasAttribute("data-history-peek")&&button.parentElement.open)return;
   const row=button.closest("[data-history-id]");if(!row)return;
   const from=ev.relatedTarget?.nodeType ? ev.relatedTarget : null;
   if(button.contains(from))return;
@@ -2231,7 +2252,7 @@ $("histList").addEventListener("pointerover",ev => {
   HISTORY_DETAILS.timer=setTimeout(() => showHistoryDetails(row),180);
 });
 $("histList").addEventListener("pointerout",ev => {
-  const button=ev.target.closest("[data-history-settings]");if(!button)return;
+  const button=ev.target.closest("[data-history-settings],[data-history-peek]");if(!button)return;
   const to=ev.relatedTarget?.nodeType ? ev.relatedTarget : null;
   if(!button.contains(to) && !$("historyDetails").contains(to))leaveHistoryDetails();
 });
@@ -2240,6 +2261,7 @@ $("histList").addEventListener("focusin",ev => {
 });
 // ⋯ 메뉴는 한 번에 하나만, 바깥을 누르면 닫는다
 $("histList").addEventListener("toggle", ev => {
+  if(ev.target.matches?.("details.history-meta-details") && ev.target.open)hideHistoryDetails();
   if (ev.target.matches?.("details.row-menu") && ev.target.open) $("histList").querySelectorAll("details.row-menu[open]").forEach(d => { if (d !== ev.target) d.removeAttribute("open"); });
 }, true);
 document.querySelectorAll("details.bar-menu").forEach(menu => menu.addEventListener("click", ev => { if (ev.target.closest?.(".bar-menu-list button")) menu.removeAttribute("open"); }));
@@ -2412,6 +2434,7 @@ function patchHistoryProgress(){
   }
 }
 function drawHist(){
+  const expanded=new Set([...$("histList").querySelectorAll("details.history-meta-details[open]")].map(node=>node.closest("[data-history-id]")?.dataset.historyId));
   resetHistoryPreviews();
   HIST.rendered = HIST.items;
   HIST.sig = histSig(HIST.items);
@@ -2419,14 +2442,14 @@ function drawHist(){
   $("histClear").hidden = !HIST.total;
   if (!HIST.items.length) { hideHistoryDetails(); refreshQueueSelection(); refreshVideoCompareSelection(); $("histList").innerHTML = `<div class="empty">아직 기록이 없습니다.</div>`; return; }
   $("histList").innerHTML = HIST.items.map((e, i) => {
-    const d = new Date(e.t * 1000), when = `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+    const range=historyTimeRange(e);
     const queueLabel = e.state === "queued" ? (e.position ? `대기 ${e.position}번` : "대기 중") : "";
-    const lo = (e.loras?.length ? ` · LoRA ${e.loras.length}개` : "") + (e.anchor ? " · 첫 장면 고정" : "") + (e.sequence_index ? ` · 원본 사진 ${e.sequence_index}번을 첫 장면으로` : "");
-    const elapsed=generationTimeLabel(e.generation_seconds);
-    const meta = `${when} · ${e.mode === "REF2VA" ? "참조" : "첫·끝"} · ${esc(histModelName(e.model))} · ${e.steps}스텝${lo}<br>${RES_NAME[e.resolution] || esc(e.resolution)} ${e.width}×${e.height} · ${e.duration}초 · 시드 ${e.seed}${elapsed?' · '+elapsed:''}`;
+    const elapsed=["done","error"].includes(e.state)?generationTimeLabel(e.generation_seconds)||"소요 시간 기록 없음":"";
     const err = e.error && e.state !== "done" ? `<br><span class="bad">${esc(e.error)}</span>` : "";
     return `<div class="hrow" data-history-id="${esc(e.id)}">${historyThumb(e)}<div>
-      <div class="htitle">${e.video ? `<label class="compare-choice"><input type="checkbox" data-compare="${esc(e.id)}" aria-label="함께 재생할 영상 선택" ${VIDEO_COMPARE.selected.has(e.id)?"checked":""}></label><button type="button" class="textbtn history-play-selected" data-play-selected="${esc(e.id)}" title="체크한 영상 재생 · 선택이 없으면 이 영상 재생">재생</button>` : ""}${e.state === "queued" ? `<input type="checkbox" data-select="${esc(e.id)}" aria-label="대기 항목 선택" ${HIST.selected.has(e.id) ? "checked" : ""}> ` : ""}${queueLabel ? `<span class="queue-number">${queueLabel}</span>` : ""}${esc(histTitle(e))}</div><div class="hmeta">${meta}${err}</div>
+      <strong class="history-time-range" title="${esc(range.title)}">${esc(range.text)}</strong>${elapsed?`<div class="history-runtime">${esc(elapsed)}</div>`:""}
+      <div class="htitle">${e.video ? `<label class="compare-choice"><input type="checkbox" data-compare="${esc(e.id)}" aria-label="함께 재생할 영상 선택" ${VIDEO_COMPARE.selected.has(e.id)?"checked":""}></label><button type="button" class="textbtn history-play-selected" data-play-selected="${esc(e.id)}" title="체크한 영상 재생 · 선택이 없으면 이 영상 재생">재생</button>` : ""}${e.state === "queued" ? `<input type="checkbox" data-select="${esc(e.id)}" aria-label="대기 항목 선택" ${HIST.selected.has(e.id) ? "checked" : ""}> ` : ""}${queueLabel ? `<span class="queue-number">${queueLabel}</span>` : ""}</div>${err?`<div class="hmeta">${err}</div>`:""}
+      <details class="history-meta-details" ${expanded.has(e.id)?"open":""}><summary data-history-peek>확장 정보</summary><div class="history-expanded">${historySettingsHtml(e)}</div></details>
       <div class="hact">${e.video ? `<a class="textbtn" href="${vurl(e.video,1)}">다운로드</a>` : ""}
         ${e.state === "queued" && CAT?.capabilities?.queue_edit ? `<button class="textbtn" data-edit="${i}">수정</button>` : ""}
         ${e.state === "running" && CAT?.capabilities?.restart_running ? `<button class="textbtn" data-restart="${i}">현재 작업 재시작</button>` : ""}
