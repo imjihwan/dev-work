@@ -36,9 +36,9 @@ child.document.hidden=true;scroll(1600);assert.equal(messages.length,viewerCount
 
 // Parent accepts only boolean navigation messages from its own active gallery iframe.
 const classes=new Set(),acks=[];
-const body={classList:{contains:v=>classes.has(v),toggle(v,on){if(on)classes.add(v);else classes.delete(v);}}};
+const body={style:{overflow:"auto"},classList:{contains:v=>classes.has(v),toggle(v,on){if(on)classes.add(v);else classes.delete(v);}}};
 const frame={hidden:false,style:{},contentWindow:{postMessage:(data,origin)=>acks.push({data,origin})},getBoundingClientRect:()=>({top:classes.has('gallery-nav-hidden')?0:88})};
-const outer=vm.createContext({document:{body},$:id=>{assert.equal(id,'galleryFrame');return frame;},window:{innerHeight:800},location:{origin:'http://synthetic.local'}});
+const outer=vm.createContext({document:{body},$:id=>{assert.equal(id,'galleryFrame');return frame;},window:{innerHeight:800,scrollY:120,scrollX:0,scrollTo(options){this.restored=options;this.scrollY=options.top;this.scrollX=options.left;}},location:{origin:'http://synthetic.local'}});
 vm.runInContext(main.slice(main.indexOf('function sizeGalleryFrame('),main.indexOf('function selectAppTab(')),outer);
 const send=(data,extra={})=>outer.onGalleryNavigationMessage({origin:'http://synthetic.local',source:frame.contentWindow,data,...extra});
 send({type:'gallery-navigation',hidden:true},{origin:'http://untrusted.local'});
@@ -48,5 +48,9 @@ assert(!classes.has('gallery-nav-hidden'));assert.equal(acks.length,0);
 send({type:'gallery-navigation',hidden:true});assert(classes.has('gallery-nav-hidden'));assert.equal(frame.style.height,'792px');
 send({type:'gallery-navigation',hidden:false});assert(!classes.has('gallery-nav-hidden'));assert.equal(frame.style.height,'704px');
 assert.equal(acks.at(-1).data.type,'gallery-navigation-state');assert.equal(acks.at(-1).data.hidden,false);
+send({type:'gallery-viewer',open:true},{origin:'http://untrusted.local'});assert(!classes.has('gallery-viewer-open'));
+send({type:'gallery-viewer',open:'true'});assert(!classes.has('gallery-viewer-open'));
+send({type:'gallery-viewer',open:true});assert(classes.has('gallery-viewer-open'));assert.equal(body.style.overflow,'hidden');assert.equal(frame.style.height,'800px');
+outer.window.scrollY=0;send({type:'gallery-viewer',open:false});assert(!classes.has('gallery-viewer-open'));assert.equal(body.style.overflow,'auto');assert.equal(outer.window.scrollY,120);assert.equal(frame.style.height,'704px');
 frame.hidden=true;const before=acks.length;send({type:'gallery-navigation',hidden:true});assert.equal(acks.length,before);assert(!classes.has('gallery-nav-hidden'));
 console.log('Gallery navigation passed: down hides/up reveals, hysteresis, edge bounce, resize suppression, modal/inactive guards, iframe source/origin checks and viewport expansion.');

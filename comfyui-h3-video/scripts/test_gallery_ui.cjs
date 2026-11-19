@@ -31,7 +31,7 @@ class Element{
   focus(options){active=this;this.focusOptions=options;}
 }
 class Player extends Element{
-  constructor(){super();this.tagName='VIDEO';this.currentTime=0;this.playCount=0;this.paused=true;this.loads=0;this.muted=false;this.volume=1;this.parentElement=new Element();this.card=new Element();for(const tag of ['.lora-info','.identifier-info','.regeneration-control']){const part=new Element();part.tag=tag;this.card.parts.push(part);}}
+  constructor(){super();this.tagName='VIDEO';this.currentTime=0;this.playCount=0;this.paused=true;this.loads=0;this.muted=false;this.volume=1;this.parentElement=new Element();this.card=new Element();for(const tag of ['.lora-info','.identifier-info','.regeneration-control','.player-meta']){const part=new Element();part.tag=tag;this.card.parts.push(part);}}
   closest(selector){return selector==='.player'?this.card:super.closest(selector);}
   getBoundingClientRect(){return {top:0,bottom:220,left:0,right:640};}
   play(){this.playCount++;this.paused=false;return Promise.resolve();}
@@ -41,11 +41,12 @@ class Player extends Element{
 }
 const get=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);};
 const filters=['all','favorites','trash'].map(mode=>{const node=new Element();node.dataset.mode=mode;return node;});
-const doc={body:new Element('body'),hidden:false,getElementById:get,createElement:()=>new Element(),querySelectorAll:selector=>selector==='[data-mode]'?filters:[],addEventListener(){}};
+const documentEvents={};
+const doc={body:new Element('body'),hidden:false,getElementById:get,createElement:()=>new Element(),querySelectorAll:selector=>selector==='[data-mode]'?filters:[],addEventListener(name,fn){documentEvents[name]=fn;}};
 Object.defineProperty(doc,'activeElement',{get:()=>active});
-const calls=[],timers=[];
-const window={innerWidth:1024,innerHeight:768,scrollY:0,scrollCalls:0,addEventListener(){},scrollBy(){this.scrollCalls++;},scrollTo(){this.scrollCalls++;}};
-const context=vm.createContext({console,document:doc,window,URLSearchParams,location:{origin:'http://synthetic.local'},parent:{},
+const calls=[],timers=[],shellMessages=[];
+const window={innerWidth:1024,innerHeight:768,scrollY:0,scrollCalls:0,addEventListener(){},scrollBy(){this.scrollCalls++;},scrollTo(options){this.scrollCalls++;if(options){this.scrollY=options.top;this.scrollX=options.left;}}};
+const context=vm.createContext({console,document:doc,window,URLSearchParams,location:{origin:'http://synthetic.local'},parent:{postMessage:(data,origin)=>shellMessages.push({data,origin})},
   setTimeout(fn){timers.push(fn);return timers.length;},clearTimeout(){},localStorage:{getItem:()=>null},
   fetch:async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({items:[],total:0,counts:{},revision:'empty'})};}});
 vm.runInContext(script.slice(0,script.indexOf('// Bootstrap only')),context);
@@ -113,6 +114,21 @@ async function swipe(video,x1,y1,x2,y2){
   get('pause').onclick();assert(players.every(player=>player.paused));get('replay').onclick();await settle();assert(players.every(player=>!player.paused));
   get('closeViewer').onclick();assert(players.every(player=>player.paused&&player.loads===1));assert.equal(get('players').players.length,0);assert.equal(active,get('playSelected'));assert.equal(active.focusOptions.preventScroll,true);
   context.openViewer(entries[3].id);await settle();assert.equal(get('players').players.length,1,'An unchecked video must replace the previous playback selection');assert(get('viewerTools').hidden);assert.equal(run('G.selected.size'),1);
+  assert(get('viewer').classList.contains('immersive'));
+  assert(!get('viewer').classList.contains('show-info'));
+  assert.equal(parseFloat(get('viewer').style['--viewer-width']),1016);
+  assert.equal(parseFloat(get('viewer').style['--viewer-height']),760);
+  assert.equal(shellMessages.at(-1).data.type,'gallery-viewer');assert.equal(shellMessages.at(-1).data.open,true);
+  const unchangedPlayer=get('players').players[0],unchangedPlays=unchangedPlayer.playCount;
+  get('viewerInfo').onclick();assert(get('viewer').classList.contains('show-info'));assert.equal(get('viewerInfo').attrs['aria-expanded'],'true');
+  get('viewerInfo').onclick();assert(!get('viewer').classList.contains('show-info'));assert.equal(unchangedPlayer.playCount,unchangedPlays);
+  for(const [width,height] of [[375,812],[1024,1366],[1366,1024]]){
+    context.window.innerWidth=width;context.window.innerHeight=height;context.layoutViewer();
+    assert.equal(parseFloat(get('viewer').style['--viewer-width']),width-8);
+    assert.equal(parseFloat(get('viewer').style['--viewer-height']),height-8);
+    assert.equal(get('players').players[0],unchangedPlayer,'Resizing never recreates or reloads the player');
+  }
+  context.window.innerWidth=1024;context.window.innerHeight=768;context.layoutViewer();
   const single=get('players').players[0];single.videoWidth=720;single.videoHeight=1280;single.onloadedmetadata();assert.equal(single.parentElement.style['--aspect'],'720/1280');
   const loraInfo=context.loraHtml(entries[0]);assert.equal((loraInfo.match(/class="lora-row"/g)||[]).length,10);assert(loraInfo.includes('synthetic_9_full_suffix'));assert(!loraInfo.includes('외 '));
   assert(context.loraHtml({loras:[{name:'bad<img>.safetensors',strength:0}]}).includes('bad&lt;img&gt;'));
@@ -151,12 +167,12 @@ async function swipe(video,x1,y1,x2,y2){
   run('G.loading=false;');finishBackground();await immediateNavigation;await context.moveViewer(-1);
 
   const gesturePlayer=get('players').players[0];
-  const vertical=await swipe(gesturePlayer,220,50,230,145);assert(!vertical.move.prevented&&!vertical.end.prevented);
+  const vertical=await swipe(gesturePlayer,220,50,230,145);assert(vertical.move.prevented&&vertical.end.prevented);assert(get('viewer').classList.contains('show-info'));assert.equal(get('viewerInfo').attrs['aria-expanded'],'true');assert.equal(get('players').players[0],gesturePlayer);
   const seek=await swipe(gesturePlayer,300,205,100,205);assert(!seek.move.prevented&&!seek.end.prevented,'Native seek-bar drags are not gallery swipes');
   const tap=await swipe(gesturePlayer,220,70,225,73);assert(!tap.move.prevented&&!tap.end.prevented);
   touch('touchstart',gesturePlayer,300,70);touch('touchmove',gesturePlayer,100,70,[{identifier:7,clientX:100,clientY:70},{identifier:8,clientX:200,clientY:80}]);touch('touchend',gesturePlayer,100,70);
   touch('touchstart',gesturePlayer,300,70);get('players').events.touchcancel();touch('touchend',gesturePlayer,100,70);
-  assert.equal(run('PLAYER.entries[0].id'),entries[10].id,'Vertical scrolling, seeking, taps, pinch gestures and cancelled gestures leave the video unchanged');
+  assert.equal(run('PLAYER.entries[0].id'),entries[10].id,'Information reveal, seeking, taps, pinch gestures and cancelled gestures leave the video unchanged');
   let keyPrevented=false;get('viewer').events.keydown({key:'ArrowRight',target:gesturePlayer,preventDefault(){keyPrevented=true;}});assert(!keyPrevented,'Arrow keys focused on a video remain native seek controls');
   await get('nextVideo').onclick();assert.equal(run('PLAYER.entries[0].id'),entries[11].id);
   get('viewer').events.keydown({key:'ArrowLeft',target:get('closeViewer'),preventDefault(){keyPrevented=true;}});await settle();assert(keyPrevented);assert.equal(run('PLAYER.entries[0].id'),entries[10].id);
@@ -164,6 +180,24 @@ async function swipe(video,x1,y1,x2,y2){
   context.openViewer(entries[59].id);assert(get('nextVideo').disabled);await context.moveViewer(1);assert.equal(run('PLAYER.entries[0].id'),entries[59].id);
   run('G.selected=new Set([entries[1].id,entries[2].id]);');context.openViewer();assert(get('viewerNav').hidden);
   await swipe(get('players').players[0],300,70,100,72);await context.moveViewer(1);assert.equal(run('PLAYER.entries.length'),2,'Compare playback does not navigate away');context.closeViewer();
+
+  // Upward dismissal is distinct from seeking, metadata scroll and horizontal navigation.
+  context.window.scrollY=540;context.openViewer(entries[10].id);await settle();
+  const dismissPlayer=get('players').players[0];active=get('playSelected');
+  const tinyUp=await swipe(dismissPlayer,220,140,222,100);assert.equal(get('viewer').open,true);
+  const diagonal=await swipe(dismissPlayer,220,140,290,65);assert.equal(get('viewer').open,true);
+  const controlUp=await swipe(dismissPlayer,220,205,222,30);assert(!controlUp.move.prevented&&!controlUp.end.prevented);assert(get('viewer').open);
+  const meta=new Element();meta.tagName='DIV';touch('touchstart',meta,220,140);touch('touchmove',meta,220,20);touch('touchend',meta,220,20);assert(get('viewer').open);
+  run('PLAYER.navigating=true;');
+  context.window.scrollY=0;
+  const dismiss=await swipe(dismissPlayer,220,145,225,35);
+  assert(dismiss.move.prevented&&dismiss.end.prevented);assert.equal(get('viewer').open,false);
+  assert(dismissPlayer.paused&&dismissPlayer.loads===1);assert.equal(get('players').players.length,0);
+  context.restoreGalleryPosition(run('PLAYER.session'));assert.equal(context.window.scrollY,540);context.window.scrollY=0;
+  assert.equal(shellMessages.at(-1).data.open,false);assert(!get('viewer').classList.contains('immersive'));assert.equal(doc.body.style.overflow,'');
+  let clickBlocked=false;documentEvents.click({detail:1,preventDefault(){clickBlocked=true;},stopPropagation(){}});assert(clickBlocked,'Dismiss swipe cannot click through to another tile');
+  clickBlocked=false;documentEvents.click({detail:0,preventDefault(){clickBlocked=true;},stopPropagation(){}});assert(!clickBlocked,'Keyboard activation remains available');
+  assert(html.includes('.viewer.immersive[open]'));assert(html.includes('env(safe-area-inset-bottom)'));assert(html.includes('class="player-meta"'));
 
   // Navigation follows the filtered/sorted list, and locates the current ID after refreshes.
   run('G.mode="favorites";G.items=[entries[7],entries[3],entries[1]];G.total=3;G.selected.clear();');
