@@ -15,7 +15,7 @@ const requests = [];
 let reply = {}, pickedName = 'safe settings', lastApplied, replyHandler=null;
 const context = vm.createContext({$, console, setTimeout, clearTimeout, Date, JSON, Map, Set, Object, encodeURIComponent,
   FIELDS:['summary','duration','aspect','resolution'], images:['photo1','photo2','photo3','photo4','photo5'],
-  S:{mode:'REF2VA',model:'test-model',steps:4,loras:{},anchor:false},
+  S:{mode:'REF2VA',model:'test-model',steps:4,loras:{},anchor:false,protectPerson:true},
   CAT:{capabilities:{photo_sequence:true,bulk_edit:true,bulk_edit_all:true}}, manualFinal:true, imgsReady:true,
   editingJobId:null,bulkEditingIds:[],bulkAllEditing:false,queueSubmitting:false,currentJobs:[],pollT0:0,pollGen:0,timer:null,
   HIST:{items:[{id:'a',state:'queued'},{id:'b',state:'queued'},{id:'done',state:'done'}],selected:new Set()},

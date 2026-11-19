@@ -937,11 +937,50 @@ def release_photo_references(req):
     return {"ok":True}
 
 
+def person_canvas(aspect,resolution,sizes,items,raws,index,reference,cache=None,mode="REF2VA"):
+    target=canvas(aspect,resolution,sizes[index])
+    if aspect=="auto":return target,"auto",False
+    from person_framing import detect_bounds,crop_contains,MODEL_NAME
+    selected=[0,1] if mode=="FL2VA" else [index]
+    for n in selected:
+        item=items[n]
+        if "person_bounds" not in item:
+            try:
+                def detect():
+                    raw=raws[n] if raws else input_bytes(item["value"])
+                    return detect_bounds(raw,os.path.join(ROOT,"models","person_detection",MODEL_NAME))
+                item["person_bounds"]=cache.get(("person",item["value"]),detect) if cache is not None else detect()
+            except Exception:item["person_bounds"]=None  # Detection failure means no forced crop.
+    if all(crop_contains(sizes[n],target,items[n]["person_bounds"]) for n in selected):
+        return target,aspect,False
+    original=canvas("auto",resolution,sizes[index])
+    # Grid rounding can still crop a tight edge. Look only near the original
+    # canvas, without raising its pixel budget, and validate all endpoint people.
+    def safe(size):
+        for n in selected:
+            bounds=items[n]["person_bounds"]
+            if bounds is None:
+                # Unknown people require the original aspect (within grid rounding).
+                if abs((size[0]/size[1])/(sizes[n][0]/sizes[n][1])-1)>.025:return False
+            elif not crop_contains(sizes[n],size,bounds):return False
+        return True
+    if safe(original):return original,"auto",True
+    candidates=[(w,h) for w in range(max(MULT,original[0]-2*MULT),original[0]+2*MULT+1,MULT)
+                for h in range(max(MULT,original[1]-2*MULT),original[1]+2*MULT+1,MULT)
+                if w*h<=original[0]*original[1] and abs((w/h)/(sizes[index][0]/sizes[index][1])-1)<=.025 and safe((w,h))]
+    if candidates:
+        chosen=min(candidates,key=lambda size:(abs((size[0]/size[1])/(sizes[index][0]/sizes[index][1])-1),-(size[0]*size[1])))
+        return chosen,"auto",True
+    raise ValueError("이 사진 조합은 원본 비율에서도 인물이 잘릴 수 있어 등록하지 않았습니다. 첫·끝 사진을 같은 비율로 맞춰 주세요.")
+
+
 def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, build_cache=None):
     if "reference_ids" in req:
         if reference or req.get("edit_id") or req.get("photo_sequence") or int(req.get("count") or 1)!=1:
             raise ValueError("폴더별 번갈아 등록은 한 번에 한 작업씩 새로 추가합니다.")
         reference=pooled_photo_reference(req)
+    protect_person=req.get("protect_person",False)
+    if type(protect_person) is not bool:raise ValueError("인물 보호 설정을 확인해 주세요.")
     edit_id = req.get("edit_id")
     sequence = req.get("photo_sequence") is True
     if queue_first and (edit_id or sequence or prepare_only):
@@ -1121,7 +1160,7 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
                "sampler": p[SAMPLER]["inputs"]["sampler_name"], "scheduler": p[SCHED]["inputs"]["scheduler"],
                "shift_video": p[SHIFT]["inputs"]["shift_video"], "shift_audio": p[SHIFT]["inputs"]["shift_audio"],
                "loras": [{"name": x["name"], "strength": float(x.get("strength", 1))} for x in loras],
-               "aspect": aspect, "resolution": resolution, "duration": duration, "width": j["width"], "height": j["height"],
+               "aspect": j.get("actual_aspect",aspect), "requested_aspect":aspect,"protect_person":protect_person,"framing_fallback":j.get("framing_fallback",False), "resolution": resolution, "duration": duration, "width": j["width"], "height": j["height"],
                "count": count, "anchor": anchor, "prompt": text, "images": j["images"], "face_side": j.get("face_side"),
                "sequence_index": j["sequence_index"], "ui": req.get("ui")} for j in done]
     priority_number = None
@@ -1129,6 +1168,14 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
         for index, s in enumerate(seeds):
             job_names = names[index:] + names[:index] if sequence else names
             job_w, job_h = canvas(aspect, resolution, sizes[index] if sequence else sizes[0])
+            actual_aspect,fallback=aspect,False
+            if protect_person:
+                (job_w,job_h),actual_aspect,fallback=person_canvas(aspect,resolution,sizes,items,raws,index if sequence else 0,reference,build_cache,mode)
+            d.update(width=job_w,height=job_h)
+            tl["resolution"]["aspect"]=actual_aspect
+            # Bounds are metadata on original files, not replacement/cropped photos.
+            if not sequence:tl["items"]=items
+            set_prompt(text.replace(FACE_SIDE_TOKEN,(face_side_for(index if sequence else 0) or {}).get("used","right")))
             if sequence:
                 order = list(range(index, len(items))) + list(range(index))
                 rotated = [items[index]] + [(face_items[i] if face_mode else items[i]) for i in order[1:]]
@@ -1142,10 +1189,10 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
             if prepare_only:
                 if count != 1 or edit_id and not reference:
                     raise ValueError("별도 워크플로 준비는 한 편씩 진행합니다.")
-                prepared = {"prompt":p,"images":list(names),"width":w,"height":h,"seed":s}
+                prepared = {"prompt":p,"images":list(names),"width":job_w,"height":job_h,"seed":s}
                 if edit_id:
                     job = {"id":edit_id,"seed":s,"width":job_w,"height":job_h,"model":model,"steps":steps,
-                           "anchor":anchor,"face_side":face_side_for(0),"images":list(names),
+                           "anchor":anchor,"face_side":face_side_for(0),"images":list(names),"actual_aspect":actual_aspect,"framing_fallback":fallback,
                            "sequence_index":reference["entry"].get("sequence_index")}
                     entry = make_entries([job])[0]
                     entry.update(t=reference["entry"]["t"],edited_at=time.time())
@@ -1164,7 +1211,7 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
             with PLOCK:
                 PROGRESS.setdefault(r["prompt_id"],{"pct":0.0,"label":"대기"})["classes"]=classes
             jobs.append({"id": r["prompt_id"], "seed": s, "width": job_w, "height": job_h,
-                         "model": model, "steps": steps, "anchor": anchor, "prompt_verified": bool(edit_id and r.get("prompt_verified")), "face_side": face_side_for(index if sequence else 0),
+                         "model": model, "steps": steps, "anchor": anchor, "actual_aspect":actual_aspect,"framing_fallback":fallback,"prompt_verified": bool(edit_id and r.get("prompt_verified")), "face_side": face_side_for(index if sequence else 0),
                          "images": list(job_names), "sequence_index": index + 1 if sequence else reference["entry"].get("sequence_index") if reference else None})
     except Exception as exc:
         # 여러 편 등록 중 실패: 이미 ComfyUI 에 들어간 작업은 이력에 남겨 추적·중지·결과 연결이 되게 한다
@@ -1188,7 +1235,7 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
             _save_json(HIST, HIST_DB)
     else:
         hist_add(entries)
-    return {"jobs": jobs, "id": jobs[0]["id"], "seed": jobs[0]["seed"], "width": w, "height": h,
+    return {"jobs": jobs, "id": jobs[0]["id"], "seed": jobs[0]["seed"], "width": jobs[0]["width"], "height": jobs[0]["height"],
             "model": os.path.basename(model.replace("\\", "/")), "steps": steps, "loras": len(loras), "mode": mode,
             "anchor": anchor, "face_crops": dict({"cropped": face_cropped, "original": (len(imgs) if sequence else len(imgs) - 1) - face_cropped},
                                **({"unavailable": face_unavailable} if face_unavailable else {}))
@@ -1300,7 +1347,7 @@ def bulk_edit_queue(req):
                 if "anchor" in fields:
                     values["anchor"] = req["anchor"]
                 if "video" in fields:
-                    for key in ("aspect", "resolution", "duration"):
+                    for key in ("aspect", "resolution", "duration", "protect_person"):
                         if key in req:
                             values[key] = req[key]
                             form[key] = req[key]

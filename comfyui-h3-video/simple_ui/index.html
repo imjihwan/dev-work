@@ -462,7 +462,8 @@ a{color:var(--acc)}
         <div><label>시드 <small>비우면 랜덤</small></label><input type="text" id="seed" placeholder="랜덤"></div>
         <div><label>반복 <small>시드만 바꿔서</small></label><input type="number" id="count" value="1" min="1" max="20" step="1"></div>
       </div>
-      <div class="hint">사진 비율을 유지해 화면을 채웁니다. 첫/끝 프레임과 첫 장면 고정 사진은 필요한 만큼 중앙 크롭하며, 패딩을 넣지 않습니다. 가장자리의 인물·사물은 일부 잘릴 수 있습니다. 휴대폰 설정은 모델 규격상 736×1280으로 생성됩니다.</div>
+      <label style="margin-top:8px"><input type="checkbox" id="protectPerson" checked> 인물 잘림 방지 · 잘릴 우려가 있거나 검출이 불확실하면 그 사진만 원본 화면비 유지</label>
+      <div class="hint">사진 비율을 유지해 화면을 채웁니다. 첫/끝 프레임과 첫 장면 고정 사진은 필요한 만큼 중앙 크롭하며, 패딩을 넣지 않습니다. 인물 보호를 끄면 가장자리가 잘릴 수 있습니다. 휴대폰 설정은 안전하게 크롭할 수 있을 때 모델 규격상 736×1280으로 생성됩니다.</div>
       <div class="hint" id="countHint"></div>
       <details style="margin-top:14px">
         <summary>최종 프롬프트 보기·직접 고치기</summary>
@@ -539,7 +540,7 @@ let manualPromptInputs=null;
 const FIELDS = ["subject","summary","style","keep","sound","music","aspect","resolution","duration","count"];
 const PARAMS = ["steps","sampler","scheduler","shift_video","shift_audio"];
 let CAT = null;             // /api/catalog 결과
-const S = {mode:"REF2VA", model:"", steps:4, sampler:"euler", scheduler:"simple", shift_video:10, shift_audio:3, loras:{}, trig:true, anchor:true, oneTake:true, faceBoost:false};
+const S = {mode:"REF2VA", model:"", steps:4, sampler:"euler", scheduler:"simple", shift_video:10, shift_audio:3, loras:{}, trig:true, anchor:true, oneTake:true, faceBoost:false,protectPerson:true};
 const UI = {modelOpen:false, loraOpen:false, loraQ:"", info:{}};
 
 // ---------- 모드 ----------
@@ -760,6 +761,7 @@ function build(imageCount=images.length){
   ].join("\n\n"),n);
 }
 function render(){
+  $("protectPerson").checked=S.protectPerson!==false;
   const late = lateShots(), dur = Number($("duration").value) || 5;
   [...$("shots").children].forEach((d,i) => d.querySelector("input").classList.toggle("late", late.includes(i)));
   $("shotHint").textContent = late.length ? `장면 ${late.map(i => i + 1).join(", ")}은(는) 영상 길이(${dur}초) 이후에 시작해서 프롬프트에서 뺐습니다. 시각을 ${dur}초보다 앞으로 당기거나 길이를 늘리세요.` : "";
@@ -781,12 +783,14 @@ $("refreshFaceRefs").onclick=()=>{
   refreshFaceReferenceAction();save();
 };
 function setMobileOutput(){
+  S.protectPerson=true;
   $("aspect").value="9:16";
   $("resolution").value="720p";
   render();
   if(CAT)drawSpeed();
 }
 $("mobileOutput").onclick=setMobileOutput;
+$("protectPerson").onchange=()=>{S.protectPerson=$("protectPerson").checked;render();};
 FIELDS.forEach(id => $(id).addEventListener("input", () => { if(["subject","summary","style","keep","sound","music","duration"].includes(id))updatePromptFromFields();else render(); if (CAT && ["resolution","duration"].includes(id)) drawSpeed(); }));
 
 // =====================================================================
@@ -1764,7 +1768,7 @@ async function submitJobs(sequence=false, priority=false){
     const snapshot = captureSettings();
     if(bulkIds.length)globalThis.H3BulkProgress?.prepare();
     const r = await fetch(bulkIds.length ? "/api/queue/bulk-edit" : priority ? "/api/generate/priority" : "/api/generate", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({
-      images:bulkIds.length ? [] : images, prompt: $("final").value, aspect: $("aspect").value, resolution: $("resolution").value, edit_id: editId,
+      protect_person:S.protectPerson!==false,images:bulkIds.length ? [] : images, prompt: $("final").value, aspect: $("aspect").value, resolution: $("resolution").value, edit_id: editId,
       prompt_by_count: bulkIds.length && isRef() ? Object.fromEntries(Array.from({length:9},(_,i)=>[i+1,withFaceReferenceRules($("final").value,i+1)])) : undefined,
       edit_ids:allPending ? [] : bulkIds, all_pending:allPending, bulk_fields:bulkFields, photo_sequence:sequence,
       duration: $("duration").value, seed: $("seed").value, mode: sendMode(), model: S.model,
@@ -1796,6 +1800,8 @@ async function submitJobs(sequence=false, priority=false){
     else if(allPending){$("queueFeedback").textContent=add.length?`전체 대기항목 ${add.length}개 수정 완료${Number.isInteger(j.verified_count)?` · ComfyUI 반영 ${j.verified_count}개 대조 확인`:""} · 실행 중인 작업은 제외했습니다. 입력 화면은 수정 전 작성 내용으로 돌아갑니다.`:"저장 시점에 수정할 대기항목이 없어 적용하지 않았습니다.";$("queueFeedback").hidden=false;}
     else if(j.face_crops?.unavailable){$("queueFeedback").textContent=`${sequence?"순차 ":""}${add.length}건 등록 · 얼굴인식강화를 쓰지 못해 원본 사진으로 등록했습니다: ${j.face_crops.unavailable}`;$("queueFeedback").hidden=false;}
     else if(j.face_crops){$("queueFeedback").textContent=`${sequence?"순차 ":""}${add.length}건 등록 · 얼굴인식강화: 얼굴 크롭 ${j.face_crops.cropped}장, 얼굴을 못 찾아 원본 유지 ${j.face_crops.original}장. 사진 1은 원본입니다.`;$("queueFeedback").hidden=false;}
+    const fallbackCount=add.filter(job=>job.framing_fallback).length;
+    if(fallbackCount){$("queueFeedback").textContent+=` · 인물 보호로 ${fallbackCount}건 원본 화면비 유지`;$("queueFeedback").hidden=false;}
     if(priority){const extra=$("queueFeedback").hidden?"":"\n"+$("queueFeedback").textContent;$("queueFeedback").textContent=`${add.length}건을 대기열 맨 앞에 추가했습니다. 실행 중인 작업이 끝나면 먼저 시작합니다.`+extra;$("queueFeedback").hidden=false;}
     $("go").disabled = false;
     loadHist(false, true);
@@ -1833,7 +1839,7 @@ async function submitIndividualPhotos(selectedFiles){
     const prompt=withFaceReferenceRules(manualFinal?$("final").value:build(1),1);
     if(!prompt.trim())throw new Error("2번 내용을 작성해 주세요.");
     const loras=Object.entries(m.loras).map(([name,strength])=>({name,strength}));
-    const request={prompt,mode:"REF2VA",aspect:snapshot.f.aspect,resolution:snapshot.f.resolution,duration:snapshot.f.duration,seed:snapshot.seed,
+    const request={protect_person:m.protectPerson!==false,prompt,mode:"REF2VA",aspect:snapshot.f.aspect,resolution:snapshot.f.resolution,duration:snapshot.f.duration,seed:snapshot.seed,
       model:m.model,...Object.fromEntries(PARAMS.map(key=>[key,m[key]])),loras,count:1,anchor:!!m.anchor,photo_sequence:false,
       ui:{f:{...snapshot.f,count:1},shots:snapshot.shots,actionMode:snapshot.actionMode,final:snapshot.final,trig:m.trig,oneTake:m.oneTake!==false}};
     for(let index=0;index<files.length && !photoBatchStop;index++){
@@ -1981,7 +1987,7 @@ async function submitFolderRotatingPhotos(){
     for(const group of groups){const count=Math.min(9,group.length);if(!prompts.has(count))prompts.set(count,withFaceReferenceRules(manualFinal?$("final").value:build(count),count));}
     if([...prompts.values()].some(prompt=>!prompt.trim()))throw Error("2번 내용을 작성해 주세요.");
     const baseSeed=String(snapshot.seed??"").trim(),seed=baseSeed?BigInt(baseSeed):null;
-    const request={mode:"REF2VA",aspect:snapshot.f.aspect,resolution:snapshot.f.resolution,duration:snapshot.f.duration,
+    const request={protect_person:m.protectPerson!==false,mode:"REF2VA",aspect:snapshot.f.aspect,resolution:snapshot.f.resolution,duration:snapshot.f.duration,
       model:m.model,...Object.fromEntries(PARAMS.map(key=>[key,m[key]])),loras,count:1,anchor:!!m.anchor,photo_sequence:false,
       ui:{f:{...snapshot.f,count:1},shots:snapshot.shots,actionMode:snapshot.actionMode,final:snapshot.final,trig:m.trig,oneTake:m.oneTake!==false,faceBoost:!!m.faceBoost}};
     let offset=0;
@@ -2506,7 +2512,7 @@ async function applyCurrentBulk(all=false){
   if(!prompt.trim())return setStatus("현재 최종 프롬프트를 먼저 작성해 주세요.","err");
   if(!model.model)return setStatus("현재 화면에서 모델을 선택해 주세요.","err");
   // Snapshot at the click. Never load a queue item's text or restore an older form.
-  const body={apply_current:true,all_pending:all,edit_ids:ids,bulk_fields:["content","model","video","anchor"],
+  const body={protect_person:model.protectPerson!==false,apply_current:true,all_pending:all,edit_ids:ids,bulk_fields:["content","model","video","anchor"],
     images:[],prompt,aspect:snapshot.f.aspect,resolution:snapshot.f.resolution,duration:snapshot.f.duration,
     model:model.model,steps:model.steps,sampler:model.sampler,scheduler:model.scheduler,
     shift_video:model.shift_video,shift_audio:model.shift_audio,
@@ -2523,8 +2529,8 @@ async function applyCurrentBulk(all=false){
     const updated=currentJobs.map(job=>replacements.get(job.id)||job).concat(jobs.filter(job=>!known.has(job.id)));
     jobs.forEach(job=>HIST.selected.delete(job.id));
     if(jobs.length)poll(updated,pollT0||Date.now(),null);
-    const failed=result.failed?.length||0;
-    $("queueFeedback").textContent=result.target_count===0?"적용할 대기항목이 없습니다. 현재 입력은 그대로 유지했습니다.":`${jobs.length}개에 현재 프롬프트·설정 적용 완료${failed?` · ${failed}개 미적용`:""}${Number.isInteger(result.verified_count)?` · ComfyUI 반영 ${result.verified_count}개 확인`:""} · 현재 입력은 그대로 유지했습니다.`;
+    const failed=result.failed?.length||0,originalRatio=jobs.filter(job=>job.framing_fallback).length;
+    $("queueFeedback").textContent=result.target_count===0?"적용할 대기항목이 없습니다. 현재 입력은 그대로 유지했습니다.":`${jobs.length}개에 현재 프롬프트·설정 적용 완료${originalRatio?` · 인물 보호로 ${originalRatio}건 원본 화면비 유지`:""}${failed?` · ${failed}개 미적용`:""}${Number.isInteger(result.verified_count)?` · ComfyUI 반영 ${result.verified_count}개 확인`:""} · 현재 입력은 그대로 유지했습니다.`;
     $("queueFeedback").hidden=false;
     setStatus(result.target_count===0?"적용할 대기항목이 없습니다.":failed?"일부 항목은 적용하지 못했습니다. 진행 결과를 확인해 주세요.":"현재 프롬프트·설정을 대기항목에 적용했습니다.",failed?"err":"ok");
     loadHist(false,true);
@@ -2628,7 +2634,7 @@ async function loadFromHist(e){
   if (u.trig != null) S.trig = u.trig;
   if (u.oneTake != null) { S.oneTake = u.oneTake; $("oneTake").checked = u.oneTake; }
   S.faceBoost = !!u.faceBoost; $("faceBoost").checked = S.faceBoost;
-  S.anchor = !!e.anchor; $("anchor").checked = S.anchor;
+  S.anchor = !!e.anchor;S.protectPerson=e.protect_person!==false; $("anchor").checked = S.anchor;
   images.length = 0; images.push(...got);
   manualFinal = false; $("resetFinal").hidden = true; $("finalHint").textContent = "위 칸을 고치면 자동으로 다시 만들어집니다.";
   drawThumbs(); drawModelCard();
@@ -2686,7 +2692,7 @@ function productionGenerationBinding(){
   if(!images.length)throw new Error("사진을 먼저 선택해 주세요.");
   refreshSubmissionPrompt();
   const snapshot=captureSettings();
-  return {images:[...images],prompt:$("final").value,aspect:$("aspect").value,resolution:$("resolution").value,duration:$("duration").value,seed:$("seed").value,mode:sendMode(),model:S.model,steps:S.steps,sampler:S.sampler,scheduler:S.scheduler,shift_video:S.shift_video,shift_audio:S.shift_audio,loras:Object.entries(S.loras).map(([name,strength])=>({name,strength})),count:runCount(),anchor:isRef()&&!!S.anchor,face_boost:isRef()&&!!S.faceBoost&&images.length>1,ui:{f:snapshot.f,shots:snapshot.shots,actionMode:snapshot.actionMode,final:snapshot.final,trig:S.trig,oneTake:S.oneTake!==false,faceBoost:!!S.faceBoost}};
+  return {protect_person:S.protectPerson!==false,images:[...images],prompt:$("final").value,aspect:$("aspect").value,resolution:$("resolution").value,duration:$("duration").value,seed:$("seed").value,mode:sendMode(),model:S.model,steps:S.steps,sampler:S.sampler,scheduler:S.scheduler,shift_video:S.shift_video,shift_audio:S.shift_audio,loras:Object.entries(S.loras).map(([name,strength])=>({name,strength})),count:runCount(),anchor:isRef()&&!!S.anchor,face_boost:isRef()&&!!S.faceBoost&&images.length>1,ui:{f:snapshot.f,shots:snapshot.shots,actionMode:snapshot.actionMode,final:snapshot.final,trig:S.trig,oneTake:S.oneTake!==false,faceBoost:!!S.faceBoost}};
 }
 window.H3ProductionBridge={
   beforeSnapshot(){refreshSubmissionPrompt();},

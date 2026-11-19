@@ -25,7 +25,7 @@ sys.path.insert(0,str(SOURCE))
 from bulk_progress import BulkProgress
 from queue_bulk import BuildCache, QueueBulkEditor
 TREE = ast.parse((SOURCE / "server.py").read_text(encoding="utf-8"))
-NAMES = {"_load_json", "_save_json", "save_settings", "rename_settings", "delete_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "bulk_edit_queue", "bulk_queue_context", "commit_bulk_history", "bulk_queue_editor", "judge_face_side", "prepare_photo_reference", "pooled_photo_reference", "release_photo_references"}
+NAMES = {"_load_json", "_save_json", "save_settings", "rename_settings", "delete_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "person_canvas", "bulk_edit_queue", "bulk_queue_context", "commit_bulk_history", "bulk_queue_editor", "judge_face_side", "prepare_photo_reference", "pooled_photo_reference", "release_photo_references"}
 
 
 class FeatureTests(unittest.TestCase):
@@ -103,7 +103,61 @@ class FeatureTests(unittest.TestCase):
              "ui":{"f":{"summary":"safe test prompt"},"shots":[[0,"test"]]}}
         req.update(changes);return req
 
-    def sequence(self, anchor=True, face_boost=True): return self.env["build_and_queue"](self.request(photo_sequence=True,count=20,anchor=anchor,face_boost=face_boost))
+    def sequence(self, anchor=True, face_boost=True, **changes): return self.env["build_and_queue"](self.request(photo_sequence=True,count=20,anchor=anchor,face_boost=face_boost,**changes))
+
+    def test_person_guard_keeps_phone_crop_only_when_all_visible_people_fit(self):
+        def detect(raw,path):return [0.4,0.1,0.6,0.9]
+        from person_framing import crop_contains
+        module=SimpleNamespace(detect_bounds=detect,crop_contains=crop_contains,MODEL_NAME='synthetic.onnx')
+        with patch.dict(sys.modules,person_framing=module):
+            a=self.env['build_and_queue'](self.request(images=self.photos[:1],count=1,mode='I2VA',aspect='9:16',resolution='720p',protect_person=True),prepare_only=True)
+            self.assertEqual((a['width'],a['height']),(736,1280))
+            module.detect_bounds=lambda raw,path:[0,0,1,1]
+            b=self.env['build_and_queue'](self.request(images=self.photos[:1],count=1,mode='I2VA',aspect='9:16',resolution='720p',protect_person=True),prepare_only=True)
+            self.assertEqual(b['width']/b['height'],2.0)
+            self.assertLessEqual(b['width']*b['height'],self.env['canvas']('auto','720p',(16,8))[0]*self.env['canvas']('auto','720p',(16,8))[1])
+            state=json.loads(b['prompt'][self.env['DIRECTOR']]['inputs']['timeline_data'])
+            self.assertEqual(state['resolution']['aspect'],'auto')
+            self.assertEqual(state['items'][0]['source_width'],16)
+            self.assertEqual(self.sent,[])
+
+    def test_person_guard_checks_both_endpoint_frames_and_uses_original_on_detector_failure(self):
+        calls=[]
+        def detect(raw,path):
+            calls.append(1)
+            return [.4,.1,.6,.9] if len(calls)==1 else None
+        module=SimpleNamespace(detect_bounds=detect,crop_contains=lambda size,target,bounds:bounds is not None,MODEL_NAME='synthetic.onnx')
+        with patch.dict(sys.modules,person_framing=module):
+            result=self.env['build_and_queue'](self.request(images=[self.photos[0],self.photos[0]],count=1,mode='FL2VA',aspect='9:16',resolution='720p',protect_person=True),prepare_only=True)
+            self.assertEqual(len(calls),2)
+            self.assertEqual((result['width'],result['height']),self.env['canvas']('auto','720p',(16,8)))
+            module.detect_bounds=lambda *args:(_ for _ in ()).throw(RuntimeError('Synthetic detector unavailable'))
+            result=self.env['build_and_queue'](self.request(images=self.photos[:1],count=1,aspect='9:16',protect_person=True),prepare_only=True)
+            self.assertEqual(result['width']/result['height'],2.0)
+
+    def test_repeats_reuse_person_bounds_without_reading_more_images_or_changing_source_files(self):
+        calls=[]
+        module=SimpleNamespace(detect_bounds=lambda *args:(calls.append(1) or [.4,.1,.6,.9]),
+            crop_contains=lambda *args:True,MODEL_NAME='synthetic.onnx')
+        with patch.dict(sys.modules,person_framing=module):
+            result=self.env['build_and_queue'](self.request(images=self.photos[:1],count=20,aspect='9:16',protect_person=True))
+        self.assertEqual(len(calls),1);self.assertEqual(len(self.uploaded),1)
+        self.assertEqual(len(result['jobs']),20)
+        self.assertTrue(all(entry['images']==['reference-1.png'] for entry in self.env['HIST_DB']))
+
+    def test_sequence_person_guard_keeps_order_seed_photos_and_per_photo_fallback(self):
+        decisions=[False,True,False,True,True]
+        def layout(aspect,resolution,sizes,items,raws,index,reference,cache,mode):
+            actual='auto' if decisions[index] else aspect
+            return self.env['canvas'](actual,resolution,sizes[index]),actual,decisions[index]
+        self.env['person_canvas']=layout
+        result=self.sequence(protect_person=True,aspect='9:16')
+        self.assertEqual([job['framing_fallback'] for job in result['jobs']],decisions)
+        for index,entry in enumerate(self.env['HIST_DB']):
+            self.assertEqual(entry['aspect'],'auto' if decisions[index] else '9:16')
+            self.assertEqual(entry['seed'],100+index)
+            self.assertEqual(entry['sequence_index'],index+1)
+            self.assertEqual(entry['images'][0],f'reference-{index+1}.png')
 
     def test_phone_canvas_and_keyframes_use_cover_crop_but_auxiliary_references_keep_aspect(self):
         self.assertEqual(self.env['canvas']('9:16','720p',(1200,800)),(736,1280))

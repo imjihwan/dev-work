@@ -14,16 +14,16 @@ ROOT_FILES = (
 UI_FILES = (
     "server.py", "queue_bulk.py", "index.html", "start.bat", "template_api.json", "bulk_progress.py", "bulk-progress.js",
     "cards.seed.json", "presets.seed.json", "prompt_helper.py", "grok_cli.py", "production_assistant.py", "production_assistant.js", "production_chat.py", "local_translate.py", "translation_worker.py",
-    "story.py", "story_workflow.py", "story.html", "gallery.py", "gallery.html", "face_references.py",
+    "story.py", "story_workflow.py", "story.html", "gallery.py", "gallery.html", "face_references.py", "person_framing.py",
 )
-THIRD_PARTY_FILES = ("third_party/dutchit/NOTICE.md", "third_party/dutchit/LICENSE.txt", "third_party/dutchit/Modelfile.ref.txt")
+THIRD_PARTY_FILES = ("third_party/dutchit/NOTICE.md", "third_party/dutchit/LICENSE.txt", "third_party/dutchit/Modelfile.ref.txt", "third_party/person-framing/NOTICE.md", "third_party/person-framing/LICENSE.txt")
 DOC_FILES = (
     "MODELS.md", "PROMPT_HELPER.md", "GROK_CLI.md", "PRODUCTION_ASSISTANT.md", "STORY.md", "UI.md",
     "ARCHITECTURE.md", "TESTING.md", "SOURCE_RELEASE.md", "HANDOFF.md", "FACE_REFERENCES.md", "LOCAL_TRANSLATION.md",
 )
 SCRIPT_FILES = (
     "setup.ps1", "start_comfyui.bat", "get_models.py", "download-ranges.py",
-    "install_prompt_helper.py", "install_grok_cli.py", "install_face_detector.py", "install_local_translator.py", "test_face_references.py", "prepare_ui_restart.py", "prepare_source_release.py", "restart_backend.py", "test_backend_restart.py",
+    "install_prompt_helper.py", "install_grok_cli.py", "install_face_detector.py", "install_person_detector.py", "test_person_framing.py", "install_local_translator.py", "test_face_references.py", "prepare_ui_restart.py", "prepare_source_release.py", "restart_backend.py", "test_backend_restart.py",
     "apply_queued_style.py", "add_queued_opening_pose.py", "restore_anchored_reference.py",
     "test_gallery.py", "test_apply_queued_style.py", "test_add_queued_opening_pose.py", "test_bulk_progress.py", "test_bulk_progress.cjs",
     "test_prompt_helper.py", "test_grok_cli.py", "test_action_editor.cjs", "test_production_assistant.py", "test_production_assistant.cjs", "test_production_chat.py", "test_local_translate.py", "test_translation_preview.cjs", "test_photo_batch_ui.cjs", "test_folder_photos.cjs", "test_opening_pose.cjs",

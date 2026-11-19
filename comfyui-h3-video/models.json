@@ -1,5 +1,16 @@
 {
   "_comment": "모델·LoRA 목록(기계용). dest 는 ComfyUI 폴더 기준 상대 경로. source=hf 는 스크립트가 바로 받고, source=civitai 는 로그인이 필요해 브라우저로 받은 뒤 스크립트가 옮기고 검증한다. sha256 은 배포처가 공개한 값.",
+  "person_framing": {
+    "name": "OpenCV Zoo YOLOX-S CPU person framing detector",
+    "filename": "object_detection_yolox_2022nov.onnx",
+    "dest": "models/person_detection/object_detection_yolox_2022nov.onnx",
+    "url": "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/object_detection_yolox/object_detection_yolox_2022nov.onnx",
+    "size": 35858002,
+    "sha256": "c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063",
+    "license": "Apache-2.0",
+    "cpu_only": true,
+    "installer": "scripts/install_person_detector.py"
+  },
   "prompt_helper": {
     "model": {
       "url": "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/f6d5376be1edb4d416d56da11e5397a961aca8ae/Qwen3.5-2B-Q4_K_M.gguf",
