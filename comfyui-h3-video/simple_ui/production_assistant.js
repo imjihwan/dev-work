@@ -396,7 +396,7 @@
         while(job){
           const response=await win.fetch('/api/production-assistant/status?id='+encodeURIComponent(job),{cache:'no-store'}),state=await response.json();
           if(!response.ok)throw Error(state.error||'도우미 상태를 확인하지 못했습니다.');
-          if(!['done','error','cancelled'].includes(state.state)){const phase={prepare:'앱 정보 준비',model:'Grok 응답 대기',read:'필요한 정보 조회',validate:'변경안 검사'}[state.phase]||'Grok 응답 대기';const elapsed=Math.floor((Date.now()-began)/1000),round=Math.min(5,Math.max(0,Number(state.round)||0));const status=`${effortLabels[effort]} · ${phase}${round?' · '+round+'차 응답':''} · ${elapsed}초`;$('h3ProductionThinkingText').textContent=status;say(status);}
+          if(!['done','error','cancelled'].includes(state.state)){const phase={prepare:'앱 정보 준비',model:'Grok 응답 대기',read:'필요한 정보 조회',validate:'변경안 검사'}[state.phase]||'Grok 응답 대기';const elapsed=Math.floor((Date.now()-began)/1000),round=Math.min(5,Math.max(0,Number(state.round)||0));const status=`${effortLabels[effort]} · ${phase}${round?' · '+round+'차 응답':''} · ${elapsed}초${state.phase==='model'&&Number.isFinite(state.cli_limit_s)?' · 이번 호출 제한 '+state.cli_limit_s+'초':''}`;$('h3ProductionThinkingText').textContent=status;say(status);}
           if(state.state==='done'){
             const plan=state.production,row=log('assistant',plan.reply,true,state.chat_message_id);if(sharedMode&&Number.isInteger(state.chat_revision)){sharedRevision=state.chat_revision;rowEntries.get(row).id=state.chat_message_id;}
             if(plan.actions.length){pending={plan,snapshot,guard};showPlan(plan,row);}

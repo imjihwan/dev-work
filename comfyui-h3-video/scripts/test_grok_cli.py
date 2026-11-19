@@ -13,7 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = Path(os.environ.get("PROMPT_HELPER_TEST_SOURCE", ROOT / "simple_ui"))
 sys.path.insert(0, str(SOURCE))
 import prompt_helper as helper
-from grok_cli import GrokCLI, PROFILE
+from grok_cli import GrokCLI, PROFILE, TIMEOUT_SECONDS
+import subprocess
 
 
 def wire(draft, **changes):
@@ -120,6 +121,62 @@ class GrokTests(unittest.TestCase):
         with patch.object(c,"ready",return_value=True),patch("grok_cli.subprocess.Popen",return_value=process):
             with self.assertRaisesRegex(RuntimeError,"취소"):c.complete("Static",{},helper.GROK_REPLY_SCHEMA,cancel)
         process.terminate.assert_called_once()
+
+    def test_late_response_after_old_three_minute_limit_can_complete(self):
+        c=GrokCLI('synthetic');process=MagicMock();process.poll.return_value=0;process.returncode=0
+        clock=[0];calls=[];updates=[]
+        def communicate(**kwargs):
+            calls.append(1)
+            if len(calls)==1:
+                clock[0]=181
+                raise subprocess.TimeoutExpired('synthetic',.2)
+            return wire({'reply':'Synthetic late reply'}),None
+        process.communicate.side_effect=communicate
+        with patch.object(c,'ready',return_value=True),patch.object(c,'_record_metrics') as record,patch('grok_cli.time.monotonic',side_effect=lambda:clock[0]),patch('grok_cli.subprocess.Popen',return_value=process):
+            value=c.complete('Static',{'idea':'PRIVATE_REQUEST'},helper.GROK_REPLY_SCHEMA,threading.Event(),effort='medium',on_progress=updates.append)
+        self.assertEqual(value['reply'],'Synthetic late reply');self.assertEqual(record.call_args.args[0]['outcome'],'ok')
+        self.assertEqual(record.call_args.args[0]['limit_s'],300);self.assertEqual(updates[-1]['cli_elapsed_s'],181)
+        self.assertNotIn('PRIVATE',json.dumps(record.call_args.args[0]));self.assertNotIn('PRIVATE',json.dumps(updates))
+        process.terminate.assert_not_called()
+
+    def test_per_effort_timeout_is_bounded_and_does_not_retry(self):
+        for effort,limit in TIMEOUT_SECONDS.items():
+            c=GrokCLI('synthetic');process=MagicMock();process.poll.return_value=None;process.returncode=-15
+            clock=[0];calls=[]
+            def communicate(**kwargs):
+                calls.append(1);clock[0]=limit+1
+                raise subprocess.TimeoutExpired('synthetic',.2)
+            process.communicate.side_effect=communicate
+            with patch.object(c,'ready',return_value=True),patch.object(c,'_record_metrics') as record,patch('grok_cli.time.monotonic',side_effect=lambda:clock[0]),patch('grok_cli.subprocess.Popen',return_value=process):
+                with self.assertRaisesRegex(RuntimeError,str(limit)):c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event(),effort=effort)
+            self.assertEqual(len(calls),1);self.assertEqual(record.call_args.args[0]['outcome'],'timeout');process.terminate.assert_called_once()
+
+    def test_remaining_request_budget_overrides_long_effort(self):
+        c=GrokCLI('synthetic');process=MagicMock();process.poll.return_value=None;process.returncode=-15
+        clock=[0]
+        def communicate(**kwargs):clock[0]=41;raise subprocess.TimeoutExpired('synthetic',.2)
+        process.communicate.side_effect=communicate
+        with patch.object(c,'ready',return_value=True),patch.object(c,'_record_metrics') as record,patch('grok_cli.time.monotonic',side_effect=lambda:clock[0]),patch('grok_cli.subprocess.Popen',return_value=process):
+            with self.assertRaisesRegex(RuntimeError,'40'):c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event(),effort='xhigh',timeout_s=40)
+        self.assertEqual(record.call_args.args[0]['limit_s'],40)
+
+    def test_numeric_diagnostics_and_disk_failure_cannot_expose_text(self):
+        with tempfile.TemporaryDirectory() as directory:
+            c=GrokCLI(directory);process=MagicMock();process.poll.return_value=0;process.returncode=0
+            process.communicate.return_value=(wire({'reply':'PRIVATE_REPLY'}),None)
+            with patch.object(c,'ready',return_value=True),patch('grok_cli.subprocess.Popen',return_value=process):
+                self.assertEqual(c.complete('PRIVATE_SYSTEM',{'idea':'PRIVATE_REQUEST'},helper.GROK_REPLY_SCHEMA,threading.Event())['reply'],'PRIVATE_REPLY')
+            path=Path(directory)/'grok-timings.jsonl';text=path.read_text(encoding='utf-8');self.assertNotIn('PRIVATE',text);self.assertEqual(json.loads(text)['outcome'],'ok')
+            path.unlink();path.mkdir()
+            with patch.object(c,'ready',return_value=True),patch('grok_cli.subprocess.Popen',return_value=process):
+                self.assertEqual(c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event())['reply'],'PRIVATE_REPLY')
+
+    def test_restart_preparation_refuses_active_shared_request_without_printing_text(self):
+        with tempfile.TemporaryDirectory() as directory:
+            comfy=Path(directory)/'ComfyUI';ui=comfy/'simple_ui';ui.mkdir(parents=True)
+            (ui/'production-chat.json').write_text(json.dumps({'active':{'id':'PRIVATE_ID'},'messages':[{'text':'PRIVATE_WORK'}]}),encoding='utf-8')
+            result=subprocess.run([sys.executable,'-X','utf8',str(ROOT/'scripts/prepare_ui_restart.py')],env={**os.environ,'SIMPLEUI_COMFY':str(comfy)},capture_output=True,text=True)
+            self.assertNotEqual(result.returncode,0);self.assertIn('assistant operation',result.stderr+result.stdout);self.assertNotIn('PRIVATE',result.stderr+result.stdout)
 
 
 if __name__ == "__main__": unittest.main()

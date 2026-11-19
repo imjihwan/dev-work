@@ -147,6 +147,20 @@ class PlannerTests(unittest.TestCase):
             self.assertEqual(self.helper.grok.complete.call_args.kwargs['effort'],effort)
         with self.assertRaises(ValueError):P.validate_input({'message':'Synthetic','controls':[],'effort':'invented'})
 
+    def test_grok_budget_and_numeric_progress_never_include_task_text(self):
+        def answer(system,content,schema,cancel,**kwargs):
+            self.assertLessEqual(kwargs['timeout_s'],900)
+            kwargs['on_progress']({'cli_elapsed_s':181,'cli_limit_s':300})
+            return plan(intent='explain')
+        self.helper.grok.complete.side_effect=answer
+        self.manager._run(self.request,'synthetic',self.helper.cancel_event)
+        self.assertEqual(self.helper.job['state'],'done');self.assertEqual(self.helper.job['cli_elapsed_s'],181);self.assertEqual(self.helper.job['cli_limit_s'],300)
+
+    def test_total_request_deadline_stops_before_a_new_model_call(self):
+        with patch.object(P.time,'monotonic',side_effect=[0,0,901]):
+            self.manager._run(self.request,'synthetic',self.helper.cancel_event)
+        self.assertEqual(self.helper.job['state'],'error');self.assertIn('900',self.helper.job['error']);self.helper.grok.complete.assert_not_called();self.writer.assert_not_called()
+
     def test_large_queue_page_does_not_shorten_local_guards_or_target_access(self):
         rows=[{'id':f'synthetic-{n}','state':'queued','position':n,'pct':0} for n in range(1,1001)]
         snapshot={'items':rows,'pending_count':1000,'running_count':0,'other_count':2}

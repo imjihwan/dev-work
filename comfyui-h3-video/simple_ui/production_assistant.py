@@ -7,6 +7,8 @@ import time
 import uuid
 from production_chat import display_plan
 
+REQUEST_TIMEOUT_SECONDS=900
+
 READS = {
     "queue": "현재 실행·대기 순서와 진행률(문구 없음)",
     "queue_item": "지정 대기 항목의 실제 최종 프롬프트와 입력·설정",
@@ -288,6 +290,10 @@ class ProductionAssistant:
                 if self.helper.job and self.helper.job["id"]==job_id:
                     self.helper.job.update(phase=phase,round=round_number,elapsed_s=round(time.monotonic()-started,1))
             if self.chat is not None and job_id in self.shared_jobs:self.chat.progress(job_id,phase,round_number)
+        def cli_progress(info):
+            with self.helper.lock:
+                if self.helper.job and self.helper.job["id"]==job_id:
+                    self.helper.job.update(info)
         try:
             progress("prepare",0)
             queue=self.queue_snapshot()
@@ -296,8 +302,10 @@ class ProductionAssistant:
             with self.helper.lock:self.helper.job["state"]="generating"
             for iteration in range(5):
                 if cancel.is_set(): raise RuntimeError("제작 도우미 요청을 취소했습니다.")
+                remaining=REQUEST_TIMEOUT_SECONDS-(time.monotonic()-started)
+                if remaining<=0:raise RuntimeError("Grok 요청 전체 대기 시간(900초)이 초과됐습니다. 앱에서 자동 재요청하지 않았습니다.")
                 progress("model",iteration+1)
-                plan=validate_plan(self.helper.grok.complete(SYSTEM,content,SCHEMA,cancel,effort=request.get("effort","high")),request)
+                plan=validate_plan(self.helper.grok.complete(SYSTEM,content,SCHEMA,cancel,effort=request.get("effort","high"),on_progress=cli_progress,timeout_s=remaining),request)
                 if not plan["reads"]:break
                 if iteration==4: raise ValueError("조회가 길어졌습니다. 필요한 항목 번호를 좁혀 다시 요청해 주세요.")
                 results=[]

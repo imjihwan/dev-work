@@ -21,6 +21,15 @@ if story_home.is_dir():
     for state_file in story_home.glob("*/project.json"):
         if json.loads(state_file.read_text(encoding="utf-8")).get("active"):
             raise SystemExit("A UI-owned story operation is still active; no process was stopped.")
+# Inspect only the active-state flag; never emit transcript messages or IDs.
+chat_file = HOME / "production-chat.json"
+if chat_file.is_file():
+    try:
+        chat_active = json.loads(chat_file.read_text(encoding="utf-8")).get("active")
+    except (OSError, ValueError, AttributeError):
+        raise SystemExit("Cannot verify assistant idle state; no process was stopped.") from None
+    if chat_active:
+        raise SystemExit("A UI-owned assistant operation is still active; no process was stopped.")
 history_file = HOME / "history.json"
 history = json.loads(history_file.read_text(encoding="utf-8")) if history_file.is_file() else []
 own_ids = {entry["id"] for entry in history}

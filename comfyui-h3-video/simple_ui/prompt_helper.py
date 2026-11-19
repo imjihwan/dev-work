@@ -737,7 +737,12 @@ class PromptHelper:
 
     def _complete(self, base, system, content, schema, tokens, temperature):
         if self.active_engine == "grok":
-            return self.grok.complete(system, content, schema, self.cancel_event)
+            def cli_progress(info):
+                with self.lock:
+                    if self.job:self.job.update(info)
+            remaining=getattr(self,"_grok_deadline",time.monotonic()+900)-time.monotonic()
+            if remaining<=0:raise RuntimeError("Grok 요청 전체 대기 시간(900초)이 초과됐습니다. 앱에서 자동 재요청하지 않았습니다.")
+            return self.grok.complete(system, content, schema, self.cancel_event,on_progress=cli_progress,timeout_s=remaining)
         if self.active_engine == "dutchit":
             # Count the actual chat template, including Korean and fixed constraints;
             # reject excess input instead of letting llama.cpp discard its beginning.
@@ -763,6 +768,7 @@ class PromptHelper:
         final = {}
         try:
             self.active_engine = request.get("engine", "legacy")
+            if self.active_engine=="grok":self._grok_deadline=time.monotonic()+900
             base = None
             if self.active_engine != "grok":
                 with socket.socket() as sock:
