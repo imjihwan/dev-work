@@ -24,7 +24,7 @@ READS = {
     "/api/prompt-helper/status": "id 도우미 요청 상태",
 }
 WRITES = {
-    "/api/production-assistant/patch-queue": "지정 대기 작업 최종 프롬프트의 정확한 부분 교체",
+    "/api/production-assistant/patch-queue": "단일 또는 여러/전체 대기 작업의 공통 문구 교체(id 또는 ids 또는 all_pending, edits)",
     "/api/generate": "영상 대기열 추가", "/api/generate/priority": "1순위 우선추가",
     "/api/queue/bulk-edit": "지정 또는 전체 대기 항목 수정(실행 중 제외)",
     "/api/queue/restart": "지정 현재 작업 재시작", "/api/cancel": "지정 작업 중지·대기 취소",
@@ -80,43 +80,53 @@ Use queue {offset:0,limit:20} for another page or queue_item {position:N} direct
 For current-screen questions use supplied controls, not a redundant API read.
 Batch independent reads in the same response. Reuse read_results rather than
 requesting identical information again. Keep explanations concise unless detailed
-wording is requested; preserve the detail in prompts and exact edits.
+wording is requested.
 An unapplied pending_proposal is context for follow-up refinement, not completed work.
 Consolidate its changes into a fresh plan against the current controls.
 Use current final textarea for the actual current final prompt, even when automatic.
 Prefer editing structured source inputs for ordinary changes; their existing input
 handlers update final text. To edit final directly, set only that textarea, leaving
-source inputs untouched in that turn. Preserve unrelated words byte-for-byte.
-Keep unrelated content, settings, identity/retention/camera/one-take requirements
-unchanged. A contextual request or approval can authorize edits to those fields;
-the user need not recite their names or formal permission wording. Do not change
-photos implicitly. Do not recite generic permission warnings or repeatedly ask
+source inputs untouched in that turn, because source input events rebuild final.
+Use your judgment to rewrite, reorganize or improve the text and settings as
+needed for the user's goal. There is no default requirement to preserve wording
+or special identity/camera fields. Honor limits the user actually states, including
+their latest corrections. Do not recite generic permission warnings or ask again
 for permission the conversation already provides.
 For set actions target is a supplied control ref: before is ONE unique exact
-substring, value is its replacement. Empty before works only for an empty input.
+substring, value is its replacement. For a full rewrite, before is the complete
+current input and value is the new text. Exact matching checks for stale content;
+it does not restrict how much wording you may revise. Empty before works only
+for an empty input.
 For checkboxes, numbers and selects before/value are their complete string values.
 For click target is a supplied button/link ref. Never invent selectors or JavaScript.
 Do not operate hidden or disabled controls. Use navigation/API when needed.
 File selection requires the user: explain it instead of pretending to pick a file.
 Prefer existing UI buttons for generation with current photos/settings. Never edit
-photo/file inputs. Existing UI may ask its own confirmation. No new shot is implied
-by action phases. Users can write natural prose without timestamps.
+photo/file inputs. Existing UI may ask its own confirmation.
 For api actions path must be in writes; args is JSON. Allowed local bindings are
 \"$current_settings\", \"$current_generation\", \"$current_prompt\", \"$current_story\".
 They are resolved by the browser only at execution time; never invent image bytes.
-For a queue prompt edit, first read queue_item, then PREFER
-/api/production-assistant/patch-queue with {id,edits:[{before,after}]}.
-before must be one unique exact original substring; unchanged bytes are preserved.
-For arbitrary target queue setting edits, first read queue_item. The API bulk-edit body may
-use edit_ids, bulk_fields:[\"content\"], prompt:new_final, ui:{...original ui,final:new_final};
-include only the specific requested changes. Use all_pending ONLY when requested.
+For a bulk request, plan a BULK API action for the requested scope, never a series
+of single-item actions or just the first example. all_pending:true means the whole
+owned pending queue, not only the initial page or jobs already read.
+Use /api/queue/bulk-edit for shared settings or a shared full prompt, with
+all_pending:true or edit_ids:[...], bulk_fields containing content/model/video/anchor,
+and the requested values. Content uses prompt:new_final and ui:{...ui,final:new_final}.
+For the same text change in different prompts, use ONE
+/api/production-assistant/patch-queue action with {all_pending:true,edits:[{before,after}]}
+or {ids:[...],edits:[{before,after}]}. The server handles all targets and returns counts
+and per-target failures; do not read or plan every target separately. Read an example
+only when you need its actual wording. A single-item edit uses {id,edits:[...]} after
+reading queue_item. before is a unique exact substring, or the full current prompt
+for a full rewrite. Read /api/queue/bulk-context only if you need a baseline.
 Current-job restart uses its exact running ID. Cancelling pending jobs must never
 interrupt a job that started since this snapshot; the host rechecks before execution.
 Every action needs a short Korean label explaining the concrete target and effect.
-Unused action strings are empty; args defaults to \"{}\". A question or request for
-advice has intent=explain/propose, never execute. intent=execute is for work the user
-has requested or approved in the conversation, including short follow-up approvals.
-Actions are proposals;
+Unused action strings are empty; args defaults to \"{}\". Choose intent by meaning
+in the conversation, not keywords or punctuation: explain for information,
+propose for options awaiting a decision, execute for work requested or approved
+by the user, including polite questions, delegated judgment and short approvals.
+Actions are proposals until handled by the app's review/automatic setting;
 never claim success until a later execution receipt says what actually happened.
 Use at most eight actions. If a material prerequisite or target cannot be resolved
 from the app or conversation, ask one concrete question and leave actions empty.
@@ -237,17 +247,6 @@ def validate_plan(output,request):
     return {"reply":output["reply"][:8000],"intent":output["intent"],"reads":reads,"actions":actions}
 
 
-def explicit_command(message):
-    if re.search(r"(?:가능|어떻게|차이|왜|될까|할까|있어\?|can you explain|how |why )",message,re.I): return False
-    return bool(re.search(r"(?:해줘|해 줘|해라|해주세요|하세요|하자|바꿔|고쳐|수정해|반영해|변경해|추가해|취소해|중지해|지워|삭제해|재시작|켜줘|꺼줘|적용해|진행|please\s+(?:set|add|cancel|delete|change|start)|^(?:set|add|cancel|delete|change|start|stop|restart)\b)",message,re.I))
-
-
-def execution_requested(request):
-    if explicit_command(request["message"]):return True
-    has_context=bool(request.get("pending_proposal") or any(turn["role"]=="assistant" for turn in request.get("conversation",[])))
-    return has_context and bool(re.fullmatch(r"(?:응|어|네|예|그래|좋아|알겠어|ㅇㅋ|ㅇ|ok|okay|yes|yep|sure)[\s,.!~]*",request["message"],re.I))
-
-
 def queue_page(snapshot,args=None):
     """Bound model-facing metadata; retain the complete snapshot locally for guards."""
     args=args or {}
@@ -362,7 +361,7 @@ class ProductionAssistant:
             plan_id=uuid.uuid4().hex
             with self.lock:
                 self._expire();self.plans[plan_id]={"created":time.time(),"plan":plan,"request":request,"queue":queue,"claims":{},"chat_job":job_id if job_id in self.shared_jobs else None}
-            final={"state":"done","elapsed_s":round(time.monotonic()-started,1),"production":{"plan_id":plan_id,**plan,"auto_eligible":plan["intent"]=="execute" and execution_requested(request)}}
+            final={"state":"done","elapsed_s":round(time.monotonic()-started,1),"production":{"plan_id":plan_id,**plan,"auto_eligible":plan["intent"]=="execute"}}
         except (OSError,ValueError,RuntimeError,KeyError,TypeError) as exc:
             final={"state":"cancelled" if cancel.is_set() else "error","error":"제작 도우미 요청을 취소했습니다." if cancel.is_set() else str(exc) if isinstance(exc,(ValueError,RuntimeError)) else "제작 도우미가 요청을 완료하지 못했습니다. 대상·입력·Grok 로그인 상태를 확인해 주세요."}
         finally:

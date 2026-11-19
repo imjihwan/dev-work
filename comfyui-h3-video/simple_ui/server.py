@@ -1376,6 +1376,39 @@ def production_write_api(path,args,snapshot):
     if path not in PRODUCTION_WRITES:raise ValueError("허용되지 않은 앱 실행입니다.")
     if path=="/api/production-assistant/patch-queue":
         from production_assistant import replacement
+        # One assistant action can target the whole queue. Keep each graph's own
+        # settings and perform the existing guarded edit for every pending target.
+        if "ids" in args or "all_pending" in args:
+            all_pending=args.get("all_pending",False);ids=args.get("ids")
+            if type(all_pending) is not bool or args.get("id") or all_pending and ids is not None:
+                raise ValueError("일괄 수정할 범위를 확인해 주세요.")
+            if not all_pending and (not isinstance(ids,list) or not ids or any(not isinstance(pid,str) or not pid for pid in ids)):
+                raise ValueError("일괄 수정할 대기 항목을 지정해 주세요.")
+            edits=args.get("edits")
+            if not isinstance(edits,list) or not 1<=len(edits)<=12 or any(not isinstance(edit,dict) or not isinstance(edit.get("before"),str) or not isinstance(edit.get("after"),str) for edit in edits):
+                raise ValueError("일괄 교체할 문구를 확인해 주세요.")
+            raw=json.load(comfy("/queue"))
+            pending={row[1]:row for row in sorted(raw.get("queue_pending",[]),key=lambda row:row[0])}
+            with HLOCK:owned={entry["id"] for entry in HIST_DB}
+            known={row["id"] for row in snapshot["items"] if row["state"]=="queued"}
+            if not all_pending and any(pid not in known or pid not in owned for pid in ids):
+                raise ValueError("조회한 대기 항목만 지정 수정할 수 있습니다.")
+            targets=[pid for pid in pending if pid in owned] if all_pending else list(dict.fromkeys(ids))
+            jobs=[];failed=[]
+            for pid in targets:
+                row=pending.get(pid)
+                if row is None:
+                    failed.append({"id":pid,"error":"이미 시작됐거나 대기열에서 빠진 항목입니다."});continue
+                original=row[2][DIRECTOR]["inputs"]["prompt"]
+                digest=snapshot.get("prompt_hashes",{}).get(pid) or hashlib.sha256(original.encode()).hexdigest()
+                item_snapshot={**snapshot,"prompt_hashes":{pid:digest}}
+                try:
+                    jobs.append(production_write_api(path,{"id":pid,"edits":edits},item_snapshot))
+                except (ValueError,OSError) as exc:
+                    failed.append({"id":pid,"error":str(exc)})
+            return {"ok":not failed,"bulk_edit":True,"all_pending":all_pending,"target_count":len(targets),
+                    "updated_count":len(jobs),"jobs":jobs,"failed":failed,
+                    "verified_count":sum(bool(job.get("prompt_verified")) for job in jobs)}
         pid=args.get("id");edits=args.get("edits")
         if not isinstance(edits,list) or not 1<=len(edits)<=12 or not snapshot.get("prompt_hashes",{}).get(pid):raise ValueError("수정 전 해당 대기 항목을 먼저 조회해 주세요.")
         raw=json.load(comfy("/queue"));row=next((item for item in raw.get("queue_pending",[]) if item[1]==pid),None)

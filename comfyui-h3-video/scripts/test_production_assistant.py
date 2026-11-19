@@ -79,7 +79,7 @@ class PlannerTests(unittest.TestCase):
                 'conversation':[{'role':'user','text':'이 칸의 합성 문구를 다듬어줘'},{'role':'assistant','text':'Revised로 바꾸겠습니다.'}],
                 'proposal':{'actions':[action()]}})
             clean=P.validate_plan(plan([action()]),request)
-            self.assertEqual(clean['actions'],[action()]);self.assertTrue(P.execution_requested(request))
+            self.assertEqual(clean['actions'],[action()])
             self.assertEqual(source['value'],'Original','Validation never executes an edit')
 
     def test_retired_error_does_not_reenter_model_context_or_remove_user_text(self):
@@ -105,21 +105,32 @@ class PlannerTests(unittest.TestCase):
         job=self.run_fake([plan([action()],intent='explain')]);self.assertEqual(job['state'],'done')
         self.assertEqual(job['production']['intent'],'propose');self.assertFalse(job['production']['auto_eligible']);self.writer.assert_not_called()
 
-    def test_auto_needs_both_execute_intent_and_direct_command(self):
-        for message,intent,eligible in [('문구를 바꿔줘','execute',True),('어떻게 바꿔야 해?','execute',False),('문구를 바꿔줘','propose',False)]:
+    def test_auto_uses_semantic_intent_without_keyword_or_punctuation_gate(self):
+        for message,intent,eligible in [('문구를 바꿔줘','execute',True),('가능하면 구성을 알아서 개선해줄 수 있어?','execute',True),('구성이 왜 이상한지 보고 고쳐줘','execute',True),('어떻게 바꾸면 좋을지 설명해줘','explain',False),('문구를 바꿔줘','propose',False)]:
             self.helper.job={'id':'synthetic','state':'starting'}
             request=P.validate_input({'message':message,'controls':[control()]})
             result=self.run_fake([plan([action()],intent=intent)],request)['production']
             self.assertEqual(result['auto_eligible'],eligible)
 
-    def test_short_approval_uses_dialogue_but_never_approves_advice_or_empty_context(self):
+    def test_short_approval_and_advice_use_model_intent(self):
         for message in ('응','네!','좋아','OK'):
-            for context,intent,expected in (([], 'execute',False),([{'role':'assistant','text':'합성 변경안을 제안합니다.'}], 'execute',True),([{'role':'assistant','text':'합성 조언입니다.'}], 'propose',False)):
+            for context,intent,expected in (([{'role':'assistant','text':'합성 변경안을 제안합니다.'}], 'execute',True),([{'role':'assistant','text':'합성 조언입니다.'}], 'propose',False)):
                 self.helper.job={'id':'synthetic','state':'starting'}
                 request=P.validate_input({'message':message,'controls':[control()], 'conversation':context})
                 result=self.run_fake([plan([action()],intent=intent)],request)['production']
                 self.assertEqual(result['auto_eligible'],expected)
                 self.writer.assert_not_called()
+
+    def test_complete_rewrite_is_allowed_and_bulk_scope_is_one_action(self):
+        source={**control(value='Original wording. Original composition.'),'id':'style'}
+        request=P.validate_input({'message':'알아서 전체적으로 다시 구성해줘','controls':[source]})
+        rewritten=action(before=source['value'],value='Entirely new composition and wording.')
+        clean=P.validate_plan(plan([rewritten]),request)
+        self.assertEqual(P.replacement(source['value'],clean['actions'][0]['before'],clean['actions'][0]['value']),rewritten['value'])
+        bulk=action(kind='api',target='',before='',value='',path='/api/production-assistant/patch-queue',args='{"all_pending":true,"edits":[{"before":"slow","after":"fast"}]}')
+        self.helper.job={'id':'synthetic','state':'starting'}
+        job=self.run_fake([plan([bulk])],request)
+        self.assertEqual(len(job['production']['actions']),1);self.assertTrue(job['production']['auto_eligible']);self.writer.assert_not_called()
 
     def test_prior_unapplied_plan_is_context_not_an_automatic_write(self):
         request=P.validate_input({'message':'조금 더 느리게 다듬어줘','controls':[control()],'proposal':{'actions':[action()]}})
@@ -262,6 +273,43 @@ class NativeBridgeTests(unittest.TestCase):
         self.raw['queue_running']=self.raw['queue_pending'];self.raw['queue_pending']=[]
         with self.assertRaises(ValueError):self.env['production_validate_write']({'path':'/api/cancel','args':'{"ids":["b"]}'},snapshot)
         self.assertFalse(any(path=='/interrupt' for path,_ in self.calls))
+
+    def test_bulk_prompt_patch_covers_more_than_one_page_and_preserves_each_graph(self):
+        self.raw['queue_pending']=[];self.db.clear()
+        for number in range(25):
+            graph={'director':{'inputs':{'prompt':f'Unique scene {number}. Common text.'}},'other':{'inputs':{'seed':number}}}
+            self.raw['queue_pending'].append([number,f'job-{number}',graph,{},[]]);self.db.append({'id':f'job-{number}','images':['PRIVATE_PHOTO'],'ui':{}})
+        self.raw['queue_pending'].append([30,'foreign',self.graph,{},[]])
+        self.raw['queue_running']=[[0,'running',self.graph,{},[]]];self.db.append({'id':'running'})
+        snapshot=self.env['production_queue_snapshot']()
+        result=self.env['production_write_api']('/api/production-assistant/patch-queue',{'all_pending':True,'edits':[{'before':'Common text.','after':'Revised common text.'}]},snapshot)
+        self.assertEqual(result['target_count'],25);self.assertEqual(result['updated_count'],25);self.assertEqual(result['verified_count'],25)
+        for number,call in enumerate(self.replace.call_args_list):
+            pid,graph=call.args
+            self.assertEqual(pid,f'job-{number}');self.assertEqual(graph['other']['inputs']['seed'],number)
+            self.assertEqual(graph['director']['inputs']['prompt'],f'Unique scene {number}. Revised common text.')
+            self.assertEqual(call.kwargs['expected_graph']['director']['inputs']['prompt'],f'Unique scene {number}. Common text.')
+        self.assertEqual(self.db[0]['images'],['PRIVATE_PHOTO']);self.assertEqual([r[1] for r in self.raw['queue_pending']], [f'job-{n}' for n in range(25)]+['foreign'])
+        self.assertEqual(self.raw['queue_running'][0][1],'running')
+
+    def test_selected_batch_reports_mismatches_and_does_not_touch_foreign_jobs(self):
+        self.raw['queue_pending'].append([2,'c',{'director':{'inputs':{'prompt':'Different content.'}}},{},[]]);self.db.append({'id':'c'})
+        snapshot=self.env['production_queue_snapshot']()
+        result=self.env['production_write_api']('/api/production-assistant/patch-queue',{'ids':['b','c'],'edits':[{'before':'slowly','after':'fast'}]},snapshot)
+        self.assertEqual(result['updated_count'],1);self.assertEqual([x['id'] for x in result['failed']],['c'])
+        self.assertEqual(self.replace.call_count,1)
+        with self.assertRaises(ValueError):self.env['production_write_api']('/api/production-assistant/patch-queue',{'ids':['foreign'],'edits':[{'before':'slowly','after':'fast'}]},snapshot)
+
+    def test_bulk_race_never_changes_a_started_job(self):
+        snapshot=self.env['production_queue_snapshot']();original=self.env['comfy'];reads=[0]
+        def race(path,data=None,headers=None):
+            if path=='/queue' and data is None:
+                reads[0]+=1
+                if reads[0]==2:self.raw['queue_running']=self.raw['queue_pending'];self.raw['queue_pending']=[]
+            return original(path,data,headers)
+        self.env['comfy']=race
+        result=self.env['production_write_api']('/api/production-assistant/patch-queue',{'all_pending':True,'edits':[{'before':'slowly','after':'fast'}]},snapshot)
+        self.assertEqual(result['updated_count'],0);self.assertEqual(len(result['failed']),1);self.replace.assert_not_called()
 
     def test_pending_cancel_never_interrupts_a_job_that_starts_during_delete(self):
         snapshot=self.env['production_queue_snapshot']()
