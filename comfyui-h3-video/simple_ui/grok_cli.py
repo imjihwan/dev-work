@@ -2,6 +2,7 @@
 import json
 import math
 import os
+import queue
 from pathlib import Path
 import subprocess
 import tempfile
@@ -12,6 +13,21 @@ from datetime import datetime, timezone
 CLI_VERSION = "1.0.89"
 EFFORTS = ("low", "medium", "high", "xhigh")
 TIMEOUT_SECONDS = {"low": 180, "medium": 300, "high": 600, "xhigh": 900}
+MAX_EVENT_BYTES = 1_000_000
+MAX_STREAM_BYTES = 8_000_000
+
+
+def clean_progress(info):
+    """Only operational metadata can leave the CLI, never thinking or partial JSON."""
+    if not isinstance(info, dict): return {}
+    result = {}
+    if info.get("cli_stage") in ("starting", "waiting", "thinking", "answer", "check"):
+        result["cli_stage"] = info["cli_stage"]
+    for key in ("cli_elapsed_s", "cli_limit_s", "cli_signals", "cli_idle_s"):
+        value = info.get(key)
+        if type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 10_000_000:
+            result[key] = value
+    return result
 PROFILE = """---
 name: h3-text-only
 description: Text-only video prompt editor without local tools or file context
@@ -77,7 +93,7 @@ class GrokCLI:
             raise ValueError("도우미 응답 방식을 확인해 주세요.")
         return [str(self.exe), "--model", "grok-4.7", "--reasoning-effort", effort, "--cwd", str(work), "--agent", str(work / "agent.md"),
                 "--system-prompt-override", system, "--prompt-file", str(work / "prompt.txt"),
-                "--verbatim", "--output-format", "streaming-messages-json", "--json-schema", json.dumps(schema),
+                "--verbatim", "--output-format", "streaming-messages-json", "--include-partial-messages", "--json-schema", json.dumps(schema),
                 "--disallowed-tools", "todo_write", "--permission-mode", "dontAsk", "--deny", "*", "--no-subagents",
                 "--disable-web-search", "--no-plan", "--max-turns", "1"]
 
@@ -105,6 +121,30 @@ class GrokCLI:
                 stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             deadline = started + limit
             next_progress = started
+            # Drain stdout while the child is running. Keep only init/result; raw
+            # reasoning and partial JSON are discarded after classifying the event.
+            inbox = queue.Queue(maxsize=16)
+            stopped = threading.Event()
+            def enqueue(item):
+                while not stopped.is_set():
+                    try: inbox.put(item, timeout=.1); return
+                    except queue.Full: pass
+            def read_output():
+                try:
+                    while not stopped.is_set():
+                        line = process.stdout.readline(MAX_EVENT_BYTES + 1)
+                        if not line: break
+                        enqueue(("line", line))
+                        if len(line) > MAX_EVENT_BYTES: break
+                except (OSError, ValueError): enqueue(("error", None))
+                finally: enqueue(("eof", None))
+            reader = threading.Thread(target=read_output, daemon=True)
+            reader.start()
+            initial, results = [], []
+            size, signals = 0, 0
+            stage, last_signal, eof = "starting", None, False
+            def invalid():
+                raise ValueError("Grok의 JSON 응답을 확인하지 못했습니다. 원문은 유지했습니다.")
             try:
                 while True:
                     if cancel_event.is_set():
@@ -115,24 +155,63 @@ class GrokCLI:
                         metrics["outcome"] = "timeout"
                         raise RuntimeError(f"Grok 응답 시간이 초과됐습니다({limit}초). Grok 응답을 기다리다가 이 호출만 종료했습니다. 자동 재전송하지 않았습니다.")
                     if on_progress is not None and now >= next_progress:
-                        try: on_progress({"cli_elapsed_s": round(now-started,1), "cli_limit_s": limit})
+                        info = {"cli_elapsed_s": round(now-started,1), "cli_limit_s": limit,
+                                "cli_stage": stage, "cli_signals": signals}
+                        if last_signal is not None: info["cli_idle_s"] = round(now-last_signal,1)
+                        try: on_progress(info)
                         except Exception: pass
                         next_progress = now + 1
+                    if eof:
+                        try: process.wait(timeout=.2); break
+                        except subprocess.TimeoutExpired: continue
+                    try: kind, raw = inbox.get(timeout=.2)
+                    except queue.Empty: continue
+                    if kind == "eof": eof = True; continue
+                    if kind == "error": invalid()
+                    size += len(raw)
+                    if len(raw) > MAX_EVENT_BYTES or size > MAX_STREAM_BYTES: invalid()
+                    if not raw.strip(): continue
                     try:
-                        raw, _ = process.communicate(timeout=.2)
-                        break
-                    except subprocess.TimeoutExpired:
-                        continue
+                        previous_stage = stage
+                        event = json.loads(raw)
+                        if not isinstance(event, dict): invalid()
+                        event_type = event.get("type")
+                        if event_type == "system" and event.get("subtype") == "init":
+                            initial.append(event)
+                            if len(initial) != 1 or results or any(event.get(key) != [] for key in ("tools", "skills", "mcp_servers")) or event.get("apiKeySource") != "oauth": invalid()
+                            stage = "waiting"
+                        elif event_type == "result":
+                            results.append(event)
+                            if len(results) != 1: invalid()
+                            stage = "check"
+                        elif event_type in ("error", "user"): invalid()
+                        elif event_type == "stream_event":
+                            if not initial or results: invalid()
+                            frame = event.get("event", {})
+                            frame_type = frame.get("type")
+                            block = frame.get("content_block", {}) if frame_type == "content_block_start" else frame.get("delta", {})
+                            block_type = block.get("type")
+                            if block_type in ("tool_use", "server_tool_use", "input_json_delta"): invalid()
+                            next_stage = "thinking" if block_type in ("thinking", "thinking_delta", "redacted_thinking") else "answer" if block_type in ("text", "text_delta") else None
+                            if next_stage:
+                                stage = next_stage
+                                if frame_type == "content_block_delta": signals += 1; last_signal = now
+                        elif event_type == "assistant":
+                            if not initial or results: invalid()
+                            blocks = event.get("message", {}).get("content", [])
+                            if any(block.get("type") in ("tool_use", "server_tool_use") for block in blocks): invalid()
+                        # No raw event or raw block survives this iteration.
+                        del event, raw
+                    except (ValueError, TypeError, AttributeError): invalid()
+                    if stage != previous_stage or signals == 1 and last_signal == now:
+                        next_progress = 0
                 if cancel_event.is_set():
                     metrics["outcome"] = "cancelled"
                     raise RuntimeError("Grok 작성을 취소했습니다.")
-                if process.returncode or len(raw) > 1_000_000:
+                if process.returncode:
                     metrics["outcome"] = "provider_error" if process.returncode else "invalid_response"
                     raise ValueError("Grok CLI 요청이 실패했습니다. 로그인·구독 사용 한도를 확인해 주세요. API로 자동 전환하지 않았습니다.")
                 try:
-                    events = [json.loads(line) for line in raw.splitlines() if line.strip()]
-                    initial = [event for event in events if event.get("type") == "system" and event.get("subtype") == "init"]
-                    results = [event for event in events if event.get("type") == "result"]
                     if len(initial) != 1 or len(results) != 1:
                         raise ValueError
                     if initial[0].get("tools") != [] or initial[0].get("skills") != [] or initial[0].get("mcp_servers") != [] or initial[0].get("apiKeySource") != "oauth":
@@ -146,8 +225,6 @@ class GrokCLI:
                         if type(value) in (int, float): metrics[key] = value
                     if response.get("stop_reason") != "end_turn" or response.get("is_error"):
                         raise ValueError
-                    if any(event.get("type") in ("error", "user") for event in events):
-                        raise ValueError
                     draft = response.get("structured_output")
                     if not isinstance(draft, dict):
                         raise ValueError
@@ -157,6 +234,7 @@ class GrokCLI:
                 metrics["outcome"] = "ok"
                 return draft
             finally:
+                stopped.set()
                 if process.poll() is None:
                     process.terminate()
                     try:
@@ -164,6 +242,7 @@ class GrokCLI:
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait()
+                reader.join(timeout=1)
                 if process.stdout:
                     process.stdout.close()
                 metrics.update(elapsed_s=round(time.monotonic()-started,1),exit_code=process.returncode)

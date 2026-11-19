@@ -6,6 +6,7 @@ import threading
 import time
 import uuid
 from production_chat import display_plan
+from grok_cli import clean_progress
 
 REQUEST_TIMEOUT_SECONDS=900
 
@@ -289,11 +290,15 @@ class ProductionAssistant:
             with self.helper.lock:
                 if self.helper.job and self.helper.job["id"]==job_id:
                     self.helper.job.update(phase=phase,round=round_number,elapsed_s=round(time.monotonic()-started,1))
+                    if phase=="model":
+                        for key in ("cli_stage","cli_signals","cli_idle_s","cli_elapsed_s","cli_limit_s"):self.helper.job.pop(key,None)
             if self.chat is not None and job_id in self.shared_jobs:self.chat.progress(job_id,phase,round_number)
         def cli_progress(info):
+            info=clean_progress(info)
             with self.helper.lock:
                 if self.helper.job and self.helper.job["id"]==job_id:
                     self.helper.job.update(info)
+            if self.chat is not None and job_id in self.shared_jobs:self.chat.activity(job_id,info)
         try:
             progress("prepare",0)
             queue=self.queue_snapshot()

@@ -159,8 +159,14 @@ class SharedServer{
   assert(resumedPage.$('h3ProductionThinkingText').textContent.includes('Grok 응답 대기'));assert(resumedPage.$('h3ProductionThinkingText').textContent.includes('2차 응답'));assert(resumedPage.$('h3ProductionThinkingText').textContent.includes('초'));
   assert(!resumedPage.$('h3ProductionThinkingText').textContent.includes('다른 기기'));assert(!resumedPage.$('h3ProductionCancel').hidden);assert(resumedPage.$('h3ProductionSend').disabled);assert(resumedPage.$('h3ProductionStatus').textContent.includes('이어서 확인'));
   assert(!resumedPage.requests.some(item=>item.url.endsWith('/start')||item.url.endsWith('/claim')),'Refreshing follows the existing request without replay');
+  Object.assign(resumedServer.data.active,{cli_stage:'thinking',cli_signals:42,cli_idle_s:2,cli_limit_s:600,thought:'PRIVATE_THOUGHT'});
+  await resumedPage.mounted.sync();assert(resumedPage.$('h3ProductionThinkingText').textContent.includes('추론 중'));assert(resumedPage.$('h3ProductionThinkingText').textContent.includes('진행 신호 42회'));assert(resumedPage.$('h3ProductionThinkingText').textContent.includes('마지막 수신 2초 전'));
+  assert(!resumedPage.$('h3ProductionThinkingText').textContent.includes('PRIVATE'));
+  resumedServer.data.active.cli_stage='answer';await resumedPage.mounted.sync();assert(resumedPage.$('h3ProductionThinkingText').textContent.includes('답변 작성 중'));
   await resumedPage.$('h3ProductionCancel').click();assert.equal(resumedPage.requests.find(item=>item.url.endsWith('/cancel')).body.id,'synthetic-existing-job','Reloaded page cancellation targets only the known helper request');
   resumedServer.data.active=null;resumedServer.data.messages.push({id:'restored-completion',role:'assistant',text:'새로고침 후 완료된 합성 답변'});resumedServer.data.revision++;await resumedPage.mounted.sync();
   assert(resumedPage.$('h3ProductionThinking').hidden);assert(resumedPage.$('h3ProductionCancel').hidden);assert(!resumedPage.$('h3ProductionSend').disabled);assert(resumedPage.$('h3ProductionStatus').textContent.includes('처리가 끝났'));assert(resumedPage.$('h3ProductionLog').textContent.includes('완료된 합성 답변'));
-  console.log('Production assistant UI passed: resumed request progress/cancel/completion, unread notifications, shared devices, migration, private drafts and non-replayed actions.');
+  assert(!P.progressText({phase:'read',cli_stage:'thinking',cli_signals:42},12).includes('추론 중'),'App reads do not show an old model stage');
+  assert(!P.progressText({phase:'model',cli_stage:'PRIVATE_THOUGHT',cli_signals:'PRIVATE'},12).includes('PRIVATE'));
+  console.log('Production assistant UI passed: live stages, shared progress, resumed request progress/cancel/completion, unread notifications and non-replayed actions.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

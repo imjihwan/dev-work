@@ -1,5 +1,7 @@
 """Synthetic Grok transport tests; never logs in or contacts a provider."""
 import importlib.util
+import io
+import io
 import json
 import os
 from pathlib import Path
@@ -13,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = Path(os.environ.get("PROMPT_HELPER_TEST_SOURCE", ROOT / "simple_ui"))
 sys.path.insert(0, str(SOURCE))
 import prompt_helper as helper
-from grok_cli import GrokCLI, PROFILE, TIMEOUT_SECONDS
+from grok_cli import GrokCLI, PROFILE, TIMEOUT_SECONDS, clean_progress
 import subprocess
 
 
@@ -94,7 +96,7 @@ class GrokTests(unittest.TestCase):
 
     def test_compact_wire_preserves_all_prompt_whitespace(self):
         c=GrokCLI("synthetic");process=MagicMock();process.poll.return_value=0;process.returncode=0
-        process.communicate.return_value=(wire({"reply":"Synthetic"}),None)
+        process.stdout=io.BytesIO(wire({"reply":"Synthetic"}))
         content={"idea":"  Exact synthetic text.\n\nKeep spacing.  ","fixed":{"style":"  Same fixed camera.  "}}
         def launch(command,**kwargs):
             raw=Path(command[command.index("--prompt-file")+1]).read_text(encoding="utf-8")
@@ -108,66 +110,101 @@ class GrokTests(unittest.TestCase):
         c=GrokCLI("synthetic");process=MagicMock();process.poll.return_value=0;process.returncode=0
         good={"reply":"Synthetic"}
         for output in (wire(good,apiKeySource="user"),wire(good,tools=["read_file"]),wire(good,skills=["private"]),b'{"secret":"PRIVATE"}'):
-            process.communicate.return_value=(output,None)
+            process.stdout=io.BytesIO(output)
             with patch.object(c,"ready",return_value=True),patch("grok_cli.subprocess.Popen",return_value=process):
                 with self.assertRaises(ValueError) as error:c.complete("Static",{"idea":"SYNTHETIC"},helper.GROK_REPLY_SCHEMA,threading.Event())
                 self.assertNotIn("PRIVATE",str(error.exception))
-        process.communicate.return_value=(wire(good),None)
+        process.stdout=io.BytesIO(wire(good))
         with patch.object(c,"ready",return_value=True),patch("grok_cli.subprocess.Popen",return_value=process):
             self.assertEqual(c.complete("Static",{"idea":"SYNTHETIC"},helper.GROK_REPLY_SCHEMA,threading.Event()),good)
 
     def test_cancelled_response_is_never_returned(self):
-        c=GrokCLI("synthetic");cancel=threading.Event();cancel.set();process=MagicMock();process.poll.return_value=None
+        c=GrokCLI("synthetic");cancel=threading.Event();cancel.set();process=MagicMock();process.poll.return_value=None;process.stdout=io.BytesIO(b'')
         with patch.object(c,"ready",return_value=True),patch("grok_cli.subprocess.Popen",return_value=process):
             with self.assertRaisesRegex(RuntimeError,"취소"):c.complete("Static",{},helper.GROK_REPLY_SCHEMA,cancel)
         process.terminate.assert_called_once()
 
+    def test_live_deltas_update_stages_before_exit_without_exposing_reasoning(self):
+        c=GrokCLI('synthetic');updates=[]
+        init=json.loads(wire({}).splitlines()[0])
+        events=[init,{'type':'stream_event','event':{'type':'content_block_delta','delta':{'type':'thinking_delta','thinking':'PRIVATE_THOUGHT'}}},
+                {'type':'stream_event','event':{'type':'content_block_delta','delta':{'type':'text_delta','text':'PRIVATE_PARTIAL_JSON'}}},
+                {'type':'result','stop_reason':'end_turn','structured_output':{'reply':'Synthetic final'}}]
+        # A real child process emits fragments before it exits; no network or auth.
+        script="import json,time,sys;events=json.loads(sys.argv[1]);[(print(json.dumps(e),flush=True),time.sleep(.08)) for e in events]"
+        command=[sys.executable,'-u','-c',script,json.dumps(events)]
+        with patch.object(c,'ready',return_value=True),patch.object(c,'command',return_value=command),patch.object(c,'_record_metrics'):
+            draft=c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event(),on_progress=updates.append)
+        self.assertEqual(draft,{'reply':'Synthetic final'})
+        self.assertTrue({'waiting','thinking','answer','check'}.issubset({u['cli_stage'] for u in updates}))
+        self.assertEqual(max(u['cli_signals'] for u in updates),2)
+        self.assertNotIn('PRIVATE',json.dumps(updates))
+
+    def test_streaming_silence_is_cancellable_and_partial_text_never_becomes_a_reply(self):
+        c=GrokCLI('synthetic');cancel=threading.Event();updates=[]
+        init=json.loads(wire({}).splitlines()[0])
+        script="import sys,time;print(sys.argv[1],flush=True);time.sleep(30)"
+        command=[sys.executable,'-u','-c',script,json.dumps(init)]
+        def progress(info):
+            updates.append(info)
+            if info['cli_stage']=='waiting':cancel.set()
+        with patch.object(c,'ready',return_value=True),patch.object(c,'command',return_value=command),patch.object(c,'_record_metrics'):
+            with self.assertRaisesRegex(RuntimeError,'취소'):c.complete('Static',{},helper.GROK_REPLY_SCHEMA,cancel,on_progress=progress)
+        self.assertTrue(updates)
+
+    def test_stream_limits_and_metadata_allowlist(self):
+        from grok_cli import clean_progress
+        self.assertEqual(clean_progress({'cli_stage':'thinking','cli_signals':3,'cli_idle_s':.2,'text':'PRIVATE','cli_elapsed_s':float('nan'),'cli_limit_s':True}),{'cli_stage':'thinking','cli_signals':3,'cli_idle_s':.2})
+        self.assertEqual(clean_progress({'cli_stage':'PRIVATE','cli_signals':-1}),{})
+        c=GrokCLI('synthetic')
+        for output in (b'['*101,wire({})+b'\n'+wire({})):
+            process=MagicMock();process.stdout=io.BytesIO(output);process.poll.return_value=0;process.returncode=0
+            with patch.object(c,'ready',return_value=True),patch('grok_cli.MAX_EVENT_BYTES',100),patch('grok_cli.subprocess.Popen',return_value=process):
+                with self.assertRaises(ValueError):c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event())
+
     def test_late_response_after_old_three_minute_limit_can_complete(self):
         c=GrokCLI('synthetic');process=MagicMock();process.poll.return_value=0;process.returncode=0
-        clock=[0];calls=[];updates=[]
-        def communicate(**kwargs):
-            calls.append(1)
-            if len(calls)==1:
-                clock[0]=181
-                raise subprocess.TimeoutExpired('synthetic',.2)
-            return wire({'reply':'Synthetic late reply'}),None
-        process.communicate.side_effect=communicate
+        process.stdout=io.BytesIO(wire({'reply':'Synthetic late reply'}))
+        clock=[0];updates=[]
+        def progress(info):
+            updates.append(info)
+            if info.get('cli_stage')=='waiting':clock[0]=181
         with patch.object(c,'ready',return_value=True),patch.object(c,'_record_metrics') as record,patch('grok_cli.time.monotonic',side_effect=lambda:clock[0]),patch('grok_cli.subprocess.Popen',return_value=process):
-            value=c.complete('Static',{'idea':'PRIVATE_REQUEST'},helper.GROK_REPLY_SCHEMA,threading.Event(),effort='medium',on_progress=updates.append)
+            value=c.complete('Static',{'idea':'PRIVATE_REQUEST'},helper.GROK_REPLY_SCHEMA,threading.Event(),effort='medium',on_progress=progress)
         self.assertEqual(value['reply'],'Synthetic late reply');self.assertEqual(record.call_args.args[0]['outcome'],'ok')
         self.assertEqual(record.call_args.args[0]['limit_s'],300);self.assertEqual(updates[-1]['cli_elapsed_s'],181)
         self.assertNotIn('PRIVATE',json.dumps(record.call_args.args[0]));self.assertNotIn('PRIVATE',json.dumps(updates))
         process.terminate.assert_not_called()
 
-    def test_per_effort_timeout_is_bounded_and_does_not_retry(self):
-        for effort,limit in TIMEOUT_SECONDS.items():
-            c=GrokCLI('synthetic');process=MagicMock();process.poll.return_value=None;process.returncode=-15
-            clock=[0];calls=[]
-            def communicate(**kwargs):
+    def assert_timeout(self,effort,limit,**kwargs):
+        c=GrokCLI('synthetic');process=MagicMock();process.poll.return_value=None;process.returncode=-15
+        process.stdout=io.BytesIO(b'');clock=[0];calls=[]
+        def wait(timeout=None):
+            if timeout==.2:
                 calls.append(1);clock[0]=limit+1
                 raise subprocess.TimeoutExpired('synthetic',.2)
-            process.communicate.side_effect=communicate
-            with patch.object(c,'ready',return_value=True),patch.object(c,'_record_metrics') as record,patch('grok_cli.time.monotonic',side_effect=lambda:clock[0]),patch('grok_cli.subprocess.Popen',return_value=process):
-                with self.assertRaisesRegex(RuntimeError,str(limit)):c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event(),effort=effort)
-            self.assertEqual(len(calls),1);self.assertEqual(record.call_args.args[0]['outcome'],'timeout');process.terminate.assert_called_once()
+            return -15
+        process.wait.side_effect=wait
+        with patch.object(c,'ready',return_value=True),patch.object(c,'_record_metrics') as record,patch('grok_cli.time.monotonic',side_effect=lambda:clock[0]),patch('grok_cli.subprocess.Popen',return_value=process):
+            with self.assertRaisesRegex(RuntimeError,str(limit)):c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event(),effort=effort,**kwargs)
+        self.assertEqual(len(calls),1);self.assertEqual(record.call_args.args[0]['outcome'],'timeout');process.terminate.assert_called_once()
+        self.assertEqual(record.call_args.args[0]['limit_s'],limit)
+
+    def test_per_effort_timeout_is_bounded_and_does_not_retry(self):
+        for effort,limit in TIMEOUT_SECONDS.items():self.assert_timeout(effort,limit)
 
     def test_remaining_request_budget_overrides_long_effort(self):
-        c=GrokCLI('synthetic');process=MagicMock();process.poll.return_value=None;process.returncode=-15
-        clock=[0]
-        def communicate(**kwargs):clock[0]=41;raise subprocess.TimeoutExpired('synthetic',.2)
-        process.communicate.side_effect=communicate
-        with patch.object(c,'ready',return_value=True),patch.object(c,'_record_metrics') as record,patch('grok_cli.time.monotonic',side_effect=lambda:clock[0]),patch('grok_cli.subprocess.Popen',return_value=process):
-            with self.assertRaisesRegex(RuntimeError,'40'):c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event(),effort='xhigh',timeout_s=40)
-        self.assertEqual(record.call_args.args[0]['limit_s'],40)
+        self.assert_timeout('xhigh',40,timeout_s=40)
 
     def test_numeric_diagnostics_and_disk_failure_cannot_expose_text(self):
         with tempfile.TemporaryDirectory() as directory:
             c=GrokCLI(directory);process=MagicMock();process.poll.return_value=0;process.returncode=0
-            process.communicate.return_value=(wire({'reply':'PRIVATE_REPLY'}),None)
+            process.stdout=io.BytesIO(wire({'reply':'PRIVATE_REPLY'}))
             with patch.object(c,'ready',return_value=True),patch('grok_cli.subprocess.Popen',return_value=process):
                 self.assertEqual(c.complete('PRIVATE_SYSTEM',{'idea':'PRIVATE_REQUEST'},helper.GROK_REPLY_SCHEMA,threading.Event())['reply'],'PRIVATE_REPLY')
             path=Path(directory)/'grok-timings.jsonl';text=path.read_text(encoding='utf-8');self.assertNotIn('PRIVATE',text);self.assertEqual(json.loads(text)['outcome'],'ok')
             path.unlink();path.mkdir()
+            process.stdout=io.BytesIO(wire({'reply':'PRIVATE_REPLY'}))
             with patch.object(c,'ready',return_value=True),patch('grok_cli.subprocess.Popen',return_value=process):
                 self.assertEqual(c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event())['reply'],'PRIVATE_REPLY')
 

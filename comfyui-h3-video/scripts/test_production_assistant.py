@@ -150,11 +150,12 @@ class PlannerTests(unittest.TestCase):
     def test_grok_budget_and_numeric_progress_never_include_task_text(self):
         def answer(system,content,schema,cancel,**kwargs):
             self.assertLessEqual(kwargs['timeout_s'],900)
-            kwargs['on_progress']({'cli_elapsed_s':181,'cli_limit_s':300})
+            kwargs['on_progress']({'cli_elapsed_s':181,'cli_limit_s':300,'cli_stage':'thinking','cli_signals':42,'thought':'PRIVATE'})
             return plan(intent='explain')
         self.helper.grok.complete.side_effect=answer
         self.manager._run(self.request,'synthetic',self.helper.cancel_event)
         self.assertEqual(self.helper.job['state'],'done');self.assertEqual(self.helper.job['cli_elapsed_s'],181);self.assertEqual(self.helper.job['cli_limit_s'],300)
+        self.assertNotIn('PRIVATE',json.dumps(self.helper.job));self.assertEqual(self.helper.job['cli_stage'],'thinking')
 
     def test_total_request_deadline_stops_before_a_new_model_call(self):
         with patch.object(P.time,'monotonic',side_effect=[0,0,901]):

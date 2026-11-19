@@ -69,6 +69,18 @@ class StoreTests(unittest.TestCase):
         self.assertNotIn('Synthetic shared question',json.dumps(short))
         self.assertIn('messages',self.chat.snapshot(value['revision'],'another-session'))
 
+    def test_live_activity_is_shared_without_disk_writes_or_message_revisions(self):
+        self.chat.begin(0,'synthetic-live','Synthetic question');self.chat.progress('synthetic-live','model',1)
+        old=self.path.read_bytes();state=self.chat.snapshot()
+        self.chat.activity('synthetic-live',{'cli_stage':'thinking','cli_signals':42,'cli_idle_s':.1,'thought':'PRIVATE'})
+        value=self.chat.snapshot(state['revision'],state['session_id'])
+        self.assertTrue(value['unchanged']);self.assertNotIn('messages',value);self.assertNotIn('PRIVATE',json.dumps(value))
+        self.assertEqual(value['active']['cli_signals'],42);self.assertEqual(self.path.read_bytes(),old)
+        self.chat.activity('stale-job',{'cli_stage':'answer'});self.assertEqual(self.chat.snapshot()['active']['cli_stage'],'thinking')
+        self.chat.progress('synthetic-live','model',2);self.assertNotIn('cli_stage',self.chat.snapshot()['active'])
+        self.chat.complete('synthetic-live','Synthetic reply');self.chat.activity('synthetic-live',{'cli_stage':'answer'})
+        self.assertIsNone(self.chat.snapshot()['active'])
+
     def test_corrupt_file_and_failed_atomic_write_do_not_erase_history(self):
         self.path.write_text('{invalid',encoding='utf-8')
         with self.assertRaises(ValueError):self.chat.snapshot()

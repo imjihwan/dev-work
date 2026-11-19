@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import uuid
+from grok_cli import clean_progress
 
 
 def display_plan(actions):
@@ -52,7 +53,7 @@ def clean_messages(messages):
 
 class ProductionChat:
     def __init__(self,path):
-        self.path=Path(path);self.lock=threading.RLock();self.state=None
+        self.path=Path(path);self.lock=threading.RLock();self.state=None;self.live_progress={}
 
     def _load(self):
         if self.state is not None:return
@@ -92,9 +93,11 @@ class ProductionChat:
     def snapshot(self,revision=None,session=None):
         with self.lock:
             self._load()
+            active=copy.deepcopy(self.state["active"])
+            if active and active["phase"]=="model":active.update(self.live_progress)
             if str(revision)==str(self.state["revision"]) and session==self.state["session_id"]:
-                return copy.deepcopy({**{key:self.state[key] for key in ("revision","session_id","active")},"unchanged":True})
-            return copy.deepcopy({key:self.state[key] for key in ("revision","session_id","messages","active")})
+                return copy.deepcopy({**{key:self.state[key] for key in ("revision","session_id")},"active":active,"unchanged":True})
+            return copy.deepcopy({**{key:self.state[key] for key in ("revision","session_id","messages")},"active":active})
 
     def _check_revision(self,revision):
         if type(revision) is not int or revision!=self.state["revision"]:
@@ -134,6 +137,7 @@ class ProductionChat:
                 turns.append({"role":row["role"],"text":text[:8000]})
             entry={"id":uuid.uuid4().hex,"role":"user","text":message[:8000]};data["messages"].append(entry)
             data["active"]={"id":identity,"phase":"prepare","round":0,"created":time.time()};data["latest_turn"]=identity;self._save(data)
+            self.live_progress={}
             return {"conversation":turns,"revision":self.state["revision"],"user_id":entry["id"]}
 
     def progress(self,identity,phase,round_number):
@@ -141,6 +145,14 @@ class ProductionChat:
             self._load()
             if not self.state["active"] or self.state["active"]["id"]!=identity:return
             data=copy.deepcopy(self.state);data["active"].update(phase=phase,round=round_number);self._save(data)
+            self.live_progress={}
+
+    def activity(self,identity,info):
+        """Ephemeral allowlisted status; no transcript rewrite for each heartbeat."""
+        with self.lock:
+            self._load()
+            if self.state["active"] and self.state["active"]["id"]==identity and self.state["active"]["phase"]=="model":
+                self.live_progress=clean_progress(info)
 
     def complete(self,identity,text,plan=None):
         with self.lock:
@@ -149,6 +161,7 @@ class ProductionChat:
             data=copy.deepcopy(self.state);entry={"id":uuid.uuid4().hex,"role":"assistant","text":text[:8000]}
             if plan:entry["plan"]=plan
             data["messages"].append(entry);data["active"]=None;self._save(data)
+            self.live_progress={}
             return {"revision":self.state["revision"],"message_id":entry["id"]}
 
     def current(self,identity):
