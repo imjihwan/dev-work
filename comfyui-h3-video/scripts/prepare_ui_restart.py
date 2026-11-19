@@ -43,7 +43,8 @@ for item in jobs:
     identity, graph, extra = item[1], item[2], item[3]
     status = read("http://127.0.0.1:8190/api/status?id=" + urllib.parse.quote(identity))
     progress[identity] = {"classes": {key: node["class_type"] for key, node in graph.items()},
-                          "pct": status.get("pct", 0), "label": status.get("label", "대기")}
+                          "pct": status.get("pct", 0), "label": status.get("label", "대기"),
+                          **{key:status[key] for key in ("generation_started_at","elapsed_estimated") if key in status}}
     client = extra.get("client_id")
     if client and client not in clients:
         clients.append(client)

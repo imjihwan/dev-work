@@ -230,7 +230,8 @@ async function swipe(video,x1,y1,x2,y2){
   context.cancelRegeneration();assert.equal(run('REGEN.target'),null);
   // Show progress without task content and reveal a completed regeneration once.
   run('ACTIVITY.states.clear();ACTIVITY.waiting.clear();ACTIVITY.ready=null;G.focus=null;G.active=true;');
-  let activity={running:true,pct:42,pending:4,jobs:[{id:'old-done',state:'done',completed_at:10},{id:'fresh-job',state:'running',completed_at:0}]};
+  let clockNow=0;context.performance={now:()=>clockNow};
+  let activity={running:true,pct:42,pending:4,elapsed_seconds:300,elapsed_estimated:false,jobs:[{id:'old-done',state:'done',completed_at:10},{id:'fresh-job',state:'running',completed_at:0}]};
   const completedEntry={...entries[0],id:'fresh-result',source_id:'fresh-job',regenerated:true};
   const activityRequests=[];
   context.fetch=async(url)=>{
@@ -241,10 +242,17 @@ async function swipe(video,x1,y1,x2,y2){
   };
   const initialScroll=window.scrollCalls;
   await context.pollActivity();assert.equal(get('workProgress').value,42);assert(get('workProgressText').textContent.includes('42%'));assert.equal(get('workPending').textContent,'대기 4개');
+  assert(get('workProgressText').textContent.includes('경과 05:00'));
+  const noExtraRequests=activityRequests.length;clockNow+=2000;context.renderActivityClock();
+  assert(get('workProgressText').textContent.includes('경과 05:02'));assert.equal(activityRequests.length,noExtraRequests,'Elapsed clock ticks without fetching or examining a job');
+  context.renderActivity({...activity,elapsed_seconds:4,elapsed_estimated:true});assert(get('workProgressText').textContent.includes('확인 후 00:04'));assert(get('workProgressText').title.includes('시작 기록이 없어'));
+  context.renderActivity({...activity,elapsed_seconds:3661});assert(get('workProgressText').textContent.includes('61:01'));
+  context.renderActivity({...activity,elapsed_seconds:undefined});assert(get('workProgressText').textContent.includes('경과 확인 중'));
   assert.equal(window.scrollCalls,initialScroll,'Old completed results must not trigger a jump on first load');
   run('G.mode="favorites";G.order="oldest";G.query="synthetic";');
-  activity={running:true,pct:3,pending:3,jobs:[{id:'old-done',state:'done',completed_at:10},{id:'fresh-job',state:'done',completed_at:200}]};
+  activity={running:true,pct:3,pending:3,elapsed_seconds:3,elapsed_estimated:false,jobs:[{id:'old-done',state:'done',completed_at:10},{id:'fresh-job',state:'done',completed_at:200}]};
   await context.pollActivity();await settle();await settle();
+  assert(get('workProgressText').textContent.includes('경과 00:03'),'The next job resets its own elapsed clock');
   assert.equal(run('G.mode'),'all');assert.equal(run('G.order'),'newest');assert.equal(run('G.query'),'');
   assert.equal(run('G.focus'),'fresh-job');assert.equal(run('G.items[0].id'),'fresh-result');
   assert.equal(window.scrollCalls,initialScroll+1);assert.equal(run('ACTIVITY.ready'),null);
@@ -256,7 +264,7 @@ async function swipe(video,x1,y1,x2,y2){
   context.rememberRegeneration('fresh-job');await context.pollActivity();assert.equal(window.scrollCalls,whilePlaying);assert(get('viewer').open);assert.equal(run('ACTIVITY.ready'),'fresh-job');
   assert(run('ACTIVITY.waiting.has("fresh-job")'),'Unseen completion remains restorable after refresh');
   context.closeViewer();context.showCompletedRegeneration();assert.equal(window.scrollCalls,whilePlaying+1);assert(!run('ACTIVITY.waiting.has("fresh-job")'));
-  activity={running:false,pct:null,pending:0,jobs:[]};await context.pollActivity();assert(get('workProgressText').textContent.includes('없음'));assert.equal(get('workProgress').value,0);
+  activity={running:false,pct:null,pending:0,jobs:[]};await context.pollActivity();assert(get('workProgressText').textContent.includes('없음'));assert.equal(get('workProgress').value,0);assert.equal(run('ACTIVITY.clockTimer'),null);
   doc.hidden=true;const hiddenRequests=activityRequests.length;await context.pollActivity();assert.equal(activityRequests.length,hiddenRequests);doc.hidden=false;
   context.fetch=async()=>{throw new Error('Synthetic offline');};await context.pollActivity();assert(get('workProgressText').textContent.includes('연결 확인'));assert.equal(get('workPending').textContent,'');
   const mainHtml=fs.readFileSync(process.argv[3]||path.join(__dirname,'../simple_ui/index.html'),'utf8'),mainScript=mainHtml.match(/<script>([\s\S]*)<\/script>/)[1];

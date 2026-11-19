@@ -21,7 +21,7 @@ class TimingTests(unittest.TestCase):
         self.env={'json':json,'math':math,'time':time,'urllib':__import__('urllib'),'HLOCK':threading.Lock(),'HIST_DB':[self.row],
                   'HIST':'synthetic-only','_save_json':self.save,'GALLERY':self.gallery,'backend_restart_hold':lambda pid:None,
                   'video_of':lambda entry:{'filename':'synthetic.mp4'},'PROGRESS':{},'PLOCK':threading.Lock()}
-        functions=[n for n in TREE.body if isinstance(n,ast.FunctionDef) and n.name in ('execution_timing','hist_result','_status','_queue_state')]
+        functions=[n for n in TREE.body if isinstance(n,ast.FunctionDef) and n.name in ('execution_timing','hist_result','_status','_queue_state','_on_message','_bump')]
         exec(compile(ast.Module(body=functions,type_ignores=[]),'<synthetic timing>','exec'),self.env)
 
     def entry(self,terminal='execution_success',end=85000):
@@ -62,6 +62,23 @@ class TimingTests(unittest.TestCase):
         status={'state':'done','video':self.row['video'],**self.env['execution_timing'](self.entry())}
         self.env['hist_result']('synthetic',status);self.env['hist_result']('synthetic',status)
         self.assertEqual(self.row['generation_seconds'],85);self.save.assert_called_once()
+
+    def test_execution_start_is_recorded_before_registration_and_does_not_change_on_progress(self):
+        self.env['_on_message']({'type':'execution_start','data':{'prompt_id':'synthetic','timestamp':1000000}})
+        self.assertEqual(self.row['generation_started_at'],1000);self.assertFalse(self.env['PROGRESS']['synthetic']['elapsed_estimated'])
+        self.save.assert_called_once()
+        status=self.env['_queue_state']('synthetic',{'queue_running':[[1,'synthetic']],'queue_pending':[]})
+        self.assertEqual(status['generation_started_at'],1000)
+        self.env['stage_of']=lambda value:(15,82,'Synthetic')
+        self.env['_on_message']({'type':'progress','data':{'prompt_id':'synthetic','node':'n','value':1,'max':2}})
+        self.assertEqual(self.env['PROGRESS']['synthetic']['generation_started_at'],1000)
+
+    def test_start_event_resets_an_observed_or_previous_attempt_clock(self):
+        self.env['PROGRESS']['synthetic']={'classes':{},'pct':80,'generation_started_at':10,'elapsed_estimated':True,'elapsed_only':True}
+        self.row.update(generation_seconds=99,generation_finished_at=100)
+        self.env['_on_message']({'type':'execution_start','data':{'prompt_id':'synthetic','timestamp':2000000}})
+        self.assertEqual(self.env['PROGRESS']['synthetic']['generation_started_at'],2000)
+        self.assertNotIn('generation_seconds',self.row);self.assertNotIn('elapsed_only',self.env['PROGRESS']['synthetic'])
 
 
 if __name__=='__main__':unittest.main()

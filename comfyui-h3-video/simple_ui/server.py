@@ -98,12 +98,18 @@ def _on_message(msg):
     pid = d.get("prompt_id")
     if not pid:
         return
+    started=None
     with PLOCK:
         st = PROGRESS.get(pid)
         if st is None:
-            return
+            if t!="execution_start":return
+            st=PROGRESS.setdefault(pid,{"classes":{},"pct":0.0,"label":"대기"})
         if t == "execution_start":
             st["pct"] = 0.0
+            stamp=d.get("timestamp")
+            started=stamp/1000 if type(stamp) in (int,float) and math.isfinite(stamp) and stamp>=0 else time.time()
+            st.update(generation_started_at=started,elapsed_estimated=False)
+            st.pop("elapsed_only",None)
             _bump(pid, 1, "시작")
         elif t == "executing" and d.get("node"):
             lo, _, name = stage_of(st["classes"].get(d["node"]))
@@ -114,6 +120,16 @@ def _on_message(msg):
             _bump(pid, lo + (hi - lo) * frac, f"{name} {d['value']}/{d['max']}")
         elif t in ("execution_success",) or (t == "executing" and d.get("node") is None):
             _bump(pid, 100, "완료")
+    if started is not None:
+        # Never hold the progress and history locks together. Persist only timing.
+        with HLOCK:
+            for entry in HIST_DB:
+                if entry["id"]==pid:
+                    entry["generation_started_at"]=started
+                    entry.pop("generation_finished_at",None);entry.pop("generation_seconds",None)
+                    try:_save_json(HIST,HIST_DB)
+                    except OSError:pass
+                    break
 
 
 def ws_loop(client_id):
@@ -1126,7 +1142,7 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
             if r.get("node_errors") and not edit_id:
                 raise ValueError(json.dumps(r["node_errors"], ensure_ascii=False)[:500])
             with PLOCK:
-                PROGRESS[r["prompt_id"]] = {"classes": classes, "pct": 0.0, "label": "대기"}
+                PROGRESS.setdefault(r["prompt_id"],{"pct":0.0,"label":"대기"})["classes"]=classes
             jobs.append({"id": r["prompt_id"], "seed": s, "width": job_w, "height": job_h,
                          "model": model, "steps": steps, "anchor": anchor, "prompt_verified": bool(edit_id and r.get("prompt_verified")), "face_side": face_side_for(index if sequence else 0),
                          "images": list(job_names), "sequence_index": index + 1 if sequence else reference["entry"].get("sequence_index") if reference else None})
@@ -1268,7 +1284,8 @@ def _queue_state(pid, q):
     if any(x[1] == pid for x in q.get("queue_running", [])):
         with PLOCK:
             st = PROGRESS.get(pid) or {}
-        return {"state": "running", "pct": round(st.get("pct", 0)), "label": st.get("label", "")}
+            timing={key:st[key] for key in ("generation_started_at","elapsed_estimated") if key in st}
+        return {"state": "running", "pct": round(st.get("pct", 0)), "label": st.get("label", ""),**timing}
     pend = [x[1] for x in sorted(q.get("queue_pending", []), key=lambda x: x[0])]
     if pid in pend:
         return {"state": "queued", "position": pend.index(pid) + 1}
@@ -1368,20 +1385,34 @@ def gallery_progress():
             if regenerated and result["state"] == "unknown" and time.time() - created_at > 30:
                 hist_result(pid, {"state": "lost", "error": "대기열에서 작업을 찾지 못했습니다."})
         with PLOCK:
-            value = (PROGRESS.get(running[0][1]) or {}).get("pct") if running else None
+            current_progress=(PROGRESS.get(running[0][1]) or {}) if running else {}
+            value=None if current_progress.get("elapsed_only") else current_progress.get("pct")
+        timing={"elapsed_seconds":None,"elapsed_estimated":False}
+        if running:
+            pid=running[0][1]
+            with HLOCK:
+                recorded=next((e.get("generation_started_at") for e in HIST_DB if e["id"]==pid),None)
+            with PLOCK:
+                progress=PROGRESS.setdefault(pid,{"classes":{},"pct":0.0,"label":"","elapsed_only":True})
+                started=progress.get("generation_started_at")
+                if type(started) not in (int,float) or not math.isfinite(started) or started<0:
+                    exact=type(recorded) in (int,float) and math.isfinite(recorded) and recorded>=0
+                    started=recorded if exact else time.time()
+                    progress.update(generation_started_at=started,elapsed_estimated=not exact)
+                timing={"elapsed_seconds":max(0,round(time.time()-started,3)),"elapsed_estimated":bool(progress.get("elapsed_estimated"))}
         pct = max(0, min(100, round(value))) if isinstance(value, (int, float)) else None
         with HLOCK:
             jobs = [{"id": entry["id"], "state": "running" if any(item[1] == entry["id"] for item in running)
                      else "queued" if entry["id"] in active else entry.get("state", "unknown"),
                      "completed_at": entry.get("t_end", 0)} for entry in HIST_DB if (entry.get("ui") or {}).get("regeneration")]
-        result = {"running": bool(running), "pct": pct, "pending": len(pending), "jobs": jobs}
+        result = {"running": bool(running), "pct": pct, "pending": len(pending), "jobs": jobs,**timing}
         GALLERY_PROGRESS_CACHE.update(at=time.monotonic(), value=result)
         return result
 
 
 def track_story_job(pid,graph):
     with PLOCK:
-        PROGRESS[pid]={"classes":{key:node["class_type"] for key,node in graph.items()},"pct":0.0,"label":"대기"}
+        PROGRESS.setdefault(pid,{"pct":0.0,"label":"대기"})["classes"]={key:node["class_type"] for key,node in graph.items()}
 
 
 STORIES=StoryProjects(os.path.join(HERE,"story_data"),OUTPUT,

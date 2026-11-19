@@ -3,6 +3,7 @@ import ast
 import copy
 import io
 import json
+import math
 import os
 from pathlib import Path
 import threading
@@ -30,7 +31,7 @@ class GalleryProgressTests(unittest.TestCase):
                         {"id": "unrelated", "t": 1, "state": "done", "video":{"filename":"synthetic.mp4"}, "prompt": "PRIVATE"}]
         self.calls, self.status_calls = [], []
         self.results = {}
-        self.env = {"json": json, "time": self.clock, "HIST_DB": self.entries, "HLOCK": threading.Lock(), "PLOCK": threading.Lock(),
+        self.env = {"json": json,"math":math, "time": self.clock, "HIST_DB": self.entries, "HLOCK": threading.Lock(), "PLOCK": threading.Lock(),
                     "GALLERY_PROGRESS_LOCK": threading.Lock(), "GALLERY_PROGRESS_CACHE": {"at": 0, "value": None},
                     "PROGRESS": {"running": {"pct": 42.4, "label": "PRIVATE", "classes": {"PRIVATE": "PRIVATE"}}},
                     "comfy": self.comfy, "_status": self.status, "hist_result": self.record}
@@ -57,7 +58,7 @@ class GalleryProgressTests(unittest.TestCase):
     def test_only_status_fields_and_shared_cache(self):
         before = copy.deepcopy(self.queue)
         response = self.run_progress()
-        self.assertEqual(set(response), {"running", "pct", "pending", "jobs"})
+        self.assertEqual(set(response), {"running", "pct", "pending", "jobs","elapsed_seconds","elapsed_estimated"})
         self.assertEqual(response["pct"], 42)
         self.assertEqual(response["pending"], 1)
         self.assertNotIn("PRIVATE", json.dumps(response))
@@ -69,6 +70,20 @@ class GalleryProgressTests(unittest.TestCase):
         self.run_progress()
         self.assertEqual(len(self.calls), 2)
         self.assertEqual(self.queue, before)
+
+    def test_exact_elapsed_uses_execution_start_not_queued_time_and_restores_after_restart(self):
+        self.entries[0]['generation_started_at']=40
+        response=self.run_progress();self.assertEqual(response['elapsed_seconds'],60);self.assertFalse(response['elapsed_estimated'])
+        self.clock.now+=3;self.env['PROGRESS'].clear();response=self.run_progress()
+        self.assertEqual(response['elapsed_seconds'],63);self.assertFalse(response['elapsed_estimated']);self.assertEqual(response['pct'],None)
+
+    def test_unknown_start_counts_only_observation_and_next_job_resets(self):
+        response=self.run_progress();self.assertTrue(response['elapsed_estimated']);self.assertEqual(response['elapsed_seconds'],0)
+        self.clock.now+=5;self.assertEqual(self.run_progress()['elapsed_seconds'],5)
+        self.queue['queue_running'][0][1]='next-job';self.clock.now+=3
+        response=self.run_progress();self.assertEqual(response['elapsed_seconds'],0);self.assertTrue(response['elapsed_estimated'])
+        self.queue['queue_running']=[];self.clock.now+=3;response=self.run_progress()
+        self.assertIsNone(response['elapsed_seconds']);self.assertFalse(response['elapsed_estimated'])
 
     def test_completion_updates_history_link_without_returning_result_paths(self):
         self.queue["queue_running"] = []
