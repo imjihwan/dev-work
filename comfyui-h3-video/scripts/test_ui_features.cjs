@@ -23,14 +23,15 @@ const context = vm.createContext({$, console, setTimeout, clearTimeout, Date, JS
   prompt:()=>pickedName,confirm:()=>true,
   fetch:async (url,options) => {if(url==='/api/health')return {ok:true,json:async()=>({sequence_face_crop:true})};requests.push({url,body:options?.body ? JSON.parse(options.body) : null});return {ok:true,json:async()=>replyHandler ? replyHandler(url) : reply};},
   isRef:()=>true,runCount:()=>20,withFaceReferenceRules:(text,count)=>text+'|n='+count,sendMode:()=> 'REF2VA', drawGoInfo:()=>context.updateSequenceButton(),
-  setStatus:()=>{},curModel:()=>null,histModelName:x=>x,finished:x=>x.state==='done',
+  save:()=>{context.savedMobile=true;},drawSpeed:()=>{context.drawnMobile=true;},setStatus:()=>{},curModel:()=>null,histModelName:x=>x,finished:x=>x.state==='done',
   poll:jobs=>{context.currentJobs=jobs;},loadHist:()=>{},closeResult:()=>{},updatePromptFromFields:()=>{context.manualFinal=false;context.manualPromptInputs=null;},
-  loadFromHist:async entry=>{context.lastLoaded=entry;return true;},apply:s=>{lastApplied=s;for (const [key,value] of Object.entries(s.f||{})) $(key).value=value;},setMode:()=>{},drawModelCard:()=>{},render:()=>{},saveImgs:()=>{},esc:x=>x
+  loadFromHist:async entry=>{context.lastLoaded=entry;return true;},apply:s=>{lastApplied=s;for (const [key,value] of Object.entries(s.f||{})) $(key).value=value;},setMode:()=>{},drawModelCard:()=>{},render:()=>{context.renderedMobile=true;},saveImgs:()=>{},esc:x=>x
 });
 $('summary').value='safe summary';$('duration').value='5';$('aspect').value='auto';$('resolution').value='draft';
 $('final').value='safe prompt';$('seed').value='100';
 $('shots').children=[{querySelector:s=>({value:s==='input'?'0':'safe scene'})}];
 $('bulkFields').querySelectorAll=()=>[{value:'content'},{value:'video'}];
+vm.runInContext(section('function setMobileOutput()', 'FIELDS.forEach('), context);
 vm.runInContext(section('function captureSettings()', '// ---------- 실행'), context);
 vm.runInContext(section('function updateSequenceButton()', '$("cancelEdit").onclick'), context);
 vm.runInContext(section('async function submitJobs(', '$("go").onclick'), context);
@@ -42,6 +43,12 @@ vm.runInContext(section('function historyThumb(', 'function drawHist('), context
 vm.runInContext(section('function storyModelSettings()', 'function selectAppTab('), context);
 
 (async()=>{
+  const beforeMobile={summary:$('summary').value,final:$('final').value,seed:$('seed').value,duration:$('duration').value,images:[...context.images],model:JSON.stringify(context.S)};
+  $('mobileOutput').onclick();
+  assert.equal($('aspect').value,'9:16');assert.equal($('resolution').value,'720p');assert(context.renderedMobile&&context.drawnMobile);
+  assert.deepEqual({summary:$('summary').value,final:$('final').value,seed:$('seed').value,duration:$('duration').value,images:[...context.images],model:JSON.stringify(context.S)},beforeMobile);
+  assert.equal(requests.length,0,'Mobile preset changes current fields only; never submits or edits jobs');
+  $('aspect').value='auto';$('resolution').value='draft';
   const snapshot=JSON.parse(JSON.stringify(context.captureSettings()));
   assert.equal(snapshot.images.length,5);assert.equal(snapshot.seed,'100');assert.equal(snapshot.final,'safe prompt');
   reply={items:[]};await $('settingsSave').onclick();

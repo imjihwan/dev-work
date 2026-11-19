@@ -1034,7 +1034,7 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
         raw = base64.b64decode(b64)
         raws.append(raw)
         im = Image.open(io.BytesIO(raw))
-        display_size = ImageOps.exif_transpose(im).size if sequence else im.size
+        display_size = im.size[::-1] if im.getexif().get(274) in (5,6,7,8) else im.size
         sizes.append(display_size)
         ext = {"PNG": "png", "WEBP": "webp"}.get(im.format, "jpg")
         names.append(upload(raw, ext))
@@ -1066,7 +1066,8 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
     tl["items"] = items
     tl["builder_state"]["duration"] = duration
     tl["builder_state"]["mode"] = mode
-    tl["resolution"].update(aspect=aspect, resolution=resolution if resolution in RES_MP else "auto")
+    tl["resolution"].update(aspect=aspect, resolution=resolution if resolution in RES_MP else "auto",
+                            input_scaling="Auto" if mode=="REF2VA" else "Fill and crop")
     bs = json.loads(d["builder_state"])
     bs.update(duration=duration, mode=mode)
 

@@ -105,6 +105,46 @@ class FeatureTests(unittest.TestCase):
 
     def sequence(self, anchor=True, face_boost=True): return self.env["build_and_queue"](self.request(photo_sequence=True,count=20,anchor=anchor,face_boost=face_boost))
 
+    def test_phone_canvas_and_keyframes_use_cover_crop_but_auxiliary_references_keep_aspect(self):
+        self.assertEqual(self.env['canvas']('9:16','720p',(1200,800)),(736,1280))
+        for mode,count in [('I2VA',1),('FL2VA',2),('REF2VA',5)]:
+            prepared=self.env['build_and_queue'](self.request(images=self.photos[:count],mode=mode,aspect='9:16',resolution='720p',count=1),prepare_only=True)
+            graph=prepared['prompt'];director=graph[self.env['DIRECTOR']]['inputs'];state=json.loads(director['timeline_data'])
+            self.assertEqual((director['width'],director['height']),(736,1280))
+            self.assertEqual(state['resolution']['input_scaling'],'Auto' if mode=='REF2VA' else 'Fill and crop')
+            self.assertEqual(len(state['items']),count)
+            self.assertEqual((state['items'][0]['source_width'],state['items'][0]['source_height']),(16,8))
+        self.assertEqual(self.sent,[])
+
+    def test_auto_canvas_obeys_exif_orientation_in_regular_generation(self):
+        image=Image.new('RGB',(32,16),(120,140,160));exif=Image.Exif();exif[274]=6
+        stream=io.BytesIO();image.save(stream,format='JPEG',exif=exif)
+        photo='data:image/jpeg;base64,'+base64.b64encode(stream.getvalue()).decode()
+        prepared=self.env['build_and_queue'](self.request(images=[photo],mode='I2VA',count=1,aspect='auto',resolution='auto'),prepare_only=True)
+        self.assertEqual((prepared['width'],prepared['height']),(768,1536))
+        state=json.loads(prepared['prompt'][self.env['DIRECTOR']]['inputs']['timeline_data'])
+        self.assertEqual((state['items'][0]['source_width'],state['items'][0]['source_height']),(16,32))
+
+    def test_native_cover_crop_keeps_a_round_subject_round_and_has_no_black_padding(self):
+        import importlib.util
+        path=ROOT/'ComfyUI/custom_nodes/ComfyUI-DaSiWa-Nodes/nodes/nodes_scaling.py'
+        if not path.exists():self.skipTest('Optional installed DaSiWa resize source unavailable')
+        try:import torch
+        except ImportError:self.skipTest('Optional PyTorch unavailable')
+        torch.set_num_threads(1)
+        spec=importlib.util.spec_from_file_location('synthetic_cpu_resize',path);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        # A centered disk on a light background exposes stretching and black padding.
+        yy,xx=torch.meshgrid(torch.arange(120),torch.arange(160),indexing='ij')
+        image=torch.full((1,120,160,3),0.35,device='cpu');image[0][(xx-80)**2+(yy-60)**2<=20**2]=1.0
+        result=module.DaSiWa_TorchResize().resize(image,'Target resolution','Fill and crop',64,112,1.0,'Lanczos',True,16,'0, 0, 0','center',1,16.0,64)[0]
+        self.assertEqual(tuple(result.shape),(1,112,64,3));self.assertEqual(result.device.type,'cpu')
+        border=torch.cat([result[0,0,:,0],result[0,-1,:,0],result[0,:,0,0],result[0,:,-1,0]])
+        self.assertGreater(float(border.min()),0.3)  # No padded strip; ignore interior Lanczos edge ringing.
+        y,x=torch.where(result[0,:,:,0]>0.8)
+        self.assertLessEqual(abs(int(x.max()-x.min())-int(y.max()-y.min())),2)
+        self.assertLessEqual(abs(float(x.float().mean())-32),2)
+        self.assertLessEqual(abs(float(y.float().mean())-56),2)
+
     def test_nine_references_keep_picture_order_and_first_frame_anchor(self):
         photos=(self.photos*2)[:9]
         self.env["build_and_queue"](self.request(images=photos,count=1,anchor=True))

@@ -450,6 +450,7 @@ a{color:var(--acc)}
 
     <div class="card">
       <h2>4. 출력·확인</h2>
+      <div style="margin-bottom:10px"><button type="button" class="ghost" id="mobileOutput">휴대폰 세로로 맞추기 · 9:16 / 720p</button></div>
       <div class="row">
         <div><label>화면비</label>
           <select id="aspect">
@@ -461,6 +462,7 @@ a{color:var(--acc)}
         <div><label>시드 <small>비우면 랜덤</small></label><input type="text" id="seed" placeholder="랜덤"></div>
         <div><label>반복 <small>시드만 바꿔서</small></label><input type="number" id="count" value="1" min="1" max="20" step="1"></div>
       </div>
+      <div class="hint">사진 비율을 유지해 화면을 채웁니다. 첫/끝 프레임과 첫 장면 고정 사진은 필요한 만큼 중앙 크롭하며, 패딩을 넣지 않습니다. 가장자리의 인물·사물은 일부 잘릴 수 있습니다. 휴대폰 설정은 모델 규격상 736×1280으로 생성됩니다.</div>
       <div class="hint" id="countHint"></div>
       <details style="margin-top:14px">
         <summary>최종 프롬프트 보기·직접 고치기</summary>
@@ -778,6 +780,13 @@ $("refreshFaceRefs").onclick=()=>{
   $("finalHint").textContent="현재 사진 구성에 맞춰 얼굴 참조 문구를 반영했습니다. 다른 문장·동작·시각과 직접 편집 상태는 유지합니다.";
   refreshFaceReferenceAction();save();
 };
+function setMobileOutput(){
+  $("aspect").value="9:16";
+  $("resolution").value="720p";
+  render();
+  if(CAT)drawSpeed();
+}
+$("mobileOutput").onclick=setMobileOutput;
 FIELDS.forEach(id => $(id).addEventListener("input", () => { if(["subject","summary","style","keep","sound","music","duration"].includes(id))updatePromptFromFields();else render(); if (CAT && ["resolution","duration"].includes(id)) drawSpeed(); }));
 
 // =====================================================================
