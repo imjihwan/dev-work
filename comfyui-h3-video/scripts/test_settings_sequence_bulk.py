@@ -22,7 +22,7 @@ from PIL import Image, ImageOps
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = Path(os.environ.get("REFERENCE_TEST_SOURCE", ROOT / "simple_ui"))
 TREE = ast.parse((SOURCE / "server.py").read_text(encoding="utf-8"))
-NAMES = {"_load_json", "_save_json", "save_settings", "rename_settings", "delete_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "bulk_edit_queue", "bulk_queue_context", "judge_face_side"}
+NAMES = {"_load_json", "_save_json", "save_settings", "rename_settings", "delete_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "bulk_edit_queue", "bulk_queue_context", "judge_face_side", "prepare_photo_reference", "pooled_photo_reference", "release_photo_references"}
 
 
 class FeatureTests(unittest.TestCase):
@@ -32,7 +32,7 @@ class FeatureTests(unittest.TestCase):
         self.sent, self.uploaded, self.edited = [], [], []
         self.env = {"json":json, "os":os, "random":random, "re":re, "time":time, "uuid":uuid, "base64":base64, "io":io,
                     "urllib":urllib, "Image":Image, "ImageOps":ImageOps, "ROOT":self.tmp.name, "HERE":self.tmp.name, "CLIENT_ID":"test-client",
-                    "HLOCK":threading.Lock(), "PLOCK":threading.Lock(), "SETTINGS_LOCK":threading.Lock(),
+                    "HLOCK":threading.Lock(), "PLOCK":threading.Lock(), "SETTINGS_LOCK":threading.Lock(), "PHOTO_REFERENCE_LOCK":threading.Lock(),
                     "HIST_DB":[], "HIST_MAX":1000, "PROGRESS":{},
                     "HIST":os.path.join(self.tmp.name,"history.json"), "SETTINGS":os.path.join(self.tmp.name,"settings.json"),
                     "TEMPLATE":str(ROOT / "simple_ui/template_api.json"),
@@ -101,6 +101,38 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual([item["value"] for item in items],[f"reference-{i}.png" for i in range(1,10)])
         self.assertEqual(prompt[self.env["ANCHOR_IMG"]]["inputs"]["image"],"reference-1.png")
         self.assertEqual(self.uploaded,[base64.b64decode(photo.split(",",1)[1]) for photo in photos])
+
+    def test_fifty_uploaded_references_make_fifty_rotating_jobs_without_reuploads(self):
+        ids=[self.env['prepare_photo_reference']({'image':self.photos[n%5],'group':'synthetic-folder'})['id'] for n in range(50)]
+        originals=[self.env['PHOTO_REFERENCES'][key]['original']['value'] for key in ids]
+        self.assertEqual(len(self.uploaded),50)
+        for index in range(50):
+            selected=[ids[(index+n)%50] for n in range(9)]
+            self.env['build_and_queue'](self.request(images=[],reference_ids=selected,count=1,anchor=True,seed=str(42+index),reference_sequence_index=index+1))
+            graph=self.sent[-1][1]['prompt'];items=json.loads(graph[self.env['DIRECTOR']]['inputs']['timeline_data'])['items']
+            self.assertEqual([item['value'] for item in items],[originals[(index+n)%50] for n in range(9)])
+            self.assertEqual(graph[self.env['ANCHOR_IMG']]['inputs']['image'],originals[index])
+            self.assertEqual(graph[self.env['SEED']]['inputs']['seed_value'],42+index)
+        self.assertEqual(len(self.uploaded),50);self.assertEqual(len(self.sent),50)
+        self.env['release_photo_references']({'ids':ids})
+        self.assertFalse(self.env['PHOTO_REFERENCES']);self.assertEqual(len(self.env['HIST_DB']),50)
+
+    def test_pool_crops_only_auxiliary_references_and_never_the_first_picture(self):
+        self.crop_module.crop_reference=lambda raw,model:(b'synthetic-crop',(4,4))
+        ids=[self.env['prepare_photo_reference']({'image':image,'group':'synthetic-folder','face_boost':True})['id'] for image in self.photos]
+        for index in range(5):
+            refs=ids[index:]+ids[:index];reference=self.env['pooled_photo_reference']({'reference_ids':refs})
+            records=[self.env['PHOTO_REFERENCES'][key] for key in refs]
+            self.assertEqual(reference['entry']['images'],[records[0]['original']['value']]+[item['auxiliary']['value'] for item in records[1:]])
+        self.assertEqual(len(self.uploaded),10)
+
+    def test_pool_rejects_cross_folder_expired_duplicate_and_over_limit_references(self):
+        a=self.env['prepare_photo_reference']({'image':self.photos[0],'group':'a'})['id']
+        b=self.env['prepare_photo_reference']({'image':self.photos[1],'group':'b'})['id']
+        for refs in ([a,b],[a,a],[a]*10,[]):
+            with self.assertRaises(ValueError):self.env['pooled_photo_reference']({'reference_ids':refs})
+        self.env['PHOTO_REFERENCES'][a]['created']=0
+        with self.assertRaises(ValueError):self.env['pooled_photo_reference']({'reference_ids':[a]})
 
     def test_sequence_respects_disabled_anchor_and_keeps_all_rotated_references(self):
         result=self.sequence(anchor=False)

@@ -167,3 +167,9 @@ production_assistant.js는 활성 쓰기 가능 입력의 수정에 표시 여�
 ## 실제 생성 소요 시간
 
 server.execution_timing은 native history의 실행 시작/성공·오류·중단 timestamp만 읽어 generation_started_at/generation_finished_at/generation_seconds를 만든다. 등록일이나 파일 수정일로 추정하지 않는다. hist_result가 이력과 갤러리 메타데이터에 저장하고 index/gallery는 생성 시간으로 표시한다. 갤러리는 이력을 지운 뒤에도 소요 시간을 유지한다. 합성 시간 6개 + 갤러리 37개 Python 검사와 가상 갤러리 UI 검증을 통과했다. 새 시험 파일은 소스 릴리스 허용 목록에 포함했다.
+
+## 폴더별 대량 순환 참조
+
+index.html의 submitFolderRotatingPhotos는 파일 핸들을 폴더별로 묶고 한 장씩 업로드한 다음 각 사진을 한 번씩 앵커로, 다음 최대 8장을 순환 보조 참조로 등록한다. 설정/프롬프트는 시작 시 고정하고 지정 시드는 등록 위치만큼 증가한다. 확인/미확인 앵커를 선택 목록에서 별도 추적해 중단 후 중복 요청을 피한다. 원래 9장 편집기와 개별 등록은 유지한다.
+
+server.py의 photo-references API는 원본/CPU 얼굴 크롭 파일 연결 메타데이터만 1시간 메모리에 보관한다. generate의 reference_ids는 같은 그룹의 서로 다른 1~9개로 제한하고 기존 build_and_queue에 reference로 전달한다. 첫 슬롯은 원본, 나머지는 준비된 보조 참조를 선택한다. release는 메타데이터만 제거하고 이미 제출한 그래프의 입력 파일은 남긴다. 새 노드·모델·GPU 도우미는 추가하지 않았다. 실제 파일 선택은 사용자만 한다.

@@ -309,7 +309,8 @@ a{color:var(--acc)}
       <details class="folder-photos" id="photoFolderSection">
         <summary>폴더 사진 일괄 추가</summary>
         <input type="file" id="photoFolderFiles" accept="image/*" webkitdirectory multiple hidden>
-        <div class="folder-photo-tools"><button type="button" class="ghost" id="photoFolderChoose">폴더 추가</button><button type="button" class="ghost" id="photoFolderClear" disabled>목록 비우기</button><button type="button" class="ghost" id="photoFolderSubmit" disabled>모은 사진 개별 대기열 추가 (0)</button></div>
+        <div class="folder-photo-tools"><button type="button" class="ghost" id="photoFolderChoose">폴더 추가</button><button type="button" class="ghost" id="photoFolderClear" disabled>목록 비우기</button><button type="button" class="ghost" id="photoFolderSubmit" disabled>모은 사진 개별 대기열 추가 (0)</button><button type="button" class="ghost" id="photoFolderRotate" disabled>폴더별 번갈아 사진 1로 추가 (0)</button></div>
+        <div class="hint">번갈아 추가: 각 사진을 한 번씩 사진 1로 사용하고, 같은 폴더의 다음 최대 8장을 참조합니다. 끝에서는 처음으로 순환합니다. 시드를 입력하면 등록 순서대로 1씩 증가합니다.</div>
         <div class="folder-photo-drop" id="photoFolderDrop">PC에서는 여러 폴더를 동시에 여기로 끌어놓을 수 있습니다.</div>
         <div class="hint" id="photoFolderStatus" role="status" aria-live="polite">하위 폴더까지 포함합니다. 폴더를 여러 번 추가한 뒤 한 번에 등록하세요.</div>
         <div class="hint" id="photoFolderAvailability" role="status" aria-live="polite"></div>
@@ -1841,7 +1842,7 @@ $("photoBatchGo").onclick=()=>$("photoBatchFiles").click();
 $("photoBatchFiles").onchange=event=>{const files=Array.from(event.target.files||[]);event.target.value="";submitIndividualPhotos(files);};
 $("stopPhotoBatch").onclick=()=>{photoBatchStop=true;$("stopPhotoBatch").disabled=true;$("photoBatchStatus").textContent="현재 요청을 마친 뒤 추가를 중단합니다. 이미 등록한 작업은 유지됩니다.";};
 // Folder photo batch: collect File handles only; decode/upload only on explicit submission.
-const FOLDER_PHOTOS={items:new Map(),scanning:false,epoch:0};
+const FOLDER_PHOTOS={items:new Map(),scanning:false,epoch:0,rotated:new Set(),uncertain:new Set()};
 function folderPhotosBlocked(){return queueSubmitting||!!editingJobId||!!bulkEditingIds.length||!isRef()||!CAT;}
 function folderPhotoBlockReason(){
   if(queueSubmitting)return "사진을 대기열에 등록 중입니다. 완료하거나 추가 중단 후 다시 등록할 수 있습니다.";
@@ -1858,6 +1859,9 @@ function updateFolderPhotoControls(){
   $("photoFolderChoose").disabled=collectBusy||!folderPickerSupported();
   $("photoFolderSubmit").disabled=blocked||FOLDER_PHOTOS.scanning||!count;
   $("photoFolderSubmit").textContent=`모은 사진 개별 대기열 추가 (${count.toLocaleString()})`;
+  const remaining=[...FOLDER_PHOTOS.items.keys()].filter(key=>!FOLDER_PHOTOS.rotated.has(key)&&!FOLDER_PHOTOS.uncertain.has(key)).length;
+  $("photoFolderRotate").disabled=blocked||FOLDER_PHOTOS.scanning||!remaining||!CAT?.capabilities?.photo_reference_pool;
+  $("photoFolderRotate").textContent=`폴더별 번갈아 사진 1로 추가 (${remaining.toLocaleString()})`;
   $("photoFolderClear").disabled=queueSubmitting||(!count&&!FOLDER_PHOTOS.scanning);
   $("photoFolderAvailability").textContent=folderPhotoBlockReason()||(count?"사진 수집 완료 · 위의 ‘모은 사진 개별 대기열 추가’를 눌러 등록하세요.":"폴더를 추가하면 모은 사진 수가 표시됩니다.");
 }
@@ -1865,7 +1869,7 @@ function folderImageFile(file){return !!photoFileType(file);}
 function folderPhotoKey(file,path){return JSON.stringify([path,file.size,file.lastModified]);}
 function clearFolderPhotos(){
   if(queueSubmitting)return;
-  FOLDER_PHOTOS.epoch++;FOLDER_PHOTOS.scanning=false;FOLDER_PHOTOS.items.clear();
+  FOLDER_PHOTOS.epoch++;FOLDER_PHOTOS.scanning=false;FOLDER_PHOTOS.items.clear();FOLDER_PHOTOS.rotated.clear();FOLDER_PHOTOS.uncertain.clear();
   $("photoFolderStatus").textContent="폴더 목록을 비웠습니다. 이미 등록한 작업은 유지됩니다.";updateFolderPhotoControls();
 }
 async function collectFolderPhotos(load){
@@ -1932,11 +1936,87 @@ async function submitFolderPhotos(){
   $("photoFolderStatus").textContent=`${result.confirmedFiles.length.toLocaleString()}장 등록 확인 · 남은 사진 ${FOLDER_PHOTOS.items.size.toLocaleString()}장.${result.cancelled?" 추가를 중단했습니다.":""}${result.uncertainFile?" 응답 미확인 1장은 중복 방지를 위해 목록에서 제외했습니다. 작업 이력을 확인해 주세요.":""}${result.error?" 등록 안내: "+result.error:""}`;
   updateFolderPhotoControls();
 }
+function folderReferenceGroups(entries){
+  const groups=new Map();
+  for(const [key,item] of entries){
+    const path=item.path.replace(/\\/g,"/"),folder=path.includes("/")?path.slice(0,path.lastIndexOf("/")):"";
+    if(!groups.has(folder))groups.set(folder,[]);groups.get(folder).push({key,...item});
+  }
+  return [...groups.values()].map(group=>group.sort((a,b)=>a.path.localeCompare(b.path,"ko",{numeric:true})));
+}
+async function submitFolderRotatingPhotos(){
+  if(folderPhotosBlocked()||FOLDER_PHOTOS.scanning)return;
+  if(!CAT?.capabilities?.photo_reference_pool)return setStatus("서버를 갱신한 뒤 폴더별 번갈아 추가를 이용해 주세요.","err");
+  const groups=folderReferenceGroups([...FOLDER_PHOTOS.items.entries()]);
+  const remaining=groups.flat().filter(item=>!FOLDER_PHOTOS.rotated.has(item.key)&&!FOLDER_PHOTOS.uncertain.has(item.key)).length;
+  if(!remaining)return;
+  queueSubmitting=true;photoBatchStop=false;$("go").disabled=true;$("cancelEdit").disabled=true;updateSequenceButton();
+  $("stopPhotoBatch").hidden=false;$("stopPhotoBatch").disabled=false;
+  const added=[];let error="",prepared=0,cropped=0,unavailable=0;
+  try{
+    if(!manualFinal)render();const snapshot=captureSettings(),m=snapshot.model;
+    const loras=Object.entries(m.loras).map(([name,strength])=>({name,strength}));
+    const prompts=new Map();
+    for(const group of groups){const count=Math.min(9,group.length);if(!prompts.has(count))prompts.set(count,withFaceReferenceRules(manualFinal?$("final").value:build(count),count));}
+    if([...prompts.values()].some(prompt=>!prompt.trim()))throw Error("2번 내용을 작성해 주세요.");
+    const baseSeed=String(snapshot.seed??"").trim(),seed=baseSeed?BigInt(baseSeed):null;
+    const request={mode:"REF2VA",aspect:snapshot.f.aspect,resolution:snapshot.f.resolution,duration:snapshot.f.duration,
+      model:m.model,...Object.fromEntries(PARAMS.map(key=>[key,m[key]])),loras,count:1,anchor:!!m.anchor,photo_sequence:false,
+      ui:{f:{...snapshot.f,count:1},shots:snapshot.shots,actionMode:snapshot.actionMode,final:snapshot.final,trig:m.trig,oneTake:m.oneTake!==false,faceBoost:!!m.faceBoost}};
+    let offset=0;
+    for(let groupIndex=0;groupIndex<groups.length&&!photoBatchStop;groupIndex++){
+      const group=groups[groupIndex],ids=[];
+      if(group.every(item=>FOLDER_PHOTOS.rotated.has(item.key)||FOLDER_PHOTOS.uncertain.has(item.key))){offset+=group.length;continue;}
+      const groupToken=Date.now().toString(36)+"-"+Math.random().toString(36).slice(2)+"-"+groupIndex;
+      try{
+        for(const item of group){
+          if(photoBatchStop)break;
+          $("photoBatchStatus").textContent=`폴더 ${groupIndex+1}/${groups.length} · 참조 사진 준비 ${ids.length+1}/${group.length} · ${added.length}개 등록`;
+          const image=await readPhotoDataUrl(item.file);
+          if(photoBatchStop)break;
+          const response=await fetch("/api/photo-references",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image,group:groupToken,face_boost:!!m.faceBoost&&group.length>1})});
+          const result=await response.json();if(!response.ok||!result.id)throw Error(result.error||"참조 사진을 준비하지 못했습니다.");
+          ids.push(result.id);prepared++;cropped+=Number(!!result.cropped);unavailable+=Number(!!result.face_unavailable);
+        }
+        if(photoBatchStop)break;
+        for(let index=0;index<group.length&&!photoBatchStop;index++){
+          const item=group[index];if(FOLDER_PHOTOS.rotated.has(item.key)||FOLDER_PHOTOS.uncertain.has(item.key))continue;
+          const count=Math.min(9,group.length),refs=Array.from({length:count},(_,i)=>ids[(index+i)%group.length]);
+          $("photoBatchStatus").textContent=`폴더 ${groupIndex+1}/${groups.length} · 사진 ${index+1}을 사진 1로 · ${added.length}/${remaining}개 등록`;
+          let response,result;
+          try{
+            response=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...request,
+              prompt:prompts.get(count),seed:seed===null?"":String(seed+BigInt(offset+index)),reference_ids:refs,reference_sequence_index:index+1})});
+            result=await response.json();
+          }catch{FOLDER_PHOTOS.uncertain.add(item.key);throw Error("등록 응답을 확인하지 못해 중단했습니다. 해당 사진은 중복 방지를 위해 자동 재전송하지 않습니다. 작업 이력을 확인해 주세요.");}
+          if(!response.ok){if(response.status>=500)FOLDER_PHOTOS.uncertain.add(item.key);throw Error(result.error||"대기열에 등록하지 못했습니다.");}
+          const jobs=result.jobs||(result.id?[result]:[]);
+          if(jobs.length!==1||!jobs[0].id){FOLDER_PHOTOS.uncertain.add(item.key);throw Error("등록 확인이 불명확해 중복 요청 없이 중단했습니다. 작업 이력을 확인해 주세요.");}
+          FOLDER_PHOTOS.rotated.add(item.key);
+          const job=jobs[0];added.push({...job,state:"queued",loras:loras.map(item=>({...item})),info:`${job.width||result.width}×${job.height||result.height}, ${histModelName(job.model||m.model)} ${job.steps||m.steps}스텝, 시드 ${job.seed}`});
+          if(added.length===1||added.length%10===0)loadHist(false,true);
+        }
+      }finally{
+        if(ids.length)try{await fetch("/api/photo-references/release",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ids})});}catch{}
+      }
+      offset+=group.length;
+    }
+  }catch(exc){error=exc.message;}
+  finally{
+    queueSubmitting=false;$("cancelEdit").disabled=false;$("go").disabled=false;$("stopPhotoBatch").hidden=true;updateSequenceButton();
+    if(added.length){const existing=currentJobs.filter(job=>!finished(job));poll(existing.concat(added),existing.length?pollT0:Date.now(),null);loadHist(false,true);}
+    const left=[...FOLDER_PHOTOS.items.keys()].filter(key=>!FOLDER_PHOTOS.rotated.has(key)&&!FOLDER_PHOTOS.uncertain.has(key)).length;
+    const message=`폴더별 번갈아 ${added.length}개 등록 확인 · 남은 ${left}개${FOLDER_PHOTOS.uncertain.size?` · 응답 미확인 ${FOLDER_PHOTOS.uncertain.size}개`:""}${photoBatchStop?" · 추가 중단":""}${cropped?` · 얼굴 보조 참조 ${cropped}장 준비`:""}${unavailable?" · 일부 얼굴 크롭은 원본 참조 사용":""}${error?"\n"+error:""}`;
+    $("photoBatchStatus").textContent=message;$("photoFolderStatus").textContent=message;updateFolderPhotoControls();
+  }
+  return {registered:added.length,error,cancelled:photoBatchStop};
+}
 $("photoFolderOpen").onclick=()=>{if(queueSubmitting||FOLDER_PHOTOS.scanning)return;$("addMenu").open=false;$("photoFolderSection").open=true;$("photoFolderSection").scrollIntoView({block:"nearest"});if(folderPickerSupported())$("photoFolderFiles").click();};
 $("photoFolderChoose").onclick=()=>{if(!queueSubmitting&&!FOLDER_PHOTOS.scanning&&folderPickerSupported())$("photoFolderFiles").click();};
 $("photoFolderFiles").onchange=event=>{const files=Array.from(event.target.files||[]);event.target.value="";collectPickedFolder(files);};
 $("photoFolderClear").onclick=clearFolderPhotos;
 $("photoFolderSubmit").onclick=submitFolderPhotos;
+$("photoFolderRotate").onclick=submitFolderRotatingPhotos;
 $("photoFolderDrop").ondragover=event=>{event.preventDefault();event.stopPropagation();if(!queueSubmitting&&!FOLDER_PHOTOS.scanning)$("photoFolderDrop").classList.add("drag");};
 $("photoFolderDrop").ondragleave=()=>$("photoFolderDrop").classList.remove("drag");
 $("photoFolderDrop").ondrop=event=>{event.preventDefault();event.stopPropagation();$("photoFolderDrop").classList.remove("drag");collectDroppedFolders(event.dataTransfer);};

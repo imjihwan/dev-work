@@ -659,7 +659,7 @@ def catalog():
            "samplers": object_options("KSamplerSelect", "sampler_name"),
            "schedulers": object_options("BasicScheduler", "scheduler"),
            "presets": _load_json(PRESETS, {}), "default": template_defaults(),
-           "capabilities": {"queue_edit": True, "bulk_edit": True, "bulk_edit_all": True, "photo_sequence": True, "saved_settings": True, "restart_running": True, "priority_queue": True}}
+           "capabilities": {"queue_edit": True, "bulk_edit": True, "bulk_edit_all": True, "photo_sequence": True, "photo_reference_pool": True, "saved_settings": True, "restart_running": True, "priority_queue": True}}
     # 작은 LoRA 는 처음 보면 Civitai 정보를 자동으로 가져온다(큰 본체 모델은 버튼으로)
     for c in out["loras"]:
         if "civitai" not in c and c["fetch"]["state"] == "idle" and (c["auto"].get("size_gb") or 99) < 4:
@@ -859,7 +859,69 @@ def input_bytes(name):
         return response.read()
 
 
+PHOTO_REFERENCES = {}
+PHOTO_REFERENCE_LOCK = threading.Lock()
+
+
+def prepare_photo_reference(req):
+    image=req.get("image");group=req.get("group")
+    if not isinstance(image,str) or not image.startswith("data:image/") or not isinstance(group,str) or not 1<=len(group)<=120:
+        raise ValueError("준비할 사진과 폴더 정보를 확인해 주세요.")
+    try:
+        raw=base64.b64decode(image.split(",",1)[1],validate=True)
+        with Image.open(io.BytesIO(raw)) as im:
+            width,height=im.size;fmt=im.format;orientation=im.getexif().get(274)
+        if orientation in (5,6,7,8):width,height=height,width
+    except (ValueError,IndexError,OSError):raise ValueError("사진을 읽지 못했습니다.") from None
+    ext={"PNG":"png","WEBP":"webp"}.get(fmt,"jpg")
+    name=upload(raw,ext);original={"value":name,"source_width":width,"source_height":height}
+    auxiliary=dict(original);unavailable=False
+    if req.get("face_boost") is True:
+        from face_references import ensure_available,crop_reference,MODEL_NAME
+        try:
+            detector=os.path.join(ROOT,'models','face_detection',MODEL_NAME);ensure_available(detector)
+            cropped=crop_reference(raw,detector)
+            if cropped:
+                crop_raw,crop_size=cropped
+                auxiliary={"value":upload(crop_raw,'png'),"source_width":crop_size[0],"source_height":crop_size[1]}
+        except (ValueError,OSError):unavailable=True
+    identity=uuid.uuid4().hex;now=time.time()
+    with PHOTO_REFERENCE_LOCK:
+        for key in list(PHOTO_REFERENCES):
+            if now-PHOTO_REFERENCES[key]["created"]>3600:del PHOTO_REFERENCES[key]
+        PHOTO_REFERENCES[identity]={"created":now,"group":group,"original":original,"auxiliary":auxiliary}
+    return {"id":identity,"cropped":original["value"]!=auxiliary["value"],"face_unavailable":unavailable}
+
+
+def pooled_photo_reference(req):
+    ids=req.get("reference_ids")
+    if not isinstance(ids,list) or not 1<=len(ids)<=9 or any(not isinstance(key,str) for key in ids) or len(set(ids))!=len(ids):
+        raise ValueError("한 작업의 사진 참조는 서로 다른 1~9장이어야 합니다.")
+    with PHOTO_REFERENCE_LOCK:
+        records=[PHOTO_REFERENCES.get(key) for key in ids]
+        if any(record is None or time.time()-record["created"]>3600 for record in records):
+            raise ValueError("사진 준비 정보가 만료됐습니다. 남은 사진을 다시 등록해 주세요.")
+        if len({record["group"] for record in records})!=1:raise ValueError("서로 다른 폴더의 사진은 한 작업에 섞을 수 없습니다.")
+        selected=[dict(record["original"] if index==0 else record["auxiliary"]) for index,record in enumerate(records)]
+    items=[dict(item,id=f'pool-image-{index}',enabled=True,order=index,slot=index,start=index,duration=1,type='image',thumbnail=None) for index,item in enumerate(selected)]
+    return {"entry":{"images":[item["value"] for item in items],"sequence_index":req.get("reference_sequence_index")},
+            "prompt":{DIRECTOR:{"inputs":{"timeline_data":json.dumps({"items":items})}}}}
+
+
+def release_photo_references(req):
+    ids=req.get("ids")
+    if not isinstance(ids,list) or any(not isinstance(key,str) for key in ids):raise ValueError("사진 준비 정보를 확인해 주세요.")
+    with PHOTO_REFERENCE_LOCK:
+        for key in ids:PHOTO_REFERENCES.pop(key,None)
+    # Queued graphs use the uploaded files, so only release temporary metadata.
+    return {"ok":True}
+
+
 def build_and_queue(req, reference=None, prepare_only=False, queue_first=False):
+    if "reference_ids" in req:
+        if reference or req.get("edit_id") or req.get("photo_sequence") or int(req.get("count") or 1)!=1:
+            raise ValueError("폴더별 번갈아 등록은 한 번에 한 작업씩 새로 추가합니다.")
+        reference=pooled_photo_reference(req)
     edit_id = req.get("edit_id")
     sequence = req.get("photo_sequence") is True
     if queue_first and (edit_id or sequence or prepare_only):
@@ -1628,7 +1690,11 @@ class H(BaseHTTPRequestHandler):
                 return
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(n) or b"{}")
-            if self.path == "/api/generate":
+            if self.path == "/api/photo-references":
+                self._json(prepare_photo_reference(body))
+            elif self.path == "/api/photo-references/release":
+                self._json(release_photo_references(body))
+            elif self.path == "/api/generate":
                 self._json(build_and_queue(body))
             elif self.path == "/api/generate/priority":
                 self._json(build_and_queue(body, queue_first=True))

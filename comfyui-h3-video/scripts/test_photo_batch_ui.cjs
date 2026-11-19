@@ -29,6 +29,26 @@ function setup(options={}){
   vm.runInContext(script.slice(script.indexOf('let photoBatchStop='),script.indexOf('let currentJobs =')),context);
   return{context,get,requests,messages,builds,faceCounts,snapshot,stats:()=>({polls,reads,maxReads})};
 }
+function rotatingSetup(options={}){
+  const env=setup(),uploads=[],generations=[],releases=[];
+  env.context.CAT={capabilities:{photo_reference_pool:true}};
+  env.context.fetch=async(url,settings)=>{
+    const body=JSON.parse(settings.body);
+    if(url==='/api/photo-references'){
+      const id='ref-'+(uploads.length+1);uploads.push({id,...body});
+      if(options.mutate&&uploads.length===1){env.snapshot.model.loras['test-lora']=2;env.snapshot.seed='999';}
+      if(options.stopUpload===uploads.length)env.get('stopPhotoBatch').onclick();
+      return{ok:true,status:200,json:async()=>({id,cropped:body.face_boost})};
+    }
+    if(url==='/api/photo-references/release'){releases.push(body);return{ok:true,json:async()=>({ok:true})};}
+    assert.equal(url,'/api/generate');generations.push(body);
+    if(options.stopAfter===generations.length)env.get('stopPhotoBatch').onclick();
+    if(options.networkAt===generations.length)throw Error('Synthetic acknowledgement loss');
+    return{ok:true,status:200,json:async()=>({jobs:[{id:'rotation-'+generations.length,seed:body.seed,width:640,height:384}]})};
+  };
+  return{...env,uploads,generations,releases};
+}
+const folderPhotos=(folder,n)=>photos(n).map((file,index)=>({...file,name:`photo${index+1}.png`,webkitRelativePath:`${folder}/photo${index+1}.png`,size:100,lastModified:index}));
 (async()=>{
   let env=setup({mutate:true});const before=JSON.stringify(env.context.images);
   const outcome=await env.context.submitIndividualPhotos(photos(100));assert.equal(outcome.confirmedFiles.length,100);assert.equal(outcome.uncertainFile,null);
@@ -46,6 +66,27 @@ function setup(options={}){
   env=setup();env.context.CAT=null;const folderFiles=photos(3).map((file,index)=>({...file,name:`photo${index}.jpg`,webkitRelativePath:`Root/sub/photo${index}.jpg`,size:10,lastModified:index,type:'application/octet-stream'}));
   await env.context.collectPickedFolder(folderFiles);assert.equal(env.requests.length,0);assert.equal(vm.runInContext('FOLDER_PHOTOS.items.size',env.context),3);
   env.context.CAT={};await env.context.submitFolderPhotos();assert.equal(env.requests.length,3);assert.equal(vm.runInContext('FOLDER_PHOTOS.items.size',env.context),0,'Real folder submit must call the real batch submit and remove only confirmed files');
+  let rotating=rotatingSetup({mutate:true});rotating.snapshot.model.faceBoost=true;
+  const originalMain=JSON.stringify(rotating.context.images);
+  await rotating.context.collectPickedFolder(folderPhotos('Folder',50).reverse());assert.equal(rotating.uploads.length,0);
+  await rotating.context.submitFolderRotatingPhotos();
+  assert.equal(rotating.uploads.length,50);assert.equal(rotating.generations.length,50);assert.equal(rotating.releases.length,1);assert.equal(rotating.stats().maxReads,1);
+  for(let index=0;index<50;index++){
+    const job=rotating.generations[index];
+    assert.deepEqual(job.reference_ids,Array.from({length:9},(_,n)=>rotating.uploads[(index+n)%50].id));
+    assert.equal(job.seed,String(42+index));assert.equal(job.loras[0].strength,.75);assert.equal(job.ui.faceBoost,true);assert.equal(job.prompt,'synthetic-reference-count:9');assert.equal(job.reference_sequence_index,index+1);
+  }
+  assert(rotating.uploads.every(item=>item.face_boost));assert.equal(JSON.stringify(rotating.context.images),originalMain);
+  await rotating.context.submitFolderRotatingPhotos();assert.equal(rotating.generations.length,50,'Double submit does not register completed anchors again');
+  rotating=rotatingSetup();await rotating.context.collectPickedFolder([...folderPhotos('A',50),...folderPhotos('B',50)]);await rotating.context.submitFolderRotatingPhotos();
+  assert.equal(rotating.generations.length,100);assert.equal(rotating.uploads.length,100);assert.equal(rotating.releases.length,2);
+  for(const job of rotating.generations)assert.equal(new Set(job.reference_ids.map(id=>rotating.uploads.find(row=>row.id===id).group)).size,1,'References never cross folder boundaries');
+  rotating=rotatingSetup({stopAfter:3});await rotating.context.collectPickedFolder(folderPhotos('Resume',50));await rotating.context.submitFolderRotatingPhotos();assert.equal(rotating.generations.length,3);
+  await rotating.context.submitFolderRotatingPhotos();assert.equal(rotating.generations.length,50);assert.equal(rotating.generations[3].seed,'45');
+  rotating=rotatingSetup({networkAt:3});await rotating.context.collectPickedFolder(folderPhotos('Uncertain',50));await rotating.context.submitFolderRotatingPhotos();assert.equal(rotating.generations.length,3);
+  await rotating.context.submitFolderRotatingPhotos();assert.equal(rotating.generations.length,50);assert(rotating.get('photoFolderStatus').textContent.includes('응답 미확인 1개'));
+  rotating=rotatingSetup({stopUpload:4});await rotating.context.collectPickedFolder(folderPhotos('UploadStop',50));await rotating.context.submitFolderRotatingPhotos();assert.equal(rotating.generations.length,0);assert.equal(rotating.releases[0].ids.length,4);
+  rotating=rotatingSetup();await rotating.context.collectPickedFolder([...folderPhotos('One',1),...folderPhotos('Three',3)]);await rotating.context.submitFolderRotatingPhotos();assert.deepEqual(rotating.generations.map(job=>job.reference_ids.length),[1,3,3,3]);
   env=setup();let statusCalls=0;env.context.fetch=async()=>{statusCalls++;return{json:async()=>statusCalls<3?{state:'done',video:{}}:{state:'running',pct:5}};};
   vm.runInContext(script.slice(script.indexOf('function poll(jobs,'),script.indexOf('const HIST =')),env.context);
   env.context.poll(Array.from({length:100},(_,i)=>({id:'queued-'+i,state:'queued'})),Date.now(),null);await new Promise(setImmediate);

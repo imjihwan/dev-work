@@ -24,6 +24,8 @@ READS = {
     "/api/prompt-helper/status": "id 도우미 요청 상태",
 }
 WRITES = {
+    "/api/photo-references": "폴더별 참조 사진 준비(사진 선택은 사용자)",
+    "/api/photo-references/release": "사용한 임시 참조 연결 해제(등록된 작업 유지)",
     "/api/production-assistant/patch-queue": "단일 또는 여러/전체 대기 작업의 공통 문구 교체(id 또는 ids 또는 all_pending, edits)",
     "/api/generate": "영상 대기열 추가", "/api/generate/priority": "1순위 우선추가",
     "/api/queue/bulk-edit": "지정 또는 전체 대기 항목 수정(실행 중 제외)",
