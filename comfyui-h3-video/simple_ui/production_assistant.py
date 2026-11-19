@@ -11,6 +11,7 @@ from grok_cli import clean_progress
 REQUEST_TIMEOUT_SECONDS=900
 
 READS = {
+    "ui_controls": "현재 화면 입력 원문·선택지·조작 목록 조회(refs 또는 ids 또는 page, offset, limit; proposal:true는 미적용 변경안)",
     "queue": "현재 실행·대기 순서와 진행률(문구 없음)",
     "queue_item": "지정 대기 항목의 실제 최종 프롬프트와 입력·설정",
     "/api/health": "서버 상태", "/api/catalog": "모델·LoRA·조합 목록",
@@ -80,6 +81,15 @@ actions. A subsequent turn provides their results; then answer or propose action
 The initial queue is a page, not the full list: has_more/total describe omitted rows.
 Use queue {offset:0,limit:20} for another page or queue_item {position:N} directly.
 For current-screen questions use supplied controls, not a redundant API read.
+Large screens are supplied as a bounded overview, with ui_overview describing
+omitted controls. value_omitted/options_omitted are previews, NEVER the full input
+or full choice list. Read ui_controls {refs:[...]}, {ids:[...]}, or {page,offset,limit}
+to retrieve the needed original inputs and available controls from the same snapshot.
+For large choice lists use option_offset/option_limit. Read ui_controls
+{proposal:true,offset,limit} for full values of an abbreviated pending proposal.
+Do not ask the user to close tabs or shorten their prompt to resolve screen size.
+Before editing an abbreviated input, read its complete value; do not rewrite from
+its preview. Other controls and values remain available through this read.
 Batch independent reads in the same response. Reuse read_results rather than
 requesting identical information again. Keep explanations concise unless detailed
 wording is requested.
@@ -214,7 +224,9 @@ def validate_input(body):
             clean["pending_proposal"]={"actions":validated["actions"]}
         except (UnavailableTarget,InvalidEdit):
             pass  # A stale display proposal must not prevent a new request.
-    if len(json.dumps(clean,ensure_ascii=False))>240000: raise ValueError("화면 내용이 너무 큽니다. 필요한 탭이나 항목만 열어 다시 요청해 주세요.")
+    # Keep the complete local snapshot for exact edits; bound the MODEL view
+    # separately. A long form must not be rejected before the model can read it.
+    if len(json.dumps(clean,ensure_ascii=False))>8000000: raise ValueError("화면 조작 정보가 처리 가능한 최대 크기를 넘었습니다.")
     return clean
 
 
@@ -243,7 +255,7 @@ class InvalidEdit(ValueError):
         self.feedback={"type":"invalid_edit","reason":reason,"target":action["target"][:120],"kind":action["kind"],"executed":False}
 
 
-def validate_plan(output,request):
+def validate_plan(output,request,readable_refs=None):
     if not isinstance(output,dict) or not isinstance(output.get("reply"),str) or output.get("intent") not in ("explain","propose","execute"): raise ValueError("도우미 응답 형식을 확인하지 못했습니다.")
     reads=output.get("reads");actions=output.get("actions")
     if not isinstance(reads,list) or len(reads)>4 or not isinstance(actions,list) or len(actions)>8 or reads and actions: raise ValueError("조회와 실행 계획을 분리해 다시 요청해 주세요.")
@@ -269,6 +281,7 @@ def validate_plan(output,request):
             if control["type"] not in ("button","link"): raise ValueError("클릭할 버튼을 찾지 못했습니다.")
             if control.get("hidden") and not control.get("revealable"):raise UnavailableTarget(action,"hidden")
         elif action["kind"] in ("set","replace"):
+            if readable_refs is not None and control["ref"] not in readable_refs:raise InvalidEdit(action,"read_full_input_with_ui_controls")
             if control.get("readonly"):raise UnavailableTarget(action,"readonly")
             if control["type"] in ("button","link","file"): raise ValueError("이 입력은 자동으로 바꿀 수 없습니다.")
             field=control.get("id","")
@@ -306,10 +319,67 @@ def queue_page(snapshot,args=None):
 
 
 def model_request(request):
-    """Omit repetitive false UI flags without shortening any input text."""
-    return {key:value for key,value in {**request,"controls":[
+    """Keep originals locally; page oversized UI data instead of rejecting it."""
+    view={key:value for key,value in {**request,"controls":[
         {key:value for key,value in control.items() if not (key in ("disabled","readonly","hidden") and value is False)}
         for control in request["controls"]]}.items() if key!="effort"}
+    if len(json.dumps(view,ensure_ascii=False))<=160000:return view
+    controls=view.pop("controls");budget=120000;result=[];used=0
+    def priority(c):
+        if c.get("page")=="main" and c.get("id") in ("subject","summary","actionText","style","keep","sound","music","final","actionMode") or c.get("id","").startswith("shot-"):return 0
+        return 1 if c["type"] not in ("button","link") else 2
+    for control in sorted(controls,key=priority):
+        item=dict(control)
+        if len(item.get("value",""))>6000:
+            value=item.pop("value");item.update(value_omitted=True,value_chars=len(value),value_preview=value[:500])
+        if len(json.dumps(item.get("options",[]),ensure_ascii=False))>3000:
+            options=item.pop("options");item.update(options_omitted=True,options_total=len(options),options_preview=options[:3])
+        size=len(json.dumps(item,ensure_ascii=False))
+        if len(result)<200 and used+size<=budget:result.append(item);used+=size
+    view["controls"]=result
+    proposal=view.get("pending_proposal")
+    if proposal:
+        actions=[]
+        for original in proposal["actions"]:
+            item=dict(original);item.pop("before",None)
+            for key in ("value","args"):
+                if len(item.get(key,""))>6000:
+                    value=item.pop(key);item.update({key+"_omitted":True,key+"_chars":len(value),key+"_preview":value[:500]})
+            actions.append(item)
+        view["pending_proposal"]={"actions":actions,"full_values_read":"ui_controls {proposal:true}"}
+    view["ui_overview"]={"total":len(controls),"included":len(result),"has_more":len(result)<len(controls),
+        "pages":{page:sum(c.get("page")==page for c in controls) for page in sorted({c.get("page","") for c in controls})},
+        "read":"ui_controls retrieves complete values and controls from this snapshot"}
+    return view
+
+
+def ui_controls_page(request,args):
+    """Read a bounded slice from the immutable, media-scrubbed UI snapshot."""
+    offset=args.get("offset",0);limit=args.get("limit",20)
+    option_offset=args.get("option_offset",0);option_limit=args.get("option_limit",100)
+    if any(type(n) is not int or n<0 for n in (offset,limit,option_offset,option_limit)) or not 1<=limit<=100 or not 1<=option_limit<=200:raise ValueError("화면 조회 범위를 확인해 주세요.")
+    proposal=args.get("proposal",False)
+    if type(proposal) is not bool:raise ValueError("화면 조회 대상을 확인해 주세요.")
+    rows=(request.get("pending_proposal") or {}).get("actions",[]) if proposal else request["controls"]
+    if not proposal:
+        for key,field in (("refs","ref"),("ids","id")):
+            if key in args:
+                values=args[key]
+                if not isinstance(values,list) or not 1<=len(values)<=100 or any(not isinstance(v,str) for v in values):raise ValueError("화면 조회 대상을 확인해 주세요.")
+                rows=[item for item in rows if item.get(field) in values]
+        if "page" in args:
+            if not isinstance(args["page"],str):raise ValueError("화면 조회 대상을 확인해 주세요.")
+            rows=[item for item in rows if item.get("page")==args["page"]]
+    selected=[];size=0
+    for original in rows[offset:offset+limit]:
+        item=dict(original)
+        if proposal:item.pop("before",None)
+        if "options" in item:
+            options=item["options"];item.update(options=options[option_offset:option_offset+option_limit],options_total=len(options),option_offset=option_offset,options_has_more=option_offset+option_limit<len(options))
+        cost=len(json.dumps(item,ensure_ascii=False))
+        if selected and size+cost>100000:break
+        selected.append(item);size+=cost
+    return {"actions" if proposal else "controls":selected,"total":len(rows),"offset":offset,"limit":limit,"has_more":offset+len(selected)<len(rows)}
 
 
 class ProductionAssistant:
@@ -367,6 +437,7 @@ class ProductionAssistant:
             progress("prepare",0)
             queue=self.queue_snapshot()
             content={**model_request(request),"queue":queue_page(queue),"read_catalog":READS,"write_catalog":WRITES,"bindings":["$current_settings","$current_generation","$current_prompt","$current_story"]}
+            readable_refs={c["ref"] for c in content["controls"] if "value" in c}
             read_cache={}
             with self.helper.lock:self.helper.job["state"]="generating"
             target_repairs=0
@@ -377,7 +448,7 @@ class ProductionAssistant:
                 progress("model",iteration+1)
                 output=self.helper.grok.complete(SYSTEM,content,SCHEMA,cancel,effort=request.get("effort","high"),on_progress=cli_progress,timeout_s=remaining)
                 try:
-                    plan=validate_plan(output,request)
+                    plan=validate_plan(output,request,readable_refs)
                 except (UnavailableTarget,InvalidEdit) as exc:
                     if target_repairs or iteration==4:raise
                     target_repairs+=1;content["action_feedback"]=exc.feedback
@@ -395,10 +466,11 @@ class ProductionAssistant:
                         if cache_key in read_cache:
                             value=read_cache[cache_key]
                         else:
-                            value=queue_page(queue,args) if item["path"]=="queue" else self.queue_item(args,queue) if item["path"]=="queue_item" else self.read_api(item["path"],args)
+                            value=ui_controls_page(request,args) if item["path"]=="ui_controls" else queue_page(queue,args) if item["path"]=="queue" else self.queue_item(args,queue) if item["path"]=="queue_item" else self.read_api(item["path"],args)
                         if item["path"]=="queue_item" and value.get("id") and value.get("prompt_hash"):queue.setdefault("prompt_hashes",{})[value["id"]]=value["prompt_hash"]
                         value=scrub(value)
                         if len(json.dumps(value,ensure_ascii=False))>120000:value={"error":"조회 내용이 너무 큽니다. 항목 ID나 offset/limit로 범위를 줄여 주세요."}
+                        if item["path"]=="ui_controls":readable_refs.update(c["ref"] for c in value.get("controls",[]) if "value" in c)
                         read_cache[cache_key]=value
                     except (OSError,ValueError,KeyError):value={"error":"해당 앱 정보를 가져오지 못했습니다. 대상이나 상태를 다시 확인해 주세요."}
                     results.append({**item,"result":value})

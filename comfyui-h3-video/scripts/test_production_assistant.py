@@ -291,6 +291,58 @@ class PlannerTests(unittest.TestCase):
         self.assertTrue(compact['controls'][1]['readonly']);self.assertIs(request['controls'][0]['disabled'],False)
         self.assertNotIn('effort',compact)
 
+    def large_screen(self):
+        controls=[{**control(ref=f'main:{n+1}',value=('Synthetic scene line.\n'*3000)+str(n)),'id':field} for n,field in enumerate(('subject','summary','actionText','style','keep','final'))]
+        controls += [{**control(ref=f'main:{n+7}',value='',type='button'),'id':f'button-{n}'} for n in range(1100)]
+        controls += [{**control(ref='story:1200',type='select',value='choice-0'),'id':'large-choice','page':'story','options':[{'value':f'choice-{n}','label':f'Synthetic choice {n} '+('X'*100)} for n in range(500)]}]
+        return P.validate_input({'message':'동작만 수정하고 전체 반영해줘','controls':controls})
+
+    def test_large_screen_is_bounded_for_model_but_original_values_remain_readable(self):
+        request=self.large_screen();raw=json.dumps(request,ensure_ascii=False);self.assertGreater(len(raw),240000)
+        view=P.model_request(request);self.assertLess(len(json.dumps(view,ensure_ascii=False)),160000)
+        self.assertTrue(view['ui_overview']['has_more']);self.assertLessEqual(len(view['controls']),200)
+        action_field=next(c for c in view['controls'] if c.get('id')=='actionText')
+        self.assertTrue(action_field['value_omitted']);self.assertNotIn('value',action_field)
+        read=P.ui_controls_page(request,{'refs':[action_field['ref']]});original=next(c for c in request['controls'] if c['ref']==action_field['ref'])
+        self.assertEqual(read['controls'][0]['value'],original['value']);self.assertGreater(len(original['value']),60000)
+        self.assertNotIn('value_omitted',original)
+        self.assertEqual(P.ui_controls_page(request,{'ids':['button-1099']})['controls'][0]['id'],'button-1099')
+
+    def test_large_select_options_and_text_reads_are_paged_without_silent_loss(self):
+        request=self.large_screen()
+        read=P.ui_controls_page(request,{'ids':['large-choice'],'option_offset':200,'option_limit':100})['controls'][0]
+        self.assertEqual(read['options'][0]['value'],'choice-200');self.assertEqual(read['options_total'],500);self.assertTrue(read['options_has_more'])
+        read=P.ui_controls_page(request,{'refs':['main:1','main:2'],'limit':2})
+        self.assertEqual(len(read['controls']),1);self.assertTrue(read['has_more']);self.assertEqual(read['total'],2)
+        for args in ({'limit':0},{'offset':-1},{'refs':'main:1'},{'option_limit':201}):
+            with self.assertRaises(ValueError):P.ui_controls_page(request,args)
+
+    def test_large_screen_read_then_replace_keeps_entire_original_for_exact_execution(self):
+        request=self.large_screen()
+        request['message']='통합 동작만 수정해줘'
+        updated=action(kind='replace',target='main:3',before='',value='Updated complete synthetic action.')
+        read={'path':'ui_controls','args':'{"ids":["actionText"]}'}
+        job=self.run_fake([plan(reads=[read]),plan([updated])],request)
+        self.assertEqual(job['state'],'done');self.assertEqual(self.helper.grok.complete.call_count,2)
+        planned=job['production']['actions'][0]
+        self.assertEqual(planned['before'],request['controls'][2]['value']);self.assertEqual(planned['value'],updated['value'])
+        self.read.assert_not_called();self.writer.assert_not_called()
+
+    def test_unread_preview_cannot_be_rewritten_and_feedback_allows_a_targeted_read(self):
+        request=self.large_screen();updated=action(kind='replace',target='main:3',before='',value='Revised synthetic action.')
+        read={'path':'ui_controls','args':'{"refs":["main:3"]}'}
+        job=self.run_fake([plan([updated]),plan(reads=[read]),plan([updated])],request)
+        self.assertEqual(job['state'],'done');self.assertEqual(self.helper.grok.complete.call_count,3)
+        self.assertEqual(job['production']['actions'][0]['before'],request['controls'][2]['value']);self.writer.assert_not_called()
+
+    def test_large_pending_proposal_has_retrievable_full_new_text(self):
+        request=self.large_screen();new='Revised synthetic scene. '*2500
+        request['pending_proposal']={'actions':[action(kind='set',target='main:3',before=request['controls'][2]['value'],value=new)]}
+        view=P.model_request(request);item=view['pending_proposal']['actions'][0]
+        self.assertNotIn('before',item);self.assertTrue(item['value_omitted']);self.assertNotIn('value',item)
+        read=P.ui_controls_page(request,{'proposal':True,'limit':1})['actions'][0]
+        self.assertEqual(read['value'],new);self.assertNotIn('before',read)
+
     def test_all_user_facing_json_routes_are_available_without_binary_or_recursive_access(self):
         source=ast.parse((SOURCE/'server.py').read_text(encoding='utf-8-sig'))
         handler=next(item for item in source.body if isinstance(item,ast.ClassDef) and item.name=='H')
