@@ -70,10 +70,13 @@ Pip "opencv-python>=5,<6"
 if ($LASTEXITCODE -ne 0) { throw "CPU 얼굴 검출 모델 설치 실패" }
 
 Step "간단 화면(simple_ui) 복사"
+& $Py "$Root\scripts\install_queue_pause.py" --comfy $ComfyDir
+if ($LASTEXITCODE -ne 0) { throw "대기열 일시정지 확장 설치 실패" }
 $ui = "$ComfyDir\simple_ui"
 New-Item -ItemType Directory -Force $ui | Out-Null
 $publicUiFiles = @(
-    'server.py', 'index.html', 'start.bat', 'template_api.json',
+    'server.py', 'index.html', 'start.bat', 'template_api.json', 'queue-pause.js',
+    'bulk_progress.py', 'bulk-progress.js', 'queue_bulk.py', 'person_framing.py',
     'cards.seed.json', 'presets.seed.json', 'prompt_helper.py', 'grok_cli.py',
     'production_assistant.py', 'production_assistant.js', 'local_translate.py', 'translation_worker.py',
     'story.py', 'story_workflow.py', 'story.html', 'gallery.py', 'gallery.html', 'face_references.py'

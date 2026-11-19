@@ -2,6 +2,7 @@
 <html lang="ko">
 <head><script src="/bulk-progress.js" defer></script>
 <script src="/production-assistant.js" defer></script>
+<script src="/queue-pause.js" defer></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>결과 갤러리</title>
@@ -36,6 +37,7 @@ main{max-width:1680px;margin:auto;padding:0 18px 40px}.toolbar{position:sticky;t
     <div class="work-progress" aria-label="현재 작업 진행률">
       <div class="work-progress-line"><strong id="workProgressText">진행률 확인 중…</strong><span class="hint" id="workPending"></span></div>
       <progress id="workProgress" max="100" aria-label="현재 실행 중인 작업 진행률"></progress>
+      <div id="queuePauseHost"></div>
     </div>
   </header>
   <section class="gallery-tools" aria-label="갤러리 필터와 작업 도구">

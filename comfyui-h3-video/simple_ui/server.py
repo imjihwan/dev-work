@@ -180,6 +180,25 @@ def comfy(path, data=None, headers=None, timeout=60):
     return urllib.request.urlopen(req, timeout=timeout)
 
 
+def queue_pause(body=None):
+    """Proxy only the queue gate's booleans/counts; never fetch queued graphs."""
+    if body is not None and (not isinstance(body,dict) or set(body)!={'paused'} or type(body['paused']) is not bool):
+        raise ValueError('일시정지 상태를 확인해 주세요.')
+    try:
+        with comfy('/h3-video/queue-pause',None if body is None else json.dumps(body).encode(),{'Content-Type':'application/json'},timeout=5) as response:
+            value=json.load(response)
+    except urllib.error.HTTPError as exc:
+        if exc.code==404:return {'supported':False,'state':'unsupported'}
+        raise ValueError('일시정지 제어 요청에 실패했습니다. 상태를 다시 확인해 주세요.') from None
+    except OSError:
+        return {'supported':False,'state':'unavailable'}
+    if not isinstance(value,dict) or value.get('supported') is not True or type(value.get('paused')) is not bool or value.get('state') not in ('running','finishing','paused'):
+        raise ValueError('일시정지 상태를 확인하지 못했습니다.')
+    if any(type(value.get(key)) is not int or value[key]<0 for key in ('running','pending')) or type(value.get('storage_error',False)) is not bool:
+        raise ValueError('일시정지 상태 형식을 확인하지 못했습니다.')
+    return {key:value[key] for key in ('supported','paused','state','running','pending','storage_error') if key in value}
+
+
 @lru_cache(maxsize=256)
 def input_thumbnail(name, size=192):
     with comfy("/view?" + urllib.parse.urlencode({"filename": name, "type": "input"})) as response:
@@ -1798,6 +1817,9 @@ class H(BaseHTTPRequestHandler):
             elif u.path == "/bulk-progress.js":
                 with open(os.path.join(HERE,"bulk-progress.js"),"rb") as script:b=script.read()
                 self.send_response(200);self.send_header("Content-Type","text/javascript; charset=utf-8");self.send_header("Cache-Control","no-store");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
+            elif u.path == "/queue-pause.js":
+                with open(os.path.join(HERE,"queue-pause.js"),"rb") as script:b=script.read()
+                self.send_response(200);self.send_header("Content-Type","text/javascript; charset=utf-8");self.send_header("Cache-Control","no-store");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
             elif u.path == "/production-assistant.js":
                 with open(os.path.join(HERE,"production_assistant.js"),"rb") as script:b=script.read()
                 self.send_response(200);self.send_header("Content-Type","text/javascript; charset=utf-8");self.send_header("Cache-Control","no-store");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
@@ -1807,6 +1829,8 @@ class H(BaseHTTPRequestHandler):
                 self._json(PROMPT_HELPER.status(q.get("id")))
             elif u.path == "/api/queue/bulk-progress":
                 self._json(BULK_PROGRESS.snapshot())
+            elif u.path == "/api/queue/pause":
+                self._json(queue_pause())
             elif u.path == "/api/health":
                 # sequence_face_crop = 이 서버가 얼굴 크롭을 아는 버전인지(화면의 버전 확인용),
                 # face_detector_ready = 지금 실제로 크롭할 수 있는지(모델·OpenCV 준비 여부)
@@ -1938,6 +1962,8 @@ class H(BaseHTTPRequestHandler):
                 self._json(build_and_queue(body))
             elif self.path == "/api/generate/priority":
                 self._json(build_and_queue(body, queue_first=True))
+            elif self.path == "/api/queue/pause":
+                self._json(queue_pause(body))
             elif self.path == "/api/production-assistant/conversation":
                 self._json(PRODUCTION_ASSISTANT.conversation(body))
             elif self.path == "/api/production-assistant/start":

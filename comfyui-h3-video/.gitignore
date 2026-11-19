@@ -100,3 +100,5 @@ node_modules/
 
 # Shared assistant transcripts are private runtime state
 **/production-chat.json
+**/H3VideoQueuePause/pause-state.json*
+**/h3-video-queue-pause/pause-state.json*
