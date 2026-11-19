@@ -38,10 +38,13 @@ try:
 except OSError:
     live = {"queue_running": [], "queue_pending": []}  # ComfyUI 가 꺼져 있으면 넘겨줄 진행 상태가 없다
 jobs = [item for item in live["queue_running"] + live["queue_pending"] if item[1] in own_ids]
+running_ids = {item[1] for item in live["queue_running"]}
 progress, clients = {}, []
 for item in jobs:
     identity, graph, extra = item[1], item[2], item[3]
-    status = read("http://127.0.0.1:8190/api/status?id=" + urllib.parse.quote(identity))
+    # Pending rows already have a known state; hundreds of separate status
+    # requests would repeatedly serialize the entire native queue during restart.
+    status = read("http://127.0.0.1:8190/api/status?id=" + urllib.parse.quote(identity)) if identity in running_ids else {"pct":0,"label":"대기"}
     progress[identity] = {"classes": {key: node["class_type"] for key, node in graph.items()},
                           "pct": status.get("pct", 0), "label": status.get("label", "대기"),
                           **{key:status[key] for key in ("generation_started_at","elapsed_estimated") if key in status}}

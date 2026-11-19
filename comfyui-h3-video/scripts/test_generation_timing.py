@@ -80,5 +80,16 @@ class TimingTests(unittest.TestCase):
         self.assertEqual(self.env['PROGRESS']['synthetic']['generation_started_at'],2000)
         self.assertNotIn('generation_seconds',self.row);self.assertNotIn('elapsed_only',self.env['PROGRESS']['synthetic'])
 
+    def test_ui_restart_checks_only_running_job_and_preserves_its_clock(self):
+        tree=ast.parse((ROOT/'scripts/prepare_ui_restart.py').read_text(encoding='utf-8'))
+        loop=next(n for n in tree.body if isinstance(n,ast.For) and isinstance(n.target,ast.Name) and n.target.id=='item')
+        jobs=[[n,f'synthetic-{n}',{'n':{'class_type':'Synthetic'}},{'client_id':'client'}] for n in range(610)]
+        read=MagicMock(return_value={'pct':42,'generation_started_at':1000,'elapsed_estimated':False})
+        env={'jobs':jobs,'running_ids':{'synthetic-0'},'read':read,'urllib':__import__('urllib'),'progress':{},'clients':[]}
+        exec(compile(ast.Module(body=[loop],type_ignores=[]),'<synthetic UI restart>','exec'),env)
+        read.assert_called_once();self.assertEqual(len(env['progress']),610)
+        self.assertEqual(env['progress']['synthetic-0']['generation_started_at'],1000)
+        self.assertFalse(env['progress']['synthetic-0']['elapsed_estimated']);self.assertEqual(env['progress']['synthetic-609']['pct'],0)
+
 
 if __name__=='__main__':unittest.main()
