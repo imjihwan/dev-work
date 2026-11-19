@@ -477,9 +477,9 @@ a{color:var(--acc)}
     <div class="card" style="margin-top:16px">
       <div class="sec-h"><h2 style="margin:0">작업 이력 <small id="histCount" style="font-weight:400;color:var(--mute)"></small></h2><button class="textbtn" id="histClear">전체 지우기</button></div>
       <div class="hint" style="margin-bottom:6px"><b>불러오기</b>로 그때 구성을 다시 채웁니다. 설정·프롬프트·삭제는 ⋯ 에 있습니다. 기록을 지워도 영상 파일은 남습니다.</div>
-      <div id="bulkAllBox"><button type="button" class="bulk-all" id="bulkEditAll" disabled>전체 대기항목 일괄수정</button>
-      <div class="hint" style="margin-bottom:8px">실행 중인 작업은 빼고 대기 작업 전부(목록에 안 보이는 것 포함)를 고칩니다.</div></div>
-      <div class="hact" style="margin-bottom:10px"><label style="margin:0;font-weight:400"><input type="checkbox" id="selectQueued">불러온 항목만 선택</label><button class="ghost" id="bulkEdit" disabled>선택 항목 일괄수정 (0)</button></div>
+      <div id="bulkAllBox"><button type="button" class="bulk-all" id="bulkEditAll" disabled>현재 프롬프트·설정 전체 대기에 적용</button>
+      <div class="hint" style="margin-bottom:8px">현재 화면의 프롬프트·모델·LoRA·화면·길이·첫 장면 고정을 적용합니다. 사진·생성 방식·시드·순서는 유지하고 실행 중인 작업은 제외합니다.</div></div>
+      <div class="hact" style="margin-bottom:10px"><label style="margin:0;font-weight:400"><input type="checkbox" id="selectQueued">불러온 항목만 선택</label><button class="ghost" id="bulkEdit" disabled>현재 설정 선택 항목에 적용 (0)</button></div>
       <div class="hact" style="margin-bottom:6px"><button class="ghost" id="compareVideos" disabled>선택 영상 재생 (0/3)</button><button class="textbtn" id="clearCompare" hidden>재생 선택 해제</button></div>
       <div class="hint" style="margin-bottom:8px">완료 영상을 3개까지 체크해 함께 재생합니다.</div>
       <div id="histList"></div>
@@ -2472,9 +2472,9 @@ function refreshQueueSelection(){
   for (const id of HIST.selected) if (!queued.has(id)) HIST.selected.delete(id);
   $("histList").querySelectorAll("[data-select]").forEach(input => { input.checked = HIST.selected.has(input.dataset.select); input.disabled = !queued.has(input.dataset.select); });
   $("bulkEditAll").disabled = !!HIST.bulkLoading || queueSubmitting || !CAT?.capabilities?.bulk_edit_all;
-  $("bulkAllBox").hidden = !bulkAllEditing && !HIST.items.some(e => e.state === "queued");
+  $("bulkAllBox").hidden = !CAT?.capabilities?.bulk_edit_all;
   $("bulkEdit").disabled = !!HIST.bulkLoading || queueSubmitting || !HIST.selected.size || !CAT?.capabilities?.bulk_edit;
-  $("bulkEdit").textContent = `선택 항목 일괄수정 (${HIST.selected.size})`;
+  $("bulkEdit").textContent = `현재 설정 선택 항목에 적용 (${HIST.selected.size})`;
   $("selectQueued").checked = queued.size > 0 && [...queued].every(id => HIST.selected.has(id));
   $("selectQueued").indeterminate = HIST.selected.size > 0 && !$("selectQueued").checked;
 }
@@ -2487,26 +2487,43 @@ $("histList").onchange = ev => {
   refreshQueueSelection();
 };
 $("selectQueued").onchange = () => { HIST.selected.clear(); if ($("selectQueued").checked) HIST.items.filter(e => e.state === "queued").forEach(e => HIST.selected.add(e.id)); refreshQueueSelection(); };
-async function beginBulkEdit(all=false){
+async function applyCurrentBulk(all=false){
   if(!CAT||queueSubmitting||HIST.bulkLoading)return;
-  if(all&&!CAT.capabilities?.bulk_edit_all)return;
-  HIST.bulkLoading=true;queueSubmitting=true;$("go").disabled=true;updateSequenceButton();refreshQueueSelection();
-  try {
-    let ids=[...HIST.selected], first=HIST.items.find(e=>e.id===ids[0]);
-    if(all){
-      const response=await fetch("/api/queue/bulk-context",{cache:"no-store"}),data=await response.json();
-      if(!response.ok||data.error)throw new Error(data.error||"전체 대기항목을 불러오지 못했습니다.");
-      ids=data.ids;first=data.first;
-    }
-    if(!first||!ids.length){setStatus("수정할 대기항목이 없습니다.");return;}
-    setQueueEdit(null);await loadForQueueEdit(first,()=>setQueueEdit(first,ids,all));
-    setStatus(all?"전체 대기항목 수정 모드입니다. 적용할 항목을 고르고 수정한 뒤 맨 위 ‘전체 대기항목 수정 저장’을 누르세요.":"적용할 항목을 고르고 내용을 수정한 뒤 맨 위 ‘일괄수정 저장’을 누르세요.");
-  }
-  catch (error) { setStatus(error.message,"err"); }
-  finally { HIST.bulkLoading=false;queueSubmitting=false;$("go").disabled=false;updateSequenceButton();refreshQueueSelection(); }
+  if(all&&!CAT.capabilities?.bulk_edit_all||!all&&!CAT.capabilities?.bulk_edit)return;
+  const ids=all?[]:[...HIST.selected];
+  if(!all&&!ids.length)return setStatus("적용할 대기항목을 선택해 주세요.","err");
+  refreshSubmissionPrompt();
+  const snapshot=captureSettings(),prompt=$("final").value,model=snapshot.model;
+  if(!prompt.trim())return setStatus("현재 최종 프롬프트를 먼저 작성해 주세요.","err");
+  if(!model.model)return setStatus("현재 화면에서 모델을 선택해 주세요.","err");
+  // Snapshot at the click. Never load a queue item's text or restore an older form.
+  const body={apply_current:true,all_pending:all,edit_ids:ids,bulk_fields:["content","model","video","anchor"],
+    images:[],prompt,aspect:snapshot.f.aspect,resolution:snapshot.f.resolution,duration:snapshot.f.duration,
+    model:model.model,steps:model.steps,sampler:model.sampler,scheduler:model.scheduler,
+    shift_video:model.shift_video,shift_audio:model.shift_audio,
+    loras:Object.entries(model.loras||{}).map(([name,strength])=>({name,strength})),anchor:isRef()&&!!model.anchor,
+    prompt_by_count:isRef()?Object.fromEntries(Array.from({length:9},(_,i)=>[i+1,withFaceReferenceRules(prompt,i+1)])):undefined,
+    ui:{f:snapshot.f,shots:snapshot.shots,actionMode:snapshot.actionMode,final:snapshot.final,trig:model.trig,oneTake:model.oneTake!==false}};
+  queueSubmitting=true;$("go").disabled=true;$("cancelEdit").disabled=true;$("queueFeedback").hidden=true;updateSequenceButton();refreshQueueSelection();
+  globalThis.H3BulkProgress?.prepare();setStatus("현재 프롬프트·설정을 대기항목에 적용하는 중…");
+  try{
+    const response=await fetch("/api/queue/bulk-edit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const result=await response.json();if(!response.ok)throw Error(result.error||"현재 설정을 적용하지 못했습니다.");
+    globalThis.H3BulkProgress?.complete(result);
+    const jobs=(result.jobs||[]).map(job=>({...job,state:"queued",loras:job.loras||body.loras})),replacements=new Map(jobs.map(job=>[job.id,job])),known=new Set(currentJobs.map(job=>job.id));
+    const updated=currentJobs.map(job=>replacements.get(job.id)||job).concat(jobs.filter(job=>!known.has(job.id)));
+    jobs.forEach(job=>HIST.selected.delete(job.id));
+    if(jobs.length)poll(updated,pollT0||Date.now(),null);
+    const failed=result.failed?.length||0;
+    $("queueFeedback").textContent=result.target_count===0?"적용할 대기항목이 없습니다. 현재 입력은 그대로 유지했습니다.":`${jobs.length}개에 현재 프롬프트·설정 적용 완료${failed?` · ${failed}개 미적용`:""}${Number.isInteger(result.verified_count)?` · ComfyUI 반영 ${result.verified_count}개 확인`:""} · 현재 입력은 그대로 유지했습니다.`;
+    $("queueFeedback").hidden=false;
+    setStatus(result.target_count===0?"적용할 대기항목이 없습니다.":failed?"일부 항목은 적용하지 못했습니다. 진행 결과를 확인해 주세요.":"현재 프롬프트·설정을 대기항목에 적용했습니다.",failed?"err":"ok");
+    loadHist(false,true);
+  }catch(error){globalThis.H3BulkProgress?.uncertain();setStatus("실패: "+error.message,"err");}
+  finally{queueSubmitting=false;$("go").disabled=false;$("cancelEdit").disabled=false;updateSequenceButton();refreshQueueSelection();}
 }
-$("bulkEdit").onclick=()=>beginBulkEdit();
-$("bulkEditAll").onclick=()=>beginBulkEdit(true);
+$("bulkEdit").onclick=()=>applyCurrentBulk(false);
+$("bulkEditAll").onclick=()=>applyCurrentBulk(true);
 async function deleteHistoryEntries(body){
   const response=await fetch("/api/history/delete", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
   const result=await response.json();

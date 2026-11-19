@@ -1191,7 +1191,9 @@ def bulk_queue_context():
 
 def bulk_edit_queue(req):
     ids = req.get("edit_ids")
-    fields = req.get("bulk_fields")
+    apply_current=req.get("apply_current",False)
+    if type(apply_current) is not bool:raise ValueError("현재 설정 적용 상태를 확인해 주세요.")
+    fields = ["content","model","video","anchor"] if apply_current else req.get("bulk_fields")
     all_pending = req.get("all_pending", False)
     if not isinstance(all_pending, bool):
         raise ValueError("전체 대기항목 선택 상태가 올바르지 않습니다.")
@@ -1250,7 +1252,7 @@ def bulk_edit_queue(req):
             except (ValueError, OSError) as exc:
                 failed.append({"id": pid, "error": str(exc)})
                 report.advance(False)
-        return {"jobs": updated, "failed": failed, "bulk_edit": True, "all_pending": all_pending, "target_count": len(set(ids)), "verified_count": sum(bool(job.get("prompt_verified")) for job in updated)}
+        return {"jobs": updated, "failed": failed, "bulk_edit": True, "all_pending": all_pending, "apply_current":apply_current,"target_count": len(set(ids)), "verified_count": sum(bool(job.get("prompt_verified")) for job in updated)}
 
 
 def face_detector_ready():

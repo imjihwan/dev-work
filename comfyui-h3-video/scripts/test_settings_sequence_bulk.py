@@ -279,6 +279,30 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(len(outcome["jobs"]),1);self.assertEqual(len(outcome["failed"]),1)
         self.assertEqual(self.env["HIST_DB"][0]["prompt"],"safe test prompt")
 
+    def test_apply_current_updates_all_settings_including_anchor_but_keeps_each_photo_seed_mode(self):
+        self.sequence(anchor=True);before=json.loads(json.dumps(self.env['HIST_DB']));uploads=len(self.uploaded)
+        request=self.request(all_pending=True,apply_current=True,bulk_fields=['model'],prompt='Current synthetic prompt.',
+            model='other-model.safetensors',steps=8,duration=3,aspect='16:9',anchor=False,seed='999',images=[],
+            ui={'f':{'summary':'Current summary.','style':'Current camera.','keep':'Current appearance.'},'shots':[[0,'Current action.']],'oneTake':False,'trig':False,'actionMode':'single'})
+        result=self.env['bulk_edit_queue'](request)
+        self.assertTrue(result['apply_current']);self.assertEqual(result['failed'],[]);self.assertEqual(len(result['jobs']),5)
+        self.assertEqual(len(self.uploaded),uploads)
+        for old,new in zip(before,self.env['HIST_DB']):
+            for key in ('id','images','seed','mode','sequence_index'):self.assertEqual(new.get(key),old.get(key),key)
+            self.assertEqual(new['prompt'],'Current synthetic prompt.');self.assertEqual(new['model'],'other-model.safetensors')
+            self.assertEqual(new['steps'],8);self.assertEqual(new['duration'],3);self.assertFalse(new['anchor'])
+            self.assertEqual(new['ui']['f']['style'],'Current camera.');self.assertFalse(new['ui']['oneTake']);self.assertFalse(new['ui']['trig'])
+        for (_,graph),old in zip(self.edited,before):
+            self.assertEqual(graph[self.env['DIRECTOR']]['inputs']['prompt'],'Current synthetic prompt.')
+            self.assertEqual(graph[self.env['SEED']]['inputs']['seed_value'],old['seed'])
+            self.assertNotIn(self.env['ANCHOR'],graph)
+        self.assertEqual(self.env['BULK_PROGRESS'].snapshot()['succeeded'],5)
+
+    def test_apply_current_rejects_invalid_flag_and_missing_anchor_before_any_edit(self):
+        for request in ({'apply_current':'yes','all_pending':True},{'apply_current':True,'all_pending':True}):
+            with self.assertRaises(ValueError):self.env['bulk_edit_queue'](request)
+        self.assertEqual(self.edited,[])
+
     def test_sequence_cannot_replace_one_existing_job(self):
         with self.assertRaises(ValueError): self.env["build_and_queue"](self.request(photo_sequence=True,edit_id="existing"))
         self.assertEqual(self.sent,[])

@@ -87,31 +87,32 @@ vm.runInContext(section('function storyModelSettings()', 'function selectAppTab(
   context.HIST.selected=new Set(['a','done']);context.refreshQueueSelection();
   assert.equal(context.HIST.selected.has('done'),false);assert.equal($('selectQueued').indeterminate,true);
   $('selectQueued').checked=true;$('selectQueued').onchange();assert.equal(context.HIST.selected.size,2);
-  // All-pending mode is independent of the loaded history page and its selection.
-  const allIds=Array.from({length:125},(_,index)=>'all-'+index);
-  context.HIST.items=[];context.HIST.selected.clear();context.refreshQueueSelection();
-  assert.equal($('bulkEditAll').disabled,false);
-  reply={ids:allIds,total:125,first:{id:allIds[0],seed:123,state:'queued'}};
+  // Apply the current editor directly. No queue item's prompt/photos are loaded.
+  context.setQueueEdit(null);context.HIST.items=[];context.HIST.selected.clear();context.refreshQueueSelection();assert.equal($('bulkAllBox').hidden,false,'Current settings can apply to pending jobs outside the loaded page');
+  context.images=[];context.manualFinal=true;context.manualPromptInputs=null;
+  $('summary').value='Current editor summary.';$('final').value='Current final prompt.';$('seed').value='999';
+  context.S.model='test-model';context.S.steps=8;context.S.anchor=true;context.S.loras={'synthetic-lora':.4};
+  const currentBefore=JSON.stringify(context.captureSettings()),loadedBefore=context.lastLoaded,requestStart=requests.length;
+  reply={jobs:[{id:'applied-current',seed:321,width:768,height:768,model:'test-model',steps:8,loras:[]}],failed:[],all_pending:true,target_count:1};
   await $('bulkEditAll').onclick();
-  assert.equal(requests.at(-1).url,'/api/queue/bulk-context');assert.equal(context.lastLoaded.id,'all-0');
-  assert.equal(context.bulkAllEditing,true);assert.equal(context.bulkEditingIds.length,125);
-  assert.equal($('go').textContent,'전체 대기항목 수정 저장');assert($('queueEditInfo').textContent.includes('저장 시점'));
-  assert($('photoFields').disabled&&$('seed').disabled);assert(!context.queueSubmitting);
-  reply={jobs:[{id:'added-after-editor-opened',seed:321,width:768,height:768,model:'test-model',steps:4,loras:[]}],failed:[],all_pending:true,target_count:1};
-  await context.submitJobs();
-  const allRequest=requests.at(-1);assert.equal(allRequest.url,'/api/queue/bulk-edit');assert.equal(allRequest.body.all_pending,true);
-  assert.deepEqual(allRequest.body.edit_ids,[]);assert.equal(context.bulkAllEditing,false);assert($('queueFeedback').textContent.includes('1개 수정 완료'));
-  context.setQueueEdit({id:'failed-fixture'},['saved-fixture','failed-fixture'],true);
-  $('summary').value='Synthetic edit that must survive partial failure.';
-  reply={jobs:[{id:'saved-fixture',seed:1}],failed:[{id:'failed-fixture',error:'Synthetic validation failure'}],all_pending:true,target_count:2};
-  await context.submitJobs();
-  assert.equal(context.bulkAllEditing,true);assert.deepEqual(Array.from(context.bulkEditingIds),['failed-fixture']);
-  assert.equal($('summary').value,'Synthetic edit that must survive partial failure.');
-  assert.equal($('queueEdit').hidden,false);assert($('queueFeedback').textContent.includes('미적용'));
-  context.setQueueEdit(null);
-  reply={ids:[],total:0,first:null};await $('bulkEditAll').onclick();assert.equal(context.bulkAllEditing,false);assert(!context.queueSubmitting);assert(!$('go').disabled);
-  context.setQueueEdit({id:'snapshot',seed:123},['snapshot'],true);reply={jobs:[],failed:[],all_pending:true,target_count:0};
-  await context.submitJobs();assert($('queueFeedback').textContent.includes('수정할 대기항목이 없어'));assert.equal(context.bulkAllEditing,false);
+  const allRequest=requests.at(-1);assert.equal(allRequest.url,'/api/queue/bulk-edit');assert.equal(allRequest.body.all_pending,true);assert.equal(allRequest.body.apply_current,true);
+  assert.equal(allRequest.body.prompt,'Current final prompt.');assert.deepEqual(allRequest.body.bulk_fields,['content','model','video','anchor']);assert.equal(allRequest.body.anchor,true);
+  assert.equal(allRequest.body.steps,8);assert.equal(allRequest.body.loras[0].name,'synthetic-lora');assert(!Object.hasOwn(allRequest.body,'seed'));assert.deepEqual(allRequest.body.images,[]);
+  assert.equal(JSON.stringify(context.captureSettings()),currentBefore,'Apply must leave the current draft and photos unchanged');assert.equal(context.lastLoaded,loadedBefore);
+  assert(!requests.slice(requestStart).some(r=>r.url==='/api/queue/bulk-context'),'No baseline/history prompt is read');
+  assert.equal(context.bulkAllEditing,false);assert($('queueFeedback').textContent.includes('1개에 현재 프롬프트·설정 적용 완료'));
+  // Selected targets share the same current settings; failures remain selected.
+  context.HIST.items=[{id:'a',state:'queued'},{id:'b',state:'queued'}];context.HIST.selected=new Set(['a','b']);
+  reply={jobs:[{id:'a',seed:1}],failed:[{id:'b',error:'Synthetic failure'}],all_pending:false,target_count:2};
+  await $('bulkEdit').onclick();assert.deepEqual(requests.at(-1).body.edit_ids,['a','b']);assert(!requests.at(-1).body.all_pending);assert(requests.at(-1).body.apply_current);
+  assert(!context.HIST.selected.has('a'));assert(context.HIST.selected.has('b'));assert.equal($('final').value,'Current final prompt.');assert($('queueFeedback').textContent.includes('미적용'));
+  const zeroStart=requests.length;context.HIST.selected.clear();await $('bulkEdit').onclick();assert.equal(requests.length,zeroStart);
+  // Continued input while a request is pending must not be restored over on completion.
+  replyHandler=url=>{assert.equal(url,'/api/queue/bulk-edit');$('summary').value='Continued editing.';$('final').value='Continued final.';context.S.steps=12;return {jobs:[],failed:[],all_pending:true,target_count:0};};
+  await $('bulkEditAll').onclick();assert.equal(requests.at(-1).body.prompt,'Current final prompt.');assert.equal(requests.at(-1).body.steps,8);
+  assert.equal($('summary').value,'Continued editing.');assert.equal($('final').value,'Continued final.');assert.equal(context.S.steps,12);assert(!context.queueSubmitting);
+  assert($('queueFeedback').textContent.includes('적용할 대기항목이 없습니다'));replyHandler=null;
+  context.images=['photo1','photo2','photo3','photo4','photo5'];context.S.anchor=false;context.S.steps=4;context.S.loras={};
   context.currentJobs=[{id:'running',state:'running',seed:100},{id:'waiting',state:'queued',seed:101}];
   reply={id:'restarted',replaces:'running',seed:100};
   await context.restartCurrentJob('running');

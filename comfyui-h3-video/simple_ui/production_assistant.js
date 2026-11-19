@@ -119,7 +119,7 @@
     }
   }
   function preflight(actions,snapshot,guard){
-    if(actions.some(action=>action.kind==='set'||action.kind==='api'&&action.args.includes('$current_')||action.kind==='click'&&['go','priorityGo','sequenceGo','settingsSave','saveProject'].includes(snapshot.nodes.get(action.target)?.entry.id)))checkSources(guard);
+    if(actions.some(action=>action.kind==='set'||action.kind==='api'&&action.args.includes('$current_')||action.kind==='click'&&['go','priorityGo','sequenceGo','settingsSave','saveProject','bulkEditAll','bulkEdit'].includes(snapshot.nodes.get(action.target)?.entry.id)))checkSources(guard);
     for(const action of actions){
       if(action.kind==='api')continue;
       const record=snapshot.nodes.get(action.target);

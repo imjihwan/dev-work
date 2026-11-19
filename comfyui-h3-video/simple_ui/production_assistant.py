@@ -135,6 +135,10 @@ They are resolved by the browser only at execution time; never invent image byte
 For a bulk request, plan a BULK API action for the requested scope, never a series
 of single-item actions or just the first example. all_pending:true means the whole
 owned pending queue, not only the initial page or jobs already read.
+For applying the current prompt AND generation settings together, click bulkEditAll
+(or bulkEdit for selected jobs) after any preceding input edits. These buttons apply
+the current editor directly; do not load a queued baseline first. They preserve each
+job's photos, generation mode, seed and order, and include the current anchor option.
 Use /api/queue/bulk-edit for shared settings or a shared full prompt, with
 all_pending:true or edit_ids:[...], bulk_fields containing content/model/video/anchor,
 and the requested values. Content uses prompt:new_final and ui:{...ui,final:new_final}.
