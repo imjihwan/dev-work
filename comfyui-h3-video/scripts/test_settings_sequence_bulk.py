@@ -21,6 +21,8 @@ from PIL import Image, ImageOps
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = Path(os.environ.get("REFERENCE_TEST_SOURCE", ROOT / "simple_ui"))
+sys.path.insert(0,str(SOURCE))
+from bulk_progress import BulkProgress
 TREE = ast.parse((SOURCE / "server.py").read_text(encoding="utf-8"))
 NAMES = {"_load_json", "_save_json", "save_settings", "rename_settings", "delete_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "bulk_edit_queue", "bulk_queue_context", "judge_face_side", "prepare_photo_reference", "pooled_photo_reference", "release_photo_references"}
 
@@ -30,7 +32,7 @@ class FeatureTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.sent, self.uploaded, self.edited = [], [], []
-        self.env = {"json":json, "os":os, "random":random, "re":re, "time":time, "uuid":uuid, "base64":base64, "io":io,
+        self.env = {"BULK_PROGRESS":BulkProgress(),"json":json, "os":os, "random":random, "re":re, "time":time, "uuid":uuid, "base64":base64, "io":io,
                     "urllib":urllib, "Image":Image, "ImageOps":ImageOps, "ROOT":self.tmp.name, "HERE":self.tmp.name, "CLIENT_ID":"test-client",
                     "HLOCK":threading.Lock(), "PLOCK":threading.Lock(), "SETTINGS_LOCK":threading.Lock(), "PHOTO_REFERENCE_LOCK":threading.Lock(),
                     "HIST_DB":[], "HIST_MAX":1000, "PROGRESS":{},

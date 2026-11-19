@@ -354,7 +354,7 @@ class ProgressHandoffTests(unittest.TestCase):
 
     def fetch(self, url, timeout):
         self.requests.append(url)
-        result = self.queue if url.endswith("/queue") else {"state": "running", "pct": 43, "label": "영상 생성"}
+        result = {'state':'idle'} if url.endswith('/api/queue/bulk-progress') else self.queue if url.endswith("/queue") else {"state": "running", "pct": 43, "label": "영상 생성"}
         return io.BytesIO(json.dumps(result).encode())
 
     def test_handoff_only_keeps_owned_progress_and_client_ids(self):
@@ -367,7 +367,14 @@ class ProgressHandoffTests(unittest.TestCase):
         self.assertEqual(state["progress"]["own"]["classes"], {"node": "KSampler"})
         self.assertNotIn("PRIVATE", text)
         self.assertNotIn("foreign", text)
-        self.assertEqual(self.requests, ["http://127.0.0.1:8188/queue", "http://127.0.0.1:8190/api/status?id=own"])
+        self.assertEqual(self.requests, ["http://127.0.0.1:8190/api/queue/bulk-progress","http://127.0.0.1:8188/queue", "http://127.0.0.1:8190/api/status?id=own"])
+
+    def test_active_bulk_edit_blocks_ui_restart_without_querying_jobs(self):
+        def fetch(url,timeout):
+            self.requests.append(url);return io.BytesIO(b'{"state":"running"}')
+        with patch('urllib.request.urlopen',fetch),self.assertRaises(SystemExit):runpy.run_path(str(self.handoff))
+        self.assertEqual(self.requests,['http://127.0.0.1:8190/api/queue/bulk-progress'])
+        self.assertFalse((self.home/'ui-restart-state.tmp').exists())
 
     def test_active_story_blocks_restart_without_querying_jobs(self):
         state_file = self.home / "story_data/synthetic/project.json"

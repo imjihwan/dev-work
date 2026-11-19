@@ -12,7 +12,7 @@ ROOT_FILES = (
     "Start-H3-Video.ps1", "Stop-H3-Video.ps1", "Restart-H3-UI.ps1", "Complete-Models.ps1", "Connect-Grok.ps1",
 )
 UI_FILES = (
-    "server.py", "index.html", "start.bat", "template_api.json",
+    "server.py", "index.html", "start.bat", "template_api.json", "bulk_progress.py", "bulk-progress.js",
     "cards.seed.json", "presets.seed.json", "prompt_helper.py", "grok_cli.py", "production_assistant.py", "production_assistant.js", "production_chat.py", "local_translate.py", "translation_worker.py",
     "story.py", "story_workflow.py", "story.html", "gallery.py", "gallery.html", "face_references.py",
 )
@@ -25,7 +25,7 @@ SCRIPT_FILES = (
     "setup.ps1", "start_comfyui.bat", "get_models.py", "download-ranges.py",
     "install_prompt_helper.py", "install_grok_cli.py", "install_face_detector.py", "install_local_translator.py", "test_face_references.py", "prepare_ui_restart.py", "prepare_source_release.py", "restart_backend.py", "test_backend_restart.py",
     "apply_queued_style.py", "add_queued_opening_pose.py", "restore_anchored_reference.py",
-    "test_gallery.py", "test_apply_queued_style.py", "test_add_queued_opening_pose.py",
+    "test_gallery.py", "test_apply_queued_style.py", "test_add_queued_opening_pose.py", "test_bulk_progress.py", "test_bulk_progress.cjs",
     "test_prompt_helper.py", "test_grok_cli.py", "test_action_editor.cjs", "test_production_assistant.py", "test_production_assistant.cjs", "test_production_chat.py", "test_local_translate.py", "test_translation_preview.cjs", "test_photo_batch_ui.cjs", "test_folder_photos.cjs", "test_opening_pose.cjs",
     "test_input_thumbnail.py", "test_history_ui.cjs", "test_history_media.cjs",
     "test_history_delete.py", "test_gallery_ui.cjs", "test_gallery_thumbnails.cjs", "test_gallery_navigation.cjs", "test_gallery_regenerate.py",

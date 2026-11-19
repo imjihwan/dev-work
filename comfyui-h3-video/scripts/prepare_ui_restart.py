@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import urllib.parse
 import urllib.request
+import urllib.error
 
 PROJECT = Path(__file__).resolve().parents[1]
 _comfy = Path(os.environ["SIMPLEUI_COMFY"]) if os.environ.get("SIMPLEUI_COMFY") else (
@@ -30,6 +31,14 @@ if chat_file.is_file():
         raise SystemExit("Cannot verify assistant idle state; no process was stopped.") from None
     if chat_active:
         raise SystemExit("A UI-owned assistant operation is still active; no process was stopped.")
+try:
+    bulk=read("http://127.0.0.1:8190/api/queue/bulk-progress")
+except urllib.error.HTTPError as exc:
+    if exc.code!=404:raise SystemExit("Cannot verify queue edit state; no process was stopped.") from None
+except urllib.error.URLError:
+    bulk={}
+else:
+    if bulk.get("state")=="running":raise SystemExit("A queue bulk edit is still running; no process was stopped.")
 history_file = HOME / "history.json"
 history = json.loads(history_file.read_text(encoding="utf-8")) if history_file.is_file() else []
 own_ids = {entry["id"] for entry in history}

@@ -14,11 +14,14 @@ from functools import lru_cache
 
 from PIL import Image, ImageOps
 from prompt_helper import PromptHelper
+from bulk_progress import BulkProgress
 from production_chat import ProductionChat
 from production_assistant import ProductionAssistant, READS as PRODUCTION_READS, WRITES as PRODUCTION_WRITES
 from local_translate import LocalTranslator, TranslationBusy
 from story import StoryProjects
 from gallery import VideoGallery
+
+BULK_PROGRESS = BulkProgress()
 
 COMFY = "http://127.0.0.1:8188"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1203,47 +1206,51 @@ def bulk_edit_queue(req):
         entries = {e["id"]: json.loads(json.dumps(e)) for e in HIST_DB}
     if all_pending:
         ids = [pid for pid in pending if pid in entries]
-    updated, failed = [], []
-    for pid in dict.fromkeys(ids):
-        if pid not in pending or pid not in entries:
-            failed.append({"id": pid, "error": "이미 시작됐거나 대기열에서 빠진 항목입니다."})
-            continue
-        entry = entries[pid]
-        values = dict(entry, edit_id=pid, count=1, photo_sequence=False)
-        ui = json.loads(json.dumps(entry.get("ui") or {}))
-        form = dict(ui.get("f") or {})
-        incoming = req.get("ui") or {}
-        if "content" in fields:
-            values["prompt"] = req.get("prompt")
-            # 화면은 첫 대상의 사진 수 기준으로 얼굴 참조 문구를 만든다 → 대상의 사진 수에 맞는 버전으로 바꿔 쓴다
-            variants = req.get("prompt_by_count")
-            if isinstance(variants, dict) and entry.get("mode") == "REF2VA":
-                chosen = variants.get(str(len(entry.get("images") or [])))
-                if isinstance(chosen, str) and chosen.strip():
-                    values["prompt"] = chosen
-            for key in ("subject", "summary", "style", "keep", "sound", "music"):
-                if key in incoming.get("f", {}): form[key] = incoming["f"][key]
-            for key in ("shots", "actionMode", "final", "oneTake"):
-                if key in incoming: ui[key] = incoming[key]
-        if "model" in fields:
-            for key in ("model", "steps", "sampler", "scheduler", "shift_video", "shift_audio", "loras"):
-                if key in req: values[key] = req[key]
-            if "trig" in incoming: ui["trig"] = incoming["trig"]
-        if "anchor" in fields:
-            values["anchor"] = req["anchor"]
-        if "video" in fields:
-            for key in ("aspect", "resolution", "duration"):
-                if key in req:
-                    values[key] = req[key]
-                    form[key] = req[key]
-        ui["f"] = form
-        values["ui"] = ui
-        try:
-            result = build_and_queue(values, reference={"entry": entry, "prompt": pending[pid][2]})
-            updated.extend(dict(job, loras=values.get("loras", [])) for job in result["jobs"])
-        except (ValueError, OSError) as exc:
-            failed.append({"id": pid, "error": str(exc)})
-    return {"jobs": updated, "failed": failed, "bulk_edit": True, "all_pending": all_pending, "target_count": len(set(ids)), "verified_count": sum(bool(job.get("prompt_verified")) for job in updated)}
+    with BULK_PROGRESS.operation(len(set(ids)),all_pending=all_pending) as report:
+        updated, failed = [], []
+        for pid in dict.fromkeys(ids):
+            if pid not in pending or pid not in entries:
+                failed.append({"id": pid, "error": "이미 시작됐거나 대기열에서 빠진 항목입니다."})
+                report.advance(False)
+                continue
+            entry = entries[pid]
+            values = dict(entry, edit_id=pid, count=1, photo_sequence=False)
+            ui = json.loads(json.dumps(entry.get("ui") or {}))
+            form = dict(ui.get("f") or {})
+            incoming = req.get("ui") or {}
+            if "content" in fields:
+                values["prompt"] = req.get("prompt")
+                # 화면은 첫 대상의 사진 수 기준으로 얼굴 참조 문구를 만든다 → 대상의 사진 수에 맞는 버전으로 바꿔 쓴다
+                variants = req.get("prompt_by_count")
+                if isinstance(variants, dict) and entry.get("mode") == "REF2VA":
+                    chosen = variants.get(str(len(entry.get("images") or [])))
+                    if isinstance(chosen, str) and chosen.strip():
+                        values["prompt"] = chosen
+                for key in ("subject", "summary", "style", "keep", "sound", "music"):
+                    if key in incoming.get("f", {}): form[key] = incoming["f"][key]
+                for key in ("shots", "actionMode", "final", "oneTake"):
+                    if key in incoming: ui[key] = incoming[key]
+            if "model" in fields:
+                for key in ("model", "steps", "sampler", "scheduler", "shift_video", "shift_audio", "loras"):
+                    if key in req: values[key] = req[key]
+                if "trig" in incoming: ui["trig"] = incoming["trig"]
+            if "anchor" in fields:
+                values["anchor"] = req["anchor"]
+            if "video" in fields:
+                for key in ("aspect", "resolution", "duration"):
+                    if key in req:
+                        values[key] = req[key]
+                        form[key] = req[key]
+            ui["f"] = form
+            values["ui"] = ui
+            try:
+                result = build_and_queue(values, reference={"entry": entry, "prompt": pending[pid][2]})
+                updated.extend(dict(job, loras=values.get("loras", [])) for job in result["jobs"])
+                report.advance(True,verified=bool(result["jobs"]) and all(job.get("prompt_verified") for job in result["jobs"]))
+            except (ValueError, OSError) as exc:
+                failed.append({"id": pid, "error": str(exc)})
+                report.advance(False)
+        return {"jobs": updated, "failed": failed, "bulk_edit": True, "all_pending": all_pending, "target_count": len(set(ids)), "verified_count": sum(bool(job.get("prompt_verified")) for job in updated)}
 
 
 def face_detector_ready():
@@ -1560,21 +1567,24 @@ def production_write_api(path,args,snapshot):
             if not all_pending and any(pid not in known or pid not in owned for pid in ids):
                 raise ValueError("조회한 대기 항목만 지정 수정할 수 있습니다.")
             targets=[pid for pid in pending if pid in owned] if all_pending else list(dict.fromkeys(ids))
-            jobs=[];failed=[]
-            for pid in targets:
-                row=pending.get(pid)
-                if row is None:
-                    failed.append({"id":pid,"error":"이미 시작됐거나 대기열에서 빠진 항목입니다."});continue
-                original=row[2][DIRECTOR]["inputs"]["prompt"]
-                digest=snapshot.get("prompt_hashes",{}).get(pid) or hashlib.sha256(original.encode()).hexdigest()
-                item_snapshot={**snapshot,"prompt_hashes":{pid:digest}}
-                try:
-                    jobs.append(production_write_api(path,{"id":pid,**change},item_snapshot))
-                except (ValueError,OSError) as exc:
-                    failed.append({"id":pid,"error":str(exc)})
-            return {"ok":not failed,"bulk_edit":True,"all_pending":all_pending,"target_count":len(targets),
-                    "updated_count":len(jobs),"jobs":jobs,"failed":failed,
-                    "verified_count":sum(bool(job.get("prompt_verified")) for job in jobs)}
+            with BULK_PROGRESS.operation(len(targets),all_pending=all_pending) as report:
+                jobs=[];failed=[]
+                for pid in targets:
+                    row=pending.get(pid)
+                    if row is None:
+                        failed.append({"id":pid,"error":"이미 시작됐거나 대기열에서 빠진 항목입니다."});report.advance(False);continue
+                    original=row[2][DIRECTOR]["inputs"]["prompt"]
+                    digest=snapshot.get("prompt_hashes",{}).get(pid) or hashlib.sha256(original.encode()).hexdigest()
+                    item_snapshot={**snapshot,"prompt_hashes":{pid:digest}}
+                    try:
+                        jobs.append(production_write_api(path,{"id":pid,**change},item_snapshot))
+                        report.advance(True,verified=bool(jobs[-1].get("prompt_verified")))
+                    except (ValueError,OSError) as exc:
+                        failed.append({"id":pid,"error":str(exc)})
+                        report.advance(False)
+                return {"ok":not failed,"bulk_edit":True,"all_pending":all_pending,"target_count":len(targets),
+                        "updated_count":len(jobs),"jobs":jobs,"failed":failed,
+                        "verified_count":sum(bool(job.get("prompt_verified")) for job in jobs)}
         pid=args.get("id")
         if not snapshot.get("prompt_hashes",{}).get(pid):raise ValueError("수정 전 해당 대기 항목을 먼저 조회해 주세요.")
         raw=json.load(comfy("/queue"));row=next((item for item in raw.get("queue_pending",[]) if item[1]==pid),None)
@@ -1617,7 +1627,7 @@ def production_write_api(path,args,snapshot):
                 _save_json(HIST,HIST_DB)
         return {"ok":True,"requested":len(ids),"cancelled_ids":cancelled,"stop_requested_ids":[pid for pid in ids if original.get(pid)=="running"],"skipped_started_ids":[pid for pid in ids if original.get(pid)=="queued" and pid in active]}
     request=urllib.request.Request("http://127.0.0.1:"+str(PORT)+path,json.dumps(args,ensure_ascii=False).encode(),{"Content-Type":"application/json"},method="POST")
-    with urllib.request.urlopen(request,timeout=120) as response:return json.load(response)
+    with urllib.request.urlopen(request,timeout=3600 if path=="/api/queue/bulk-edit" else 120) as response:return json.load(response)
 
 
 PRODUCTION_ASSISTANT=ProductionAssistant(PROMPT_HELPER,production_read_api,production_queue_snapshot,production_queue_item,production_validate_write,production_write_api,chat=ProductionChat(os.path.join(HERE,"production-chat.json")))
@@ -1647,6 +1657,9 @@ class H(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(b)))
                 self.end_headers()
                 self.wfile.write(b)
+            elif u.path == "/bulk-progress.js":
+                with open(os.path.join(HERE,"bulk-progress.js"),"rb") as script:b=script.read()
+                self.send_response(200);self.send_header("Content-Type","text/javascript; charset=utf-8");self.send_header("Cache-Control","no-store");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
             elif u.path == "/production-assistant.js":
                 with open(os.path.join(HERE,"production_assistant.js"),"rb") as script:b=script.read()
                 self.send_response(200);self.send_header("Content-Type","text/javascript; charset=utf-8");self.send_header("Cache-Control","no-store");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
@@ -1654,6 +1667,8 @@ class H(BaseHTTPRequestHandler):
                 self._json(PRODUCTION_ASSISTANT.conversation(revision=q.get("revision"),session=q.get("session")))
             elif u.path == "/api/production-assistant/status":
                 self._json(PROMPT_HELPER.status(q.get("id")))
+            elif u.path == "/api/queue/bulk-progress":
+                self._json(BULK_PROGRESS.snapshot())
             elif u.path == "/api/health":
                 # sequence_face_crop = 이 서버가 얼굴 크롭을 아는 버전인지(화면의 버전 확인용),
                 # face_detector_ready = 지금 실제로 크롭할 수 있는지(모델·OpenCV 준비 여부)

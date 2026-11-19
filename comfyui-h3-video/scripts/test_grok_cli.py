@@ -162,6 +162,20 @@ class GrokTests(unittest.TestCase):
             with patch.object(c,'ready',return_value=True),patch('grok_cli.MAX_EVENT_BYTES',100),patch('grok_cli.subprocess.Popen',return_value=process):
                 with self.assertRaises(ValueError):c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event())
 
+    def test_failure_stage_is_reported_without_response_or_task_text(self):
+        init=json.loads(wire({}).splitlines()[0])
+        cases=[({'type':'error','message':'PRIVATE_PROVIDER_TEXT'},'provider_error_event'),
+               ({'type':'user','message':'PRIVATE_TASK_TEXT'},'unexpected_user_event'),
+               ({'type':'stream_event','event':{'type':'content_block_start','content_block':{'type':'tool_use','name':'PRIVATE_TOOL'}}},'tool_event'),
+               ({'type':'result','stop_reason':'end_turn'},'missing_structured_output')]
+        for event,reason in cases:
+            c=GrokCLI('synthetic');process=MagicMock();process.poll.return_value=0;process.returncode=0
+            process.stdout=io.BytesIO(b'\n'.join(json.dumps(item).encode() for item in [init,event]))
+            with patch.object(c,'ready',return_value=True),patch.object(c,'_record_metrics') as record,patch('grok_cli.subprocess.Popen',return_value=process):
+                with self.assertRaises(ValueError) as error:c.complete('Static',{},helper.GROK_REPLY_SCHEMA,threading.Event())
+            self.assertEqual(record.call_args.args[0]['failure_reason'],reason)
+            self.assertNotIn('PRIVATE',str(error.exception));self.assertNotIn('PRIVATE',json.dumps(record.call_args.args[0]))
+
     def test_late_response_after_old_three_minute_limit_can_complete(self):
         c=GrokCLI('synthetic');process=MagicMock();process.poll.return_value=0;process.returncode=0
         process.stdout=io.BytesIO(wire({'reply':'Synthetic late reply'}))

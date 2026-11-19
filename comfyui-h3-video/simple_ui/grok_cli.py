@@ -15,6 +15,24 @@ EFFORTS = ("low", "medium", "high", "xhigh")
 TIMEOUT_SECONDS = {"low": 180, "medium": 300, "high": 600, "xhigh": 900}
 MAX_EVENT_BYTES = 1_000_000
 MAX_STREAM_BYTES = 8_000_000
+FAILURE_MESSAGES={
+    "read_error":"Grok CLI 응답을 읽는 중 연결 오류가 발생했습니다.",
+    "stream_size_limit":"Grok 응답이 수신 크기 제한을 넘었습니다.",
+    "invalid_init":"Grok CLI의 로그인·도구 실행 환경을 확인하지 못했습니다.",
+    "provider_error_event":"Grok CLI가 오류 응답을 반환했습니다.",
+    "unexpected_user_event":"Grok CLI 응답에 예상하지 않은 중간 대화 이벤트가 포함됐습니다.",
+    "tool_event":"Grok이 JSON 변경안 대신 도구 호출 형식으로 응답했습니다.",
+    "assistant_tool_event":"Grok이 JSON 변경안 대신 도구 호출 형식으로 응답했습니다.",
+    "json_delta_event":"Grok이 JSON 변경안 대신 도구 인수 스트림으로 응답했습니다.",
+    "stream_sequence":"Grok CLI 스트림의 응답 순서를 확인하지 못했습니다.",
+    "assistant_sequence":"Grok CLI 스트림의 응답 순서를 확인하지 못했습니다.",
+    "duplicate_result":"Grok CLI가 최종 응답을 중복 반환했습니다.",
+    "missing_terminal":"Grok CLI가 최종 완료 응답을 반환하지 않았습니다.",
+    "nonterminal_stop":"Grok 응답이 정상 완료되기 전에 끝났습니다.",
+    "missing_structured_output":"Grok 응답에 적용 가능한 JSON 변경안이 없습니다.",
+    "event_not_object":"Grok CLI의 응답 JSON 형식이 올바르지 않습니다.",
+    "malformed_event":"Grok CLI 응답을 JSON으로 해석하지 못했습니다.",
+}
 
 
 def clean_progress(info):
@@ -59,8 +77,9 @@ class GrokCLI:
     def _record_metrics(self, metrics):
         """A small numeric-only history. Never persist prompts or raw provider events."""
         allowed = {"at", "model", "effort", "elapsed_s", "limit_s", "request_bytes", "outcome", "exit_code",
-                   "reported_api_ms", "cli_ms", "turns", "input_tokens", "output_tokens"}
+                   "reported_api_ms", "cli_ms", "turns", "input_tokens", "output_tokens", "failure_reason"}
         record = {key: value for key, value in metrics.items() if key in allowed}
+        if record.get("failure_reason") not in FAILURE_MESSAGES:record.pop("failure_reason",None)
         if not self.home.is_dir(): return
         try:
             with self.metrics_lock:
@@ -143,8 +162,9 @@ class GrokCLI:
             initial, results = [], []
             size, signals = 0, 0
             stage, last_signal, eof = "starting", None, False
-            def invalid():
-                raise ValueError("Grok의 JSON 응답을 확인하지 못했습니다. 원문은 유지했습니다.")
+            def invalid(reason="malformed_event"):
+                reason=metrics.setdefault("failure_reason",reason)
+                raise ValueError(FAILURE_MESSAGES.get(reason,FAILURE_MESSAGES["malformed_event"])+" 원문은 유지했습니다.")
             try:
                 while True:
                     if cancel_event.is_set():
@@ -167,42 +187,44 @@ class GrokCLI:
                     try: kind, raw = inbox.get(timeout=.2)
                     except queue.Empty: continue
                     if kind == "eof": eof = True; continue
-                    if kind == "error": invalid()
+                    if kind == "error": invalid("read_error")
                     size += len(raw)
-                    if len(raw) > MAX_EVENT_BYTES or size > MAX_STREAM_BYTES: invalid()
+                    if len(raw) > MAX_EVENT_BYTES or size > MAX_STREAM_BYTES: invalid("stream_size_limit")
                     if not raw.strip(): continue
                     try:
                         previous_stage = stage
                         event = json.loads(raw)
-                        if not isinstance(event, dict): invalid()
+                        if not isinstance(event, dict): invalid("event_not_object")
                         event_type = event.get("type")
                         if event_type == "system" and event.get("subtype") == "init":
                             initial.append(event)
-                            if len(initial) != 1 or results or any(event.get(key) != [] for key in ("tools", "skills", "mcp_servers")) or event.get("apiKeySource") != "oauth": invalid()
+                            if len(initial) != 1 or results or any(event.get(key) != [] for key in ("tools", "skills", "mcp_servers")) or event.get("apiKeySource") != "oauth": invalid("invalid_init")
                             stage = "waiting"
                         elif event_type == "result":
                             results.append(event)
-                            if len(results) != 1: invalid()
+                            if len(results) != 1: invalid("duplicate_result")
                             stage = "check"
-                        elif event_type in ("error", "user"): invalid()
+                        elif event_type == "error": invalid("provider_error_event")
+                        elif event_type == "user": invalid("unexpected_user_event")
                         elif event_type == "stream_event":
-                            if not initial or results: invalid()
+                            if not initial or results: invalid("stream_sequence")
                             frame = event.get("event", {})
                             frame_type = frame.get("type")
                             block = frame.get("content_block", {}) if frame_type == "content_block_start" else frame.get("delta", {})
                             block_type = block.get("type")
-                            if block_type in ("tool_use", "server_tool_use", "input_json_delta"): invalid()
+                            if block_type in ("tool_use", "server_tool_use"): invalid("tool_event")
+                            if block_type == "input_json_delta": invalid("json_delta_event")
                             next_stage = "thinking" if block_type in ("thinking", "thinking_delta", "redacted_thinking") else "answer" if block_type in ("text", "text_delta") else None
                             if next_stage:
                                 stage = next_stage
                                 if frame_type == "content_block_delta": signals += 1; last_signal = now
                         elif event_type == "assistant":
-                            if not initial or results: invalid()
+                            if not initial or results: invalid("assistant_sequence")
                             blocks = event.get("message", {}).get("content", [])
-                            if any(block.get("type") in ("tool_use", "server_tool_use") for block in blocks): invalid()
+                            if any(block.get("type") in ("tool_use", "server_tool_use") for block in blocks): invalid("assistant_tool_event")
                         # No raw event or raw block survives this iteration.
                         del event, raw
-                    except (ValueError, TypeError, AttributeError): invalid()
+                    except (ValueError, TypeError, AttributeError): invalid("malformed_event")
                     if stage != previous_stage or signals == 1 and last_signal == now:
                         next_progress = 0
                 if cancel_event.is_set():
@@ -213,7 +235,7 @@ class GrokCLI:
                     raise ValueError("Grok CLI 요청이 실패했습니다. 로그인·구독 사용 한도를 확인해 주세요. API로 자동 전환하지 않았습니다.")
                 try:
                     if len(initial) != 1 or len(results) != 1:
-                        raise ValueError
+                        invalid("missing_terminal")
                     if initial[0].get("tools") != [] or initial[0].get("skills") != [] or initial[0].get("mcp_servers") != [] or initial[0].get("apiKeySource") != "oauth":
                         raise ValueError
                     response = results[0]
@@ -224,13 +246,13 @@ class GrokCLI:
                         value = usage.get(key) if isinstance(usage, dict) else None
                         if type(value) in (int, float): metrics[key] = value
                     if response.get("stop_reason") != "end_turn" or response.get("is_error"):
-                        raise ValueError
+                        invalid("nonterminal_stop")
                     draft = response.get("structured_output")
                     if not isinstance(draft, dict):
-                        raise ValueError
+                        invalid("missing_structured_output")
                 except (ValueError, TypeError, AttributeError):
                     # Do not echo CLI errors, reasoning or response text into logs/status.
-                    raise ValueError("Grok의 JSON 응답을 확인하지 못했습니다. 원문은 유지했습니다.") from None
+                    invalid("missing_terminal")
                 metrics["outcome"] = "ok"
                 return draft
             finally:

@@ -16,6 +16,7 @@ READS = {
     "queue_item": "지정 대기 항목의 실제 최종 프롬프트와 입력·설정",
     "/api/health": "서버 상태", "/api/catalog": "모델·LoRA·조합 목록",
     "/api/status": "id 작업 상태", "/api/history": "작업 이력(id로 특정 작업 직접 조회 또는 offset, limit 최대 20)",
+    "/api/queue/bulk-progress": "일괄 수정 진행률·처리·성공·실패 건수(내용 없음)",
     "/api/queue/bulk-context": "전체 대기 편집의 기준과 ID",
     "/api/gallery": "갤러리 목록(offset, limit, mode, q; q에 갤러리 ID 또는 작업 ID로 검색)",
     "/api/gallery/progress": "현재 생성 진행률", "/api/settings": "저장 설정 묶음",

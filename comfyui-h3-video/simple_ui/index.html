@@ -1,7 +1,8 @@
 <!doctype html>
 <html lang="ko">
 <head>
-<meta charset="utf-8"><script src="/production-assistant.js" defer></script>
+<meta charset="utf-8"><script src="/bulk-progress.js" defer></script>
+<script src="/production-assistant.js" defer></script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>H3 영상 만들기</title>
 <style>
@@ -1752,6 +1753,7 @@ async function submitJobs(sequence=false, priority=false){
     }
     refreshSubmissionPrompt();
     const snapshot = captureSettings();
+    if(bulkIds.length)globalThis.H3BulkProgress?.prepare();
     const r = await fetch(bulkIds.length ? "/api/queue/bulk-edit" : priority ? "/api/generate/priority" : "/api/generate", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({
       images:bulkIds.length ? [] : images, prompt: $("final").value, aspect: $("aspect").value, resolution: $("resolution").value, edit_id: editId,
       prompt_by_count: bulkIds.length && isRef() ? Object.fromEntries(Array.from({length:9},(_,i)=>[i+1,withFaceReferenceRules($("final").value,i+1)])) : undefined,
@@ -1761,6 +1763,7 @@ async function submitJobs(sequence=false, priority=false){
       loras: Object.entries(S.loras).map(([name,strength]) => ({name, strength})), count: sequence ? images.length : runCount(), anchor: isRef() && !!S.anchor, face_boost: faceBoost,
       ui: {f:snapshot.f, shots:snapshot.shots, actionMode:snapshot.actionMode, final:snapshot.final, trig:S.trig, oneTake:S.oneTake !== false, faceBoost:!!S.faceBoost} })});
     const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status);
+    if(bulkIds.length)globalThis.H3BulkProgress?.complete(j);
     const m = curModel(), jobs = j.jobs || [{id: j.id, seed: j.seed}];
     const info = `${j.width}×${j.height}, ${m ? friendlyModel(m) : j.model} ${j.steps}스텝${j.loras ? `, LoRA ${j.loras}개` : ""}${j.anchor ? ", 사진 1 첫 장면 고정" : ""}`;
     const add = jobs.map(x => ({...x, state:"queued",
@@ -1787,7 +1790,7 @@ async function submitJobs(sequence=false, priority=false){
     if(priority){const extra=$("queueFeedback").hidden?"":"\n"+$("queueFeedback").textContent;$("queueFeedback").textContent=`${add.length}건을 대기열 맨 앞에 추가했습니다. 실행 중인 작업이 끝나면 먼저 시작합니다.`+extra;$("queueFeedback").hidden=false;}
     $("go").disabled = false;
     loadHist(false, true);
-  } catch (e) { setStatus("실패: " + e.message, "err"); $("go").disabled = false; }
+  } catch (e) { if(bulkIds.length)globalThis.H3BulkProgress?.uncertain();setStatus("실패: " + e.message, "err"); $("go").disabled = false; }
   finally { queueSubmitting = false; $("cancelEdit").disabled = false; updateSequenceButton(); }
 }
 $("go").onclick = () => submitJobs();

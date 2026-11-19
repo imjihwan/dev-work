@@ -18,6 +18,7 @@ ROOT=Path(__file__).resolve().parents[1]
 SOURCE=Path(os.environ.get('PRODUCTION_TEST_SOURCE',ROOT/'simple_ui'))
 sys.path.insert(0,str(SOURCE))
 import production_assistant as P
+from bulk_progress import BulkProgress
 
 
 def control(ref='main:1',value='Original synthetic action.',type='textarea',**extra):
@@ -366,6 +367,7 @@ class NativeBridgeTests(unittest.TestCase):
             return io.BytesIO(b'{}')
         self.replace=MagicMock(return_value={'prompt_verified':True})
         self.env={'json':json,'hashlib':hashlib,'time':__import__('time'),'urllib':urllib,'comfy':comfy,'HLOCK':threading.Lock(),'PLOCK':threading.Lock(),'QUEUE_EDIT_LOCK':threading.Lock(),'HIST_DB':self.db,'PROGRESS':{'b':{'pct':12}},'DIRECTOR':'director','PRODUCTION_READS':P.READS,'PRODUCTION_WRITES':P.WRITES,'_status':lambda pid,queue:{'state':'unknown'},'hist_result':MagicMock(),'replace_queued_prompt':self.replace,'_save_json':MagicMock(),'HIST':'SYNTHETIC','PORT':8190}
+        self.env['BULK_PROGRESS']=BulkProgress()
         source=ast.parse((SOURCE/'server.py').read_text(encoding='utf-8-sig'));functions=[item for item in source.body if isinstance(item,ast.FunctionDef) and item.name.startswith('production_')]
         exec(compile(ast.Module(body=functions,type_ignores=[]),'<synthetic native bridge>','exec'),self.env)
 
@@ -458,6 +460,7 @@ class NativeBridgeTests(unittest.TestCase):
         snapshot=self.env['production_queue_snapshot']()
         result=self.env['production_write_api']('/api/production-assistant/patch-queue',{'all_pending':True,'edits':[{'before':'Common text.','after':'Revised common text.'}]},snapshot)
         self.assertEqual(result['target_count'],25);self.assertEqual(result['updated_count'],25);self.assertEqual(result['verified_count'],25)
+        status=self.env['BULK_PROGRESS'].snapshot();self.assertEqual(status['processed'],25);self.assertEqual(status['state'],'done');self.assertEqual(status['verified'],25)
         for number,call in enumerate(self.replace.call_args_list):
             pid,graph=call.args
             self.assertEqual(pid,f'job-{number}');self.assertEqual(graph['other']['inputs']['seed'],number)
@@ -471,6 +474,7 @@ class NativeBridgeTests(unittest.TestCase):
         snapshot=self.env['production_queue_snapshot']()
         result=self.env['production_write_api']('/api/production-assistant/patch-queue',{'ids':['b','c'],'edits':[{'before':'slowly','after':'fast'}]},snapshot)
         self.assertEqual(result['updated_count'],1);self.assertEqual([x['id'] for x in result['failed']],['c'])
+        status=self.env['BULK_PROGRESS'].snapshot();self.assertEqual(status['processed'],2);self.assertEqual(status['failed'],1);self.assertEqual(status['succeeded'],1)
         self.assertEqual(self.replace.call_count,1)
         with self.assertRaises(ValueError):self.env['production_write_api']('/api/production-assistant/patch-queue',{'ids':['foreign'],'edits':[{'before':'slowly','after':'fast'}]},snapshot)
 

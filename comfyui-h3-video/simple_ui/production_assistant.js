@@ -415,8 +415,11 @@
             if(action.kind==='api'){
               const bindings={};for(const entry of item.snapshot.bridges){const values=entry.bridge.bindings?.()||{};Object.defineProperties(bindings,Object.getOwnPropertyDescriptors(values));}
               const args=bindArgs(JSON.parse(action.args),bindings);
+              const bulk=action.path==="/api/queue/bulk-edit"||action.path==="/api/production-assistant/patch-queue"&&(args.all_pending||Array.isArray(args.ids));
+              if(bulk)win.H3BulkProgress?.prepare();
               const result=await post('/api/production-assistant/execute',{plan_id:item.plan.plan_id,index,args});
               if(!result.ok)throw Error(result.receipt?.message||'실행 결과를 확인하지 못했습니다.');
+              if(bulk)win.H3BulkProgress?.complete(result.result||{});
               if(result.result?.failed?.length)throw Error(`일부 항목 ${result.result.failed.length}건은 적용하지 못했습니다. 앱의 대상별 상태를 확인해 주세요.`);
               for(const entry of item.snapshot.bridges)entry.bridge.afterApi?.(action.path,result.result);
             }else{
@@ -425,7 +428,7 @@
               if(action.kind==='set')setControl(record,action);else clickControl(record);
               await post('/api/production-assistant/finish',{plan_id:item.plan.plan_id,index,ok:true});
             }
-          }catch(error){if(action.kind!=='api')try{await post('/api/production-assistant/finish',{plan_id:item.plan.plan_id,index,ok:false});}catch{}throw error;}
+          }catch(error){win.H3BulkProgress?.uncertain();if(action.kind!=='api')try{await post('/api/production-assistant/finish',{plan_id:item.plan.plan_id,index,ok:false});}catch{}throw error;}
           completed++;say(`${completed}/${item.plan.actions.length} 요청 전달`);
         }
         for(const entry of item.snapshot.bridges)entry.bridge.refresh?.();
