@@ -17,6 +17,15 @@
     "shift_video": 10.0,
     "shift_audio": 3.0
    }
+  },
+  "MiniMaxH3\\dasiwa_minimax_h3_ref2va_v5xs_pruned_graviton_int8_row-wise_convrot_runtime_mixed.safetensors": {
+   "user": {
+    "steps": 25,
+    "sampler": "res_multistep",
+    "scheduler": "simple",
+    "shift_video": 10.0,
+    "shift_audio": 3.0
+   }
   }
  },
  "lora": {

@@ -63,6 +63,18 @@
       "sha256": "d73ac7f98c32db783400687ea0d0dca3f562b1d2ad99baf36cacd79b4df1efcc"
     },
     {
+      "id": "dasiwa_v5_int8",
+      "role": "(선택) DaSiWa GXS v5 일반판 INT8 — 비터보, 동작 비교용 25스텝",
+      "required": false,
+      "source": "civitai",
+      "page": "https://civitai.com/models/2877206?modelVersionId=3457966",
+      "url": "https://civitai.com/api/download/models/3457966?fileId=3359509",
+      "filename": "dasiwa_minimax_h3_ref2va_v5xs_pruned_graviton_int8_row-wise_convrot_runtime_mixed.safetensors",
+      "dest": "models/diffusion_models/MiniMaxH3",
+      "size": 20967668928,
+      "sha256": "a1602bd7780c6fa920ffefb567a9bd19612f846421eefc0d98479934daa9ddbb"
+    },
+    {
       "id": "text_encoder_nvfp4",
       "role": "텍스트·사진 이해 (Qwen3-VL 32B, nvfp4). RTX 50 계열(블랙웰) 기준. 다른 GPU면 같은 저장소의 int8/bf16 판으로 교체",
       "required": true,

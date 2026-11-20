@@ -19,6 +19,7 @@
 
 | 역할 | 파일 | 넣을 곳 | 크기 | 받는 곳 |
 |---|---|---|---|---|
+| DaSiWa GXS v5 일반판(동작 비교, 25스텝) | `dasiwa_minimax_h3_ref2va_v5xs_pruned_graviton_int8_row-wise_convrot_runtime_mixed.safetensors` | `models/diffusion_models/MiniMaxH3/` | 19.5GiB | [Civitai · DaSiWa GXS v5 일반판](https://civitai.com/models/2877206?modelVersionId=3457966) · [INT8 파일](https://civitai.com/api/download/models/3457966?fileId=3359509) (로그인 필요) |
 | DaSiWa 이전 버전(빠름, 4스텝) | `dasiwa_minimax_h3_ref2va_v4_pruned_turbo_int8.safetensors` | `models/diffusion_models/MiniMaxH3/` | 19.5GB | [Civitai · Hybrid v4 Turbo](https://civitai.com/models/2877206?modelVersionId=3392061) |
 | 기본 H3 · 참조 사진용(터보 아님) | `minimax_h3_ref2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/MiniMaxH3/` | 19.5GB | [Comfy-Org/MiniMax-H3](https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors) |
 | 기본 H3 · 첫·끝 장면용(터보 아님) | `minimax_h3_fl2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/MiniMaxH3/` | 19.5GB | [Comfy-Org/MiniMax-H3](https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors) |
@@ -30,6 +31,8 @@
 기본 H3 모델은 터보가 아니라서 그대로 쓰면 20스텝 이상(5배 이상 느림)이 필요합니다. 터보 LoRA 를 같이 넣으면 4~8스텝으로 돌아갑니다(아래 실측 참고).
 
 ## 어떤 걸 쓸까
+
+**DaSiWa v5 일반 25스텝 (동작 비교)** 조합은 일반판 INT8·`res_multistep/simple`·Video shift 10·Audio shift 3·LoRA 없음으로 비교를 시작한다. 기존 터보 기본값과 대기열은 바꾸지 않는다. 체크포인트 파일이 없는 조합을 선택하면 다른 모델에 설정만 적용하지 않고 안내한다. 다운로드 후 `python scripts/get_models.py --comfy ComfyUI --only dasiwa_v5_int8`로 SHA256을 확인하고 설치한다. 일반판 파일은 20,967,668,928바이트이며 SHA256은 `a1602bd7780c6fa920ffefb567a9bd19612f846421eefc0d98479934daa9ddbb`다. 일반판이 동작 지시를 더 잘 따르는지는 별도 비교가 필요하며 실제 영상 품질은 아직 검증하지 않았다.
 
 | 하고 싶은 것 | 고를 것 | 실측(5초 영상, RTX 5060 Ti 16GB) |
 |---|---|---|

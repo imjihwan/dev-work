@@ -20,5 +20,16 @@
   "scheduler": "simple",
   "shift_video": 10.0,
   "shift_audio": 3.0
+ },
+ "DaSiWa v5 일반 25스텝 (동작 비교)": {
+  "mode": "REF2VA",
+  "model": "MiniMaxH3\\dasiwa_minimax_h3_ref2va_v5xs_pruned_graviton_int8_row-wise_convrot_runtime_mixed.safetensors",
+  "steps": 25,
+  "loras": [],
+  "trig": true,
+  "sampler": "res_multistep",
+  "scheduler": "simple",
+  "shift_video": 10.0,
+  "shift_audio": 3.0
  }
 }

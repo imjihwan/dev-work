@@ -43,6 +43,13 @@ vm.runInContext(section('function historyThumb(', 'function drawHist('), context
 vm.runInContext(section('function storyModelSettings()', 'function selectAppTab('), context);
 
 (async()=>{
+  const preset=JSON.parse(fs.readFileSync(path.join(__dirname,'../simple_ui/presets.seed.json'),'utf8'))['DaSiWa v5 일반 25스텝 (동작 비교)'];
+  const presetState={mode:'REF2VA',model:'synthetic-turbo',steps:8,loras:{existing:.5}},presetBefore=JSON.stringify(presetState),presetNotes=[];
+  const presetContext=vm.createContext({CAT:{models:[{name:'synthetic-turbo'}],loras:[],presets:{regular:preset}},S:presetState,PARAMS:['steps','sampler','scheduler','shift_video','shift_audio'],note:text=>presetNotes.push(text),setMode:()=>assert.fail('Missing model must not change the mode'),drawModelCard(){},render(){}});
+  vm.runInContext(section('function applyPreset(', 'async function savePreset('),presetContext);
+  presetContext.applyPreset('regular');assert.equal(JSON.stringify(presetState),presetBefore,'Missing regular checkpoint must not apply 25 steps onto the turbo checkpoint');assert(presetNotes.at(-1).includes('모델 파일이 없습니다'));
+  presetContext.CAT.models.push({name:preset.model});presetContext.applyPreset('regular');
+  assert.equal(presetState.model,preset.model);assert.equal(presetState.steps,25);assert.equal(presetState.sampler,'res_multistep');assert.equal(Object.keys(presetState.loras).length,0);
   const beforeMobile={summary:$('summary').value,final:$('final').value,seed:$('seed').value,duration:$('duration').value,images:[...context.images],model:JSON.stringify(context.S)};
   $('mobileOutput').onclick();
   assert.equal($('aspect').value,'9:16');assert.equal($('resolution').value,'720p');assert(context.renderedMobile&&context.drawnMobile);

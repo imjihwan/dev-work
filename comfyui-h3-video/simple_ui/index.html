@@ -860,6 +860,7 @@ function drawPresets(){
 }
 function applyPreset(name){
   const p = (CAT.presets || {})[name]; if (!p) return;
+  if(p.model&&!CAT.models.some(m=>m.name===p.model)){note("이 조합의 모델 파일이 없습니다. 모델을 설치하고 새로고침한 뒤 다시 선택해 주세요.");return;}
   if (p.mode && p.mode !== S.mode) setMode(p.mode);
   if (p.model && CAT.models.some(m => m.name === p.model)) S.model = p.model;
   for (const k of PARAMS) if (p[k] != null) S[k] = p[k];
