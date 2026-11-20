@@ -34,6 +34,8 @@
 
 **DaSiWa v5 일반 25스텝 (동작 비교)** 조합은 일반판 INT8·`res_multistep/simple`·Video shift 10·Audio shift 3·LoRA 없음으로 비교를 시작한다. 기존 터보 기본값과 대기열은 바꾸지 않는다. 체크포인트 파일이 없는 조합을 선택하면 다른 모델에 설정만 적용하지 않고 안내한다. 다운로드 후 `python scripts/get_models.py --comfy ComfyUI --only dasiwa_v5_int8`로 SHA256을 확인하고 설치한다. 일반판 파일은 20,967,668,928바이트이며 SHA256은 `a1602bd7780c6fa920ffefb567a9bd19612f846421eefc0d98479934daa9ddbb`다. 일반판이 동작 지시를 더 잘 따르는지는 별도 비교가 필요하며 실제 영상 품질은 아직 검증하지 않았다.
 
+이 일반판에는 [동일 바이트의 공개 Hugging Face 미러](https://huggingface.co/zzb1420/MiniMax-H3-ref2va-V5xs-INT8)를 추가했다. Civitai 파일이 Downloads에 없으면 설치 도구가 미러의 고정 커밋 `ed6b8c670ef5500576b0faba37f5e318ad0983e9`에서 직접 받는다. 원본 크기·SHA256은 그대로 사용하며 전체 검증을 마친 `.part`만 최종 모델 파일로 교체한다. 사용자 로그인이나 휴대폰 중계 다운로드가 필요 없다.
+
 | 하고 싶은 것 | 고를 것 | 실측(5초 영상, RTX 5060 Ti 16GB) |
 |---|---|---|
 | 기본 · 품질 | DaSiWa v5 터보 8스텝 | 241초 |

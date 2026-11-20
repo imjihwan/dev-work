@@ -6,9 +6,8 @@
   python scripts/get_models.py --comfy C:\\ComfyUI --only base_ref2va_int8 lora_ref2v_turbo_4step
 
 - source=hf      : Hugging Face 에서 바로 받는다(이어받기 지원). 받은 뒤 sha256 확인.
-- source=civitai : 로그인이 필요해 자동으로 못 받는다. 링크를 출력하니 브라우저로 받은 뒤
-                   다시 실행하면 다운로드 폴더(--downloads, 기본 ~/Downloads)에서 찾아
-                   sha256 확인 후 제자리로 옮긴다.
+- source=civitai : use a pinned, hash-matching public mirror when configured;
+                   otherwise import the file downloaded by the user from Civitai.
 """
 import argparse, hashlib, json, os, shutil, sys, time, urllib.request
 
@@ -45,9 +44,14 @@ def ok_file(path, spec, verify):
 
 
 def download_hf(spec, dest_path):
-    url = f"https://huggingface.co/{spec['repo']}/resolve/main/{spec['path']}"
+    url = f"https://huggingface.co/{spec['repo']}/resolve/{spec.get('revision','main')}/{spec['path']}"
     part = dest_path + ".part"
     have = os.path.getsize(part) if os.path.exists(part) else 0
+    if have == spec["size"] and ok_file(part, spec, True):
+        os.replace(part, dest_path)
+        return
+    if have >= spec["size"]:
+        have = 0
     hdr = dict(UA, **({"Range": f"bytes={have}-"} if have else {}))
     r = urllib.request.urlopen(urllib.request.Request(url, headers=hdr), timeout=60)
     if have and r.status != 206:      # 서버가 이어받기를 거부하면 처음부터
@@ -64,6 +68,8 @@ def download_hf(spec, dest_path):
                 print(f"\r  받는 중 {spec['filename'][:48]}: {have * 100 // total}% "
                       f"({human(have)}/{human(total)}, {human(speed)}/s)", end="", flush=True)
     print()
+    if not ok_file(part, spec, True):
+        raise ValueError("Downloaded model failed size/SHA256 verification; existing model was not replaced")
     os.replace(part, dest_path)
 
 
@@ -78,7 +84,8 @@ def main():
                     help="Civitai 파일을 브라우저로 받은 폴더")
     a = ap.parse_args()
 
-    files = json.load(open(MANIFEST, encoding="utf-8"))["files"]
+    with open(MANIFEST, encoding="utf-8") as manifest:
+        files = json.load(manifest)["files"]
     if a.only:
         files = [f for f in files if f["id"] in a.only]
     elif not a.all:
@@ -101,7 +108,7 @@ def main():
         if spec["source"] == "hf":
             try:
                 download_hf(spec, dest)
-                result.append((spec, "받음(확인됨)" if ok_file(dest, spec, verify) else "받았지만 검증 실패"))
+                result.append((spec, "받음(확인됨)"))
             except Exception as e:  # noqa: BLE001
                 result.append((spec, f"실패: {e}"))
         else:
@@ -113,7 +120,18 @@ def main():
                 else:
                     result.append((spec, f"다운로드 폴더 파일이 다름(받는 중이거나 손상): {cand}"))
             else:
-                result.append((spec, "직접 받기 필요"))
+                mirrors = [m for m in spec.get("mirrors", []) if m.get("source") == "hf"]
+                if mirrors:
+                    mirror = mirrors[0]
+                    # Keep the canonical size/hash. A mirror cannot redefine them.
+                    via = dict(spec, **{key: mirror[key] for key in ("repo", "path", "revision") if key in mirror})
+                    try:
+                        download_hf(via, dest)
+                        result.append((spec, "받음(확인됨)"))
+                    except Exception as e:
+                        result.append((spec, f"미러 다운로드 실패: {e}"))
+                else:
+                    result.append((spec, "직접 받기 필요"))
 
     print("\n=== 결과 ===")
     manual = []

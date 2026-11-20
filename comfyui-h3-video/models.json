@@ -72,7 +72,15 @@
       "filename": "dasiwa_minimax_h3_ref2va_v5xs_pruned_graviton_int8_row-wise_convrot_runtime_mixed.safetensors",
       "dest": "models/diffusion_models/MiniMaxH3",
       "size": 20967668928,
-      "sha256": "a1602bd7780c6fa920ffefb567a9bd19612f846421eefc0d98479934daa9ddbb"
+      "sha256": "a1602bd7780c6fa920ffefb567a9bd19612f846421eefc0d98479934daa9ddbb",
+      "mirrors": [
+        {
+          "source": "hf",
+          "repo": "zzb1420/MiniMax-H3-ref2va-V5xs-INT8",
+          "revision": "ed6b8c670ef5500576b0faba37f5e318ad0983e9",
+          "path": "dasiwa_minimax_h3_ref2va_v5xs_pruned_graviton_int8_row-wise_convrot_runtime_mixed.safetensors"
+        }
+      ]
     },
     {
       "id": "text_encoder_nvfp4",
