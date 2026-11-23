@@ -71,12 +71,12 @@
 
 | 파일(ComfyUI 형식) | 크기 | sha256 | 올린 날 | 비고 |
 |---|---:|---|---|---|
-| `minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors` | 1,956,193,000 | `6a56f41ab4229c9dd845b9501bbd475ee57e112d846cf2e819d534a1ae928c5a` | 2026-09-03 | 참조 사진용으로 사용자 평이 가장 안정적(참조·목소리 유지) |
+| `minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors` | 1,956,193,000 | `6a56f41ab4229c9dd845b9501bbd475ee57e112d846cf2e819d534a1ae928c5a` | 2026-09-03 | 참조 사진용으로 사용자 평이 가장 안정적(참조·목소리 유지). 이 PC 실측(2026-11-24): DaSiWa 터보보다 선명하고 시간은 같지만, 일어나 걷는 장면 세 시드 중 두 시드에서 옷 색 변화·줄무늬가 나옴 — [PERFORMANCE](PERFORMANCE.md) '공식 모델 + 8스텝 터보 LoRA 와 DaSiWa 터보' |
 | `minimax_h3_ref2v_turbo_8step_v1.1_768p_comfyui_bf16.safetensors` | 1,956,193,000 | `e56863a7524e0300729cbb7b64cc8b548d90698c1abbf7d83898b0122fbe1e81` | 2026-10-20 | 말소리가 흐트러진다는 보고 1건 |
 | `minimax_h3_ref2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors` | 1,956,193,000 | `b4da466e43588004097dfbcde245ccc439c34a26bc997cb76a0b53a1d549ea0d` | 2026-10-20 | 흐림·떨림 보고 |
 | `minimax_h3_fl2v_turbo_8step_v1.2_768p_comfyui_bf16.safetensors` | 2,115,772,012 | `2d8e2235c2f24c44507ab762f7b48e6f80dcd6cca3d304b9eb80212be2d93fd2` | 2026-11-12 | pruned 모델과 층 모양이 맞지 않는다는 안내(pruned 용은 Kijai 저장소) |
 
-이 표의 파일은 아직 `models.json` 에 넣지 않았다(이 PC 에서 생성 결과를 확인한 뒤 넣는다).
+이 표의 파일은 `models.json` 에 넣지 않았다. 첫 줄의 8스텝 v1.0 만 이 PC 에서 생성 결과를 확인했는데(측정용 폴더에 받아서), 움직임이 큰 장면의 결함 때문에 기본 조합을 바꾸거나 모두가 받게 할 정도는 아니라고 판단했다. 나머지 세 파일은 돌려 보지 않았다.
 
 ## GPU별 주의
 
