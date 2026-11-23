@@ -393,6 +393,7 @@ a{color:var(--acc)}
 
       <label>장소·분위기·카메라</label>
       <textarea id="style">Photorealistic live-action footage, soft natural light, real skin and fabric detail, no CGI. Static camera, medium shot.</textarea>
+      <div class="hint" id="cameraHint" role="status"></div>
 
       <div class="row">
         <div style="grid-column:span 2"><label>소리</label><textarea id="sound" rows="2" placeholder="예: Quiet room tone."></textarea></div>
@@ -469,6 +470,7 @@ a{color:var(--acc)}
         <div><label>시드 <small>비우면 랜덤</small></label><input type="text" id="seed" placeholder="랜덤"></div>
         <div><label>반복 <small>시드만 바꿔서</small></label><input type="number" id="count" value="1" min="1" max="20" step="1"></div>
       </div>
+      <div class="hint" id="sizeHint" role="status"></div>
       <label style="margin-top:8px"><input type="checkbox" id="protectPerson" checked> 인물 잘림 방지 · 잘릴 우려가 있거나 검출이 불확실하면 그 사진만 원본 화면비 유지</label>
       <div class="hint">사진 비율을 유지해 화면을 채웁니다. 첫/끝 프레임과 첫 장면 고정 사진은 필요한 만큼 중앙 크롭하며, 패딩을 넣지 않습니다. 인물 보호를 끄면 가장자리가 잘릴 수 있습니다. 휴대폰 설정은 안전하게 크롭할 수 있을 때 모델 규격상 736×1280으로 생성됩니다.</div>
       <div class="hint" id="countHint"></div>
@@ -629,6 +631,8 @@ function drawThumbs(){
     d.ondragover = e => { if (e.dataTransfer.types.includes("text/x-thumb")) { e.preventDefault(); d.classList.add("over"); } };
     d.ondragleave = () => d.classList.remove("over");
     d.ondrop = e => { const from = e.dataTransfer.getData("text/x-thumb"); if (from === "") return; e.preventDefault(); e.stopPropagation(); d.classList.remove("over"); move(Number(from), i); };
+    // 화질 '기본'의 크기는 첫 사진의 비율을 따른다: 사진이 그려지면 크기 안내와 예상 시간을 다시 계산한다
+    if (!i) d.querySelector("img").addEventListener("load", refreshSizeEstimate, {once:true});
     $("thumbs").appendChild(d);
   });
   saveImgs();
@@ -707,7 +711,18 @@ function lengthNote(seconds){
   if (frames < 124) out.push("5초보다 짧은 영상은 H3 가 학습한 길이(약 5~15초) 밖이라 움직임·소리가 불안정할 수 있습니다.");
   return out.join(" ");
 }
-const ONE_TAKE_KEEP = "Use one uninterrupted camera take with continuous real-time action from the first frame to the last. Follow only the camera movement explicitly specified in the camera instructions. Any requested framing adjustment happens through visible, continuous camera movement within this same take. The camera settling into position does not begin a new shot. Preserve continuous subject motion and background geometry throughout, with no scene changes or new locations. Preserve the same environment as <Picture 1>, allowing its perspective and occlusion to follow the specified camera movement. No cuts, jump cuts, dissolves, fades or viewpoint resets.";
+// 고정 카메라에서 인물이 일어서거나 걸으면 처음 구도 그대로라 얼굴이 화면 밖으로 나간다. 카메라가 따라가게 적으면 얼굴이 남는다
+// (실측, docs/PERFORMANCE.md '프롬프트 실험': 같은 문구에서 동일 인물 점수 0.47 → 0.64). 해당하는 문구일 때만 알린다.
+function cameraNote(style, actions){
+  const camera = String(style || ""), action = String(actions || "");
+  const fixed = /\b(?:static|fixed|locked(?:-off)?|stationary)\s+(?:camera|shot|frame|tripod)\b|\bcamera\s+(?:is\s+|stays\s+|remains\s+|holds\s+)?(?:static|fixed|locked|stationary|still)\b/i.test(camera);
+  const follows = /\b(?:follow(?:s|ing)?|track(?:s|ing)?|tilt(?:s|ing)?|pan(?:s|ning)?|doll(?:y|ies)|crane|handheld|orbit(?:s|ing)?)\b/i.test(camera);
+  const leaves = /\b(?:stands?\s+up|gets?\s+up|walks?|runs?|jumps?|sits?\s+down|kneels?(?:\s+down)?|crouch(?:es)?|lies?\s+down|steps?\s+(?:toward|towards|to|away|forward|back|out|into))\b|일어서|일어나|걸어|걷는|달려|뛰어/i.test(action);
+  return fixed && !follows && leaves
+    ? "카메라가 고정인데 인물이 일어서거나 걷는 동작이 있습니다. 이대로면 얼굴이 화면 밖으로 나갈 수 있습니다(실측). 얼굴이 계속 보이게 하려면 이 칸에 카메라가 인물을 따라가도록 적어 주세요. 예: The camera tilts up and pans with her as she stands and walks, keeping her face in frame."
+    : "";
+}
+const ONE_TAKE_KEEP ="Use one uninterrupted camera take with continuous real-time action from the first frame to the last. Follow only the camera movement explicitly specified in the camera instructions. Any requested framing adjustment happens through visible, continuous camera movement within this same take. The camera settling into position does not begin a new shot. Preserve continuous subject motion and background geometry throughout, with no scene changes or new locations. Preserve the same environment as <Picture 1>, allowing its perspective and occlusion to follow the specified camera movement. No cuts, jump cuts, dissolves, fades or viewpoint resets.";
 const FACE_REFERENCE_RETENTION="<Subject 1>: preserve one consistent facial identity throughout the shot. Keep the same underlying facial proportions, eye spacing, eyelid shape, nose, lips, jawline and natural asymmetries during blinking, speech and the expressions requested by the scene. Expression changes affect facial motion without changing the person, age or facial structure. Use <Picture 1> to resolve conflicting appearance details in the supplementary references.";
 function faceReferenceDefinition(count){
   const other=Array.from({length:count-1},(_,index)=>`<Picture ${index+2}>`),labels=other.join(", ");
@@ -782,6 +797,8 @@ function render(){
   [...$("shots").children].forEach((d,i) => d.querySelector("input").classList.toggle("late", late.includes(i)));
   $("shotHint").textContent = late.length ? `장면 ${late.map(i => i + 1).join(", ")}은(는) 영상 길이(${dur}초) 이후에 시작해서 프롬프트에서 뺐습니다. 시각을 ${dur}초보다 앞으로 당기거나 길이를 늘리세요.` : "";
   if ($("lengthHint")) $("lengthHint").textContent = lengthNote(dur);
+  if ($("cameraHint")) $("cameraHint").textContent = cameraNote($("style").value, [$("summary").value, ...[...$("shots").children].map(d => d.querySelector("textarea").value)].join(" "));
+  if (typeof drawEstimates === "function") drawEstimates();      // 비율·화질·길이·사진이 바뀌면 크기 안내와 예상 시간도 같이 바뀐다
   if (!manualFinal) $("final").value = build();
   refreshFaceReferenceAction();
   drawGoInfo();
@@ -948,48 +965,86 @@ const runCount = () => Math.min(20, Math.max(1, Math.round(Number($("count").val
 // 기준은 768×960·5초(124프레임 = 잠재 37프레임)·사진 1장: 스텝당 17.85초, 스텝 밖(문구·사진 인코딩, 저장) 약 11초, 디코드 13초.
 // 속도 우선(희소 어텐션)은 스텝 앞 20% 만 원래 계산이고 나머지는 스텝당 11.17초에서 1.17제곱으로 늘어난다(길수록 이득이 커진다).
 // 스텝 캐시를 함께 쓰면 첫 스텝만 원래 계산이고, 나머지의 약 4분의 1(8스텝 중 2회)을 건너뛴다.
-const ETA = {pixels:768 * 960, tokens:26640, step:17.85, power:1.45, sparse:11.17, sparsePower:1.17, sparseMin:12288, fixed:11, decode:13};
+// 기준보다 토큰이 적은 쪽(초안·짧은 영상)은 덜 가파르다: 초안 576×736 이 기준의 약 0.54배(11/13 실측) → 1.1제곱.
+const ETA = {pixels:768 * 960, tokens:26640, step:17.85, power:1.45, smallPower:1.1, sparse:11.17, sparsePower:1.17, sparseMin:12288, fixed:11, decode:13};
+const ETA_KEY = "h3simple.etaScale.v1";
 const RES_PIXELS = {draft:0.4, "720p":0.879, "1080p":1.978};      // 서버 RES_MP 와 같은 값(백만 화소)
-function canvasPixels(aspect, resolution, photoRatio){
+function canvasSize(aspect, resolution, photoRatio){
   // 서버 canvas() 와 같은 계산: 기본(auto)은 짧은 변 768, 나머지 화질은 화소 면적이 정해져 있다. 32의 배수로 맞춘다
   let ratio = photoRatio > 0 ? photoRatio : 3 / 4;
   if (/^\d+:\d+$/.test(aspect || "")) { const [w, h] = aspect.split(":").map(Number); ratio = w / h; }
-  const snap = v => Math.max(32, Math.round(v / 32) * 32);
-  if (RES_PIXELS[resolution]) { const h = Math.sqrt(RES_PIXELS[resolution] * 1048576 / ratio); return snap(h * ratio) * snap(h); }
-  return ratio >= 1 ? snap(768 * ratio) * 768 : 768 * snap(768 / ratio);
+  // 서버(Python round)는 정확히 절반이면 짝수 쪽으로 맞춘다. Math.round 는 올리므로 그 경우만 따로 맞춘다
+  const snap = v => { const q = v / 32, r = Math.round(q); return Math.max(32, (q % 1 === 0.5 && r % 2 ? r - 1 : r) * 32); };
+  if (RES_PIXELS[resolution]) { const h = Math.sqrt(RES_PIXELS[resolution] * 1048576 / ratio); return [snap(h * ratio), snap(h)]; }
+  return ratio >= 1 ? [snap(768 * ratio), 768] : [768, snap(768 / ratio)];
 }
-function etaSeconds({pixels, seconds, steps, speed}){
-  const frames = actualFrames(seconds), area = pixels / ETA.pixels;
-  const tokens = area * ((frames - 5) / 17 * 5 + 2) / 37;      // 기준 대비 토큰 수
-  const dense = ETA.step * tokens ** ETA.power;
+function canvasPixels(aspect, resolution, photoRatio){ const [w, h] = canvasSize(aspect, resolution, photoRatio); return w * h; }
+// 첫 사진의 가로÷세로(썸네일이 아직 안 그려졌으면 0 → 3:4 로 가정)
+function firstPhotoRatio(){ const first = $("thumbs")?.querySelector?.("img"); return first?.naturalHeight > 0 ? first.naturalWidth / first.naturalHeight : 0; }
+// 모델의 기준 화소(768×1344 ≈ 1.03MP)를 넘는 크기는 그만큼 오래 걸린다. 9:16 의 '기본'(768×1376)까지는 알리지 않는다.
+// 실측(PERFORMANCE.md): 9:20 '기본' 768×1696 376초 vs 672×1504 268초, 21:9 1792×768 407초 vs 1536×672 276초 — 얼굴 세부·닮음은 같았다.
+function sizeNote(aspect, resolution, photoRatio, job = {}){
+  const [w, h] = canvasSize(aspect, resolution, photoRatio), pixels = w * h;
+  if (pixels <= 1060000) return "";
+  const time = size => etaSeconds({pixels:size, seconds:job.seconds || 5, steps:job.steps || 8, speed:job.speed || ""});
+  const text = `만들어질 크기는 약 ${w}×${h}(${(pixels / 1e6).toFixed(2)}MP)라, 768×960 보다 한 편이 약 ${(time(pixels) / time(ETA.pixels)).toFixed(1)}배 오래 걸립니다.`;
+  return resolution === "1080p" ? text
+    : `${text} 모델의 기준 화소(약 1.0MP)보다 큰 크기이고, 실측에서는 화소를 기준만큼 줄여도 얼굴 세부와 닮음이 같았습니다. 더 빨리 만들려면 화질에서 720p(화소 수 고정)를 고르세요.`;
+}
+function etaSeconds({pixels, seconds, steps, speed, photos}){
+  const frames = actualFrames(seconds), area = pixels / ETA.pixels, latent = (frames - 5) / 17 * 5 + 2;
+  const tokens = area * latent / 37;      // 기준 대비 토큰 수
+  // 참조 사진이 한 장 늘 때마다 스텝이 약 8% 느려지고(5초 실측: 1장 17.97초, 3장 21.0초) 사진 인코딩이 몇 초 더 든다. 긴 영상에서는 그 몫이 작아진다
+  const extra = Math.max(0, (Number(photos) || 1) - 1), refs = 1 + 0.085 * extra * 37 / latent;
+  const dense = ETA.step * tokens ** (tokens >= 1 ? ETA.power : ETA.smallPower) * refs;
   let sampling = steps * dense;
   // 희소 어텐션은 토큰이 적은 짧고 작은 영상에서는 스스로 원래 계산을 쓴다(min_tokens)
   if ((speed === "sparse" || speed === "sparse_cache") && tokens * ETA.tokens >= ETA.sparseMin) {
-    const sparse = ETA.sparse * tokens ** ETA.sparsePower, whole = Math.min(steps, Math.ceil(steps * 0.2));
+    const sparse = ETA.sparse * tokens ** ETA.sparsePower * refs, whole = Math.min(steps, Math.ceil(steps * 0.2));
     sampling = speed === "sparse_cache"
       ? dense + Math.max(0, steps - 1 - Math.round(steps * 0.25)) * sparse * 1.06
       : whole * dense + (steps - whole + (steps > whole ? 0.2 : 0)) * sparse;      // 넘어가는 한 스텝은 조금 더 걸린다
   }
-  return ETA.fixed + sampling + ETA.decode * area * frames / 124;
+  return ETA.fixed + 5 * extra + sampling + ETA.decode * area * frames / 124;
 }
 function etaScale(items){
-  // 이 PC 에서 실제로 걸린 시간(최근 완료 9건의 중앙값)으로 맞춘다: GPU·LoRA·사진 수·함께 켜 둔 프로그램에 따라 모델과 달라진다
+  // 이 PC 에서 실제로 걸린 시간으로 맞춘다: GPU·LoRA·사진 수·함께 켜 둔 프로그램에 따라 모델과 달라진다.
+  // 화면에 불러온 이력에서 최근에 끝난 작업 9건의 (실제 ÷ 모델) 중앙값. 3건이 안 되면 null(판단 보류).
   const ratios = [];
   for (const e of items || []) {
     if (e.state !== "done" || !(e.generation_seconds > 0) || !(e.width > 0) || !(e.height > 0) || !(e.steps > 0)) continue;
-    ratios.push(e.generation_seconds / etaSeconds({pixels:e.width * e.height, seconds:e.duration, steps:e.steps, speed:e.speed}));
+    const ratio = e.generation_seconds / etaSeconds({pixels:e.width * e.height, seconds:e.duration, steps:e.steps, speed:e.speed, photos:e.mode === "REF2VA" ? (e.images || []).length : 1});
+    // 같은 사진·문구·시드를 다시 넣으면 ComfyUI 가 저장해 둔 결과로 몇 초 만에 끝난다. 그런 작업은 속도의 표본이 아니다
+    if (!(ratio >= 0.25)) continue;
+    ratios.push(ratio);
     if (ratios.length === 9) break;
   }
-  if (ratios.length < 3) return 1;
+  if (ratios.length < 3) return null;
   ratios.sort((a, b) => a - b);
   return Math.min(3, Math.max(0.4, ratios[ratios.length >> 1]));
 }
+function etaFactor(items){
+  // 대기 작업이 많으면 불러온 이력에 끝난 작업이 3건이 안 될 수 있다. 그때는 마지막으로 구한 값을 쓴다(브라우저에 기억)
+  const fresh = etaScale(items);
+  try {
+    if (fresh !== null) { localStorage.setItem(ETA_KEY, String(fresh)); return fresh; }
+    const kept = Number(localStorage.getItem(ETA_KEY));
+    return kept >= 0.4 && kept <= 3 ? kept : 1;
+  } catch { return fresh ?? 1; }
+}
+function etaLabel(){ return `1개당 ${etaText(1)} (이 PC 기준, 대략)`; }
+// 크기 안내와 속도·품질 칸의 예상 시간. 만들기 버튼 아래의 예상 시간은 drawGoInfo() 가 그린다
+function drawEstimates(){
+  if ($("sizeHint")) $("sizeHint").textContent = sizeNote($("aspect").value, $("resolution").value, firstPhotoRatio(), {seconds:Number($("duration").value) || 5, steps:S.steps, speed:S.speed});
+  if ($("eta") && CAT) $("eta").textContent = etaLabel();
+}
+function refreshSizeEstimate(){ drawEstimates(); drawGoInfo(); }
 function etaText(n){
   let recent = [];
   try { recent = HIST.items; } catch {}      // 화면을 처음 그릴 때는 이력 목록이 아직 없다
-  const first = $("thumbs")?.querySelector?.("img");
-  const pixels = canvasPixels($("aspect").value, $("resolution").value, first ? first.naturalWidth / first.naturalHeight : 0);
-  const sec = etaSeconds({pixels, seconds:$("duration").value, steps:S.steps, speed:S.speed}) * etaScale(recent) * (n || 1);
+  const pixels = canvasPixels($("aspect").value, $("resolution").value, firstPhotoRatio());
+  const photos = typeof isRef === "function" && isRef() && typeof images !== "undefined" ? images.length : 1;      // 참조 방식만: 첫·끝 장면 사진은 참조 토큰이 아니다
+  const sec = etaSeconds({pixels, seconds:$("duration").value, steps:S.steps, speed:S.speed, photos}) * etaFactor(recent) * (n || 1);
   return `예상 약 ${Math.max(1, Math.round(sec / 60))}분`;
 }
 function drawSpeed(){
@@ -998,7 +1053,7 @@ function drawSpeed(){
   if (!ch.some(([s]) => s === S.steps)) h += `<button class="on" disabled>직접<small>${S.steps}스텝</small></button>`;
   $("speed").innerHTML = h;
   $("speed").querySelectorAll("[data-s]").forEach(b => b.onclick = () => { S.steps = Number(b.dataset.s); S.level = speedChoices().findIndex(([n]) => n === S.steps); if (S.manual) delete S.manual.steps; $("steps").value = S.steps; drawSpeed(); drawPresets(); drawAdvanced(); render(); });
-  $("eta").textContent = `1개당 ${etaText(1)} (이 PC 기준, 대략)`;
+  $("eta").textContent = etaLabel();
 }
 
 function civBlock(c, kind){
@@ -2355,6 +2410,7 @@ async function loadHist(more, force=false){
     if (!more && !force && HIST.sig === histSig(HIST.items) && HIST.rendered.length === HIST.items.length) patchHistoryProgress();
     else drawHist();
     refreshVideoLoraOverlays();
+    if (CAT) refreshSizeEstimate();      // 예상 시간은 끝난 작업들의 실제 소요 시간으로 보정한다: 이력이 들어오면 다시 계산한다
   } catch { HIST.error = true; }
   finally {
     HIST.loading = false; updateHistoryEnd();

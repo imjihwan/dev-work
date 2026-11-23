@@ -83,6 +83,18 @@ assert.match(context.lengthNote(4), /실제 길이는 4\.5초\(107프레임\).*�
 assert.match(context.lengthNote(3), /^5초보다 짧은 영상은/);
 assert(html.includes('id="lengthHint"'));
 
+// A fixed camera plus an action that leaves the opening framing loses the face (measured); the page says so only for that combination.
+const defaultStyle = html.match(/<textarea id="style">([^<]*)<\/textarea>/)[1];
+assert.match(context.cameraNote(defaultStyle, 'She puts her hands on the table and stands up. She walks two steps toward the window.'), /카메라가 고정인데.*keeping her face in frame/);
+assert.equal(context.cameraNote(defaultStyle, 'She smiles slightly, tilts her head and says a short sentence.'), '', 'seated action: nothing to warn about');
+assert.equal(context.cameraNote('Photorealistic. Medium shot. The camera tilts up to follow her as she stands.', 'She stands up and walks to the window.'), '', 'a camera that follows needs no warning');
+assert.equal(context.cameraNote('Photorealistic. Static camera, then the camera pans left with her.', 'She walks to the door.'), '');
+assert.equal(context.cameraNote('Cinematic look, medium shot.', 'She stands up.'), '', 'no fixed camera stated: the model may move the camera');
+assert.match(context.cameraNote('The camera remains static.', '그녀가 자리에서 일어나 창가로 걸어간다.'), /카메라가 고정인데/);
+assert.equal(context.cameraNote('Static camera.', 'Steam rises from the cup and leaves fall outside the window.'), '', 'objects moving do not count');
+assert.equal(context.cameraNote(undefined, undefined), '');
+assert(html.includes('id="cameraHint"') && script.includes('cameraNote($("style").value'));
+
 // A turbo LoRA on a checkpoint that already has the distillation baked in is flagged (the author and the Pika Flex docs warn against stacking).
 context.base = name => name.split(/[\\/]/).pop();
 vm.runInContext(section('function doubleTurboNote(', 'function speedChoices('), context);
@@ -136,14 +148,43 @@ assert.equal(context.canvasPixels('auto', 'auto', 768 / 960), 768 * 960);
 assert.equal(context.canvasPixels('9:16', 'auto', 0), 768 * 1376, 'a fixed aspect ignores the photo; the long side snaps to 32');
 assert.equal(context.canvasPixels('16:9', 'auto', 0), 1376 * 768);
 assert.equal(context.canvasPixels('auto', 'auto', 0), 768 * 1024, 'no photo yet: assume a 3:4 phone photo');
+// Above the model's pixel budget (768x1344) the page says what size will be made and what it costs; the default behaviour is unchanged.
+assert.deepEqual(Array.from(context.canvasSize('9:16', 'auto', 0)), [768, 1376]);
+assert.equal(context.sizeNote('9:16', 'auto', 0), '', '9:16 at the default quality is within the budget: no note');
+assert.equal(context.sizeNote('auto', 'auto', 768 / 960), '');
+assert.equal(context.sizeNote('auto', '720p', 9 / 20), '', 'the fixed-area qualities below the budget get no note');
+assert.match(context.sizeNote('auto', 'auto', 9 / 20), /^만들어질 크기는 약 768×1696\(1\.30MP\)라, 768×960 보다 한 편이 약 2\.[12]배 오래 걸립니다\..*720p/, 'measured: 376 s against 179 s');
+assert.match(context.sizeNote('21:9', 'auto', 0), /1792×768\(1\.38MP\).*약 2\.[234]배/, 'measured: 407 s against 179 s');
+assert.match(context.sizeNote('16:9', '1080p', 0), /^만들어질 크기는 약 \d+×\d+\(2\.\d\dMP\)라/);
+assert.doesNotMatch(context.sizeNote('16:9', '1080p', 0), /720p/, 'someone who chose 1080p is not told to pick 720p');
+assert(html.includes('id="sizeHint"') && script.includes('addEventListener("load", refreshSizeEstimate'));
 assert(context.canvasPixels('1:1', 'draft', 0) < context.canvasPixels('1:1', 'auto', 0) && context.canvasPixels('1:1', 'auto', 0) < context.canvasPixels('1:1', '1080p', 0));
-const finished = factor => ({state:'done', width:768, height:960, duration:5, steps:8, speed:'', generation_seconds:eta({}) * factor});
-assert.equal(context.etaScale([]), 1);
-assert.equal(context.etaScale([finished(2), finished(2)]), 1, 'two finished jobs are not enough to calibrate');
+const row = (factor, job = {}) => {
+  const j = {width:768, height:960, duration:5, steps:8, speed:'', ...job};
+  return {state:'done', ...j, generation_seconds:context.etaSeconds({pixels:j.width * j.height, seconds:j.duration, steps:j.steps, speed:j.speed, photos:j.mode === 'REF2VA' ? j.images.length : 1}) * factor};
+};
+// Every extra reference photo slows each step by about 8% at 5 s (measured: 17.97 s with one photo, 21.0 s with three; 209.6 s for the clip).
+near(eta({photos:3}), 209.6, 0.05, '5 s with three reference photos');
+assert.equal(eta({photos:1}), eta({}), 'one photo is the reference case');
+assert.equal(eta({photos:0}), eta({}));
+assert(eta({seconds:10, photos:3}) / eta({seconds:10}) < eta({photos:3}) / eta({}), 'the photos weigh less in a longer clip');
+near(context.etaScale([row(1.3, {mode:'REF2VA', images:['a', 'b', 'c']}), row(1.3, {mode:'FL2VA', images:['a', 'b']}), row(1.3, {mode:'REF2VA', images:['a']})]), 1.3, 0.001, 'reference photos are counted for the reference mode only');
+const finished = factor => row(factor);
+assert.equal(context.etaScale([]), null);
+assert.equal(context.etaScale([finished(2), finished(2)]), null, 'two finished jobs are not enough to calibrate');
 near(context.etaScale([finished(1.4), finished(1.5), finished(9)]), 1.5, 0.001, 'median of recent jobs (a cold start does not dominate)');
 near(context.etaScale([{...finished(2), state:'error'}, {...finished(2), generation_seconds:null}, finished(1.2), finished(1.2), finished(1.2)]), 1.2, 0.001, 'only finished jobs with a recorded time count');
-assert.equal(context.etaScale([finished(50), finished(50), finished(50)]), 3, 'clamped');
-assert.equal(context.etaScale(Array.from({length:9}, () => finished(1)).concat(Array.from({length:30}, () => finished(2)))), 1, 'only the nine most recent finished jobs');
+near(context.etaScale([row(1.3, {duration:10}), row(1.3, {steps:25}), row(1.3, {width:768, height:1376}), row(1.3, {speed:'sparse'}), row(1.3, {speed:'sparse_cache', duration:8}), row(1.3, {width:576, height:736})]), 1.3, 0.001, 'every job is compared with the model for its own length, steps, size and speed mode');
+near(context.etaScale([{...finished(1), generation_seconds:0.8}, {...finished(1), generation_seconds:1.5}, {...finished(1), generation_seconds:2}, finished(1.2), finished(1.2), finished(1.2)]), 1.2, 0.001, 'a job answered from the ComfyUI cache in a second or two is not a speed sample');
+assert.equal(context.etaScale([{...finished(1), generation_seconds:0.8}, {...finished(1), generation_seconds:1.5}, finished(1.2), finished(1.2)]), null);
+assert.equal(context.etaScale([finished(50), finished(50), finished(50)]), 3, 'clamped above');
+assert.equal(context.etaScale([finished(0.3), finished(0.3), finished(0.3)]), 0.4, 'clamped below');
+const many = factor => Array.from({length:30}, () => finished(factor));
+assert.equal(context.etaScale([...Array.from({length:5}, () => finished(1)), ...Array.from({length:4}, () => finished(2)), ...many(3)]), 1, 'the window is not larger than nine finished jobs');
+assert.equal(context.etaScale([...Array.from({length:4}, () => finished(2)), ...Array.from({length:5}, () => finished(1)), ...many(3)]), 1, 'the window is not smaller than nine finished jobs');
+// Below the reference size the growth is flatter (draft 576x736 measured at about 0.6x of 768x960 on 11/13); above it the fitted power applies.
+assert(eta({pixels:576 * 736}) / eta({}) > 0.55 && eta({pixels:576 * 736}) / eta({}) < 0.65, 'draft');
+assert(eta({pixels:768 * 1376}) / eta({}) > 1.55 && eta({pixels:768 * 1376}) / eta({}) < 1.7, '9:16 at the default quality');
 context.$ = id => ({aspect:{value:'auto'}, resolution:{value:'auto'}, duration:{value:5}, thumbs:{querySelector:() => ({naturalWidth:768, naturalHeight:960})}})[id];
 S.steps = 8; S.speed = '';
 assert.equal(context.etaText(1), '예상 약 3분', 'before the history list exists the model is used as it is');
@@ -151,9 +192,25 @@ vm.runInContext('var HIST = {items: []};', context);
 context.HIST.items = [finished(2), finished(2), finished(2)];
 assert.equal(context.etaText(1), '예상 약 6분');
 assert.equal(context.etaText(3), '예상 약 17분');
-context.$ = id => ({aspect:{value:'9:16'}, resolution:{value:'auto'}, duration:{value:5}, thumbs:{querySelector:() => null}})[id];
 context.HIST.items = [];
-assert.equal(context.etaText(1), '예상 약 5분', 'a 9:16 canvas has 1.43x the pixels of 768x960 and takes about 1.7x as long');
+S.speed = 'sparse'; assert.equal(context.etaText(1), '예상 약 2분', 'the speed mode is part of the estimate');
+S.speed = ''; S.steps = 4; assert.equal(context.etaText(1), '예상 약 2분', 'so are the steps');
+S.steps = 8;
+context.$ = id => ({aspect:{value:'auto'}, resolution:{value:'720p'}, duration:{value:10}, thumbs:{querySelector:() => ({naturalWidth:768, naturalHeight:960})}})[id];
+assert.equal(context.etaText(1), `예상 약 ${Math.round(context.etaSeconds({pixels:context.canvasPixels('auto', '720p', 0.8), seconds:10, steps:8, speed:''}) / 60)}분`, 'and the chosen quality and length');
+assert(context.etaSeconds({pixels:context.canvasPixels('auto', '720p', 0.8), seconds:10, steps:8, speed:''}) > 2.5 * eta({}));
+// With a long queue the loaded history may hold fewer than three finished jobs: the last factor is remembered in the browser.
+const kept = new Map();
+context.localStorage = {getItem:key => kept.has(key) ? kept.get(key) : null, setItem:(key, value) => kept.set(key, String(value))};
+assert.equal(context.etaFactor([]), 1, 'nothing remembered yet');
+near(context.etaFactor([finished(1.6), finished(1.6), finished(1.6)]), 1.6, 0.001, 'a fresh factor is used and remembered');
+near(context.etaFactor([finished(9), {state:'queued'}, {state:'running'}]), 1.6, 0.001, 'fewer than three finished jobs loaded: the remembered factor');
+kept.set(vm.runInContext('ETA_KEY', context), 'junk');
+assert.equal(context.etaFactor([]), 1, 'an unusable remembered value is ignored');
+context.localStorage = {getItem:() => { throw new Error('blocked'); }, setItem:() => { throw new Error('blocked'); }};
+near(context.etaFactor([finished(1.6), finished(1.6), finished(1.6)]), 1.6, 0.001, 'storage that throws does not break the estimate');
+assert.equal(context.etaFactor([]), 1);
+assert(script.includes('if (CAT) refreshSizeEstimate();') && script.includes('if (typeof drawEstimates === "function") drawEstimates();'), 'both estimate labels are refreshed when the history arrives and on every render');
 
 // The page ships automatic defaults and labels the advanced section accordingly.
 assert(script.includes('shift_video:11, shift_audio:4, manual:null, level:null'));
