@@ -64,11 +64,6 @@ foreach ($n in $V.custom_nodes) {
     }
 }
 
-Step "CPU 얼굴 검출 준비"
-Pip "opencv-python>=5,<6"
-& $Py "$Root\scripts\install_face_detector.py" --comfy $ComfyDir
-if ($LASTEXITCODE -ne 0) { throw "CPU 얼굴 검출 모델 설치 실패" }
-
 Step "간단 화면(simple_ui) 복사"
 & $Py "$Root\scripts\install_queue_pause.py" --comfy $ComfyDir
 if ($LASTEXITCODE -ne 0) { throw "대기열 일시정지 확장 설치 실패" }
@@ -78,13 +73,25 @@ $publicUiFiles = @(
     'server.py', 'index.html', 'start.bat', 'template_api.json', 'queue-pause.js',
     'bulk_progress.py', 'bulk-progress.js', 'queue_bulk.py', 'person_framing.py',
     'cards.seed.json', 'presets.seed.json', 'prompt_helper.py', 'grok_cli.py',
-    'production_assistant.py', 'production_assistant.js', 'local_translate.py', 'translation_worker.py',
+    'production_assistant.py', 'production_assistant.js', 'production_chat.py', 'local_translate.py', 'translation_worker.py',
     'story.py', 'story_workflow.py', 'story.html', 'gallery.py', 'gallery.html', 'face_references.py'
 )
 foreach ($publicUiFile in $publicUiFiles) {
     Copy-Item -LiteralPath (Join-Path "$Root\simple_ui" $publicUiFile) -Destination $ui -Force
 }
 Copy-Item "$Root\scripts\start_comfyui.bat" $ComfyDir -Force
+
+# 선택 기능(얼굴인식강화·인물 잘림 방지)용 CPU 검출 모델. 받지 못해도 화면은 원본 사진·원본 비율로 동작하므로 설치를 멈추지 않는다.
+Step "CPU 검출 모델 준비(얼굴·인물)"
+Pip "opencv-python>=5,<6"
+# PowerShell 7.4+ 에서 부른 쪽이 $PSNativeCommandUseErrorActionPreference 를 켜 두면 아래 두 설치가 실패할 때 경고가 아니라 설치 전체가 멈춘다. 이 구간에서만 끈다.
+& {
+    $PSNativeCommandUseErrorActionPreference = $false
+    & $Py "$Root\scripts\install_face_detector.py" --comfy $ComfyDir
+    if ($LASTEXITCODE -ne 0) { Write-Warning "CPU 얼굴 검출 모델을 받지 못했습니다. 나중에 scripts\install_face_detector.py --comfy `"$ComfyDir`" 를 다시 실행하세요." }
+    & $Py "$Root\scripts\install_person_detector.py" --comfy $ComfyDir
+    if ($LASTEXITCODE -ne 0) { Write-Warning "CPU 인물 검출 모델을 받지 못했습니다. 나중에 scripts\install_person_detector.py --comfy `"$ComfyDir`" 를 다시 실행하세요." }
+}
 
 Step "끝"
 Write-Host @"

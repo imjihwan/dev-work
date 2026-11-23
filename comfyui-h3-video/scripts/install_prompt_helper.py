@@ -55,7 +55,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--comfy", type=Path, default=None, help="ComfyUI 폴더(기본: 저장소\\ComfyUI 또는 %%USERPROFILE%%\\ComfyUI)")
-    parser.add_argument("--engine", choices=("legacy", "dutchit", "all"), default="dutchit", help="설치할 CPU 도우미(기본: DutchIT만, legacy/all은 명시적 호환 설치)")
+    parser.add_argument("--engine", choices=("legacy", "dutchit", "all", "runtime"), default="dutchit", help="설치할 CPU 도우미(기본: DutchIT만, legacy/all은 명시적 호환 설치, runtime 은 실행 파일만 — 번역기용)")
     args=parser.parse_args()
     comfy = (args.comfy or default_comfy(ROOT)).resolve()
     DEST = comfy.parent / "local-prompt-helper"

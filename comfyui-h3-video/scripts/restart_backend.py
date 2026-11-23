@@ -217,7 +217,12 @@ def perform(comfy,resume=None,after_current=False,pause_after=False):
             started=subprocess.Popen([str(python),'-X','utf8',*command[1:]],cwd=comfy,env=env,stdout=out,stderr=err,
                                      creationflags=subprocess.CREATE_NO_WINDOW|subprocess.CREATE_NEW_PROCESS_GROUP)
         receipt['new_launcher_pid']=started.pid
-        (ROOT/'logs/comfyui.pid').write_text(str(started.pid),encoding='ascii')
+        try:
+            # Bookkeeping for Start/Stop scripts only. The old backend is already stopped here, so a
+            # missing logs folder (start_comfyui.bat users never create it) must not abort the
+            # restore and strand the detached queue behind the restart marker.
+            (ROOT/'logs').mkdir(exist_ok=True);(ROOT/'logs/comfyui.pid').write_text(str(started.pid),encoding='ascii')
+        except OSError:pass
         deadline=time.monotonic()+180
         while True:
             if started.poll() is not None:raise ValueError('Backend exited during startup; private startup log retained')
@@ -261,7 +266,8 @@ def perform(comfy,resume=None,after_current=False,pause_after=False):
         raise SystemExit(1)
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--comfy',type=Path,default=ROOT/'ComfyUI')
+    # README 의 위치 규칙: --comfy → <프로젝트>\\ComfyUI → %USERPROFILE%\\ComfyUI
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--comfy',type=Path,default=ROOT/'ComfyUI' if (ROOT/'ComfyUI').is_dir() else Path.home()/'ComfyUI')
     parser.add_argument('--resume-backup',type=Path,help='Verified private backup to resume before the original backend was stopped')
     parser.add_argument('--verify-restored-backup',type=Path,help='Reverify a fully replayed backup and release UI protection without resubmitting')
     parser.add_argument('--after-current',action='store_true',help='Let running work finish without interruption before restarting')

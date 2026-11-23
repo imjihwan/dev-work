@@ -6,6 +6,12 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 
 
+def default_comfy():
+    """README 의 위치 규칙: 이 프로젝트 안의 ComfyUI 폴더가 있으면 그것, 없으면 %USERPROFILE%\\ComfyUI."""
+    local = ROOT / 'ComfyUI'
+    return local if local.is_dir() else Path.home() / 'ComfyUI'
+
+
 def install(comfy):
     comfy=Path(comfy).resolve()
     if not (comfy/'server.py').is_file():raise ValueError('ComfyUI directory not found')
@@ -22,5 +28,5 @@ def install(comfy):
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--comfy',type=Path,default=ROOT/'ComfyUI')
-    install(parser.parse_args().comfy)
+    parser=argparse.ArgumentParser();parser.add_argument('--comfy',type=Path,default=None)
+    install(parser.parse_args().comfy or default_comfy())

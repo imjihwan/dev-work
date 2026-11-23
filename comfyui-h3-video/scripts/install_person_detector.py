@@ -12,7 +12,15 @@ SIZE=35858002
 URL='https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/object_detection_yolox/'+NAME
 
 
+def default_comfy():
+    """README 의 위치 규칙: 이 프로젝트 안의 ComfyUI 폴더가 있으면 그것, 없으면 %USERPROFILE%\\ComfyUI."""
+    local = ROOT / 'ComfyUI'
+    return local if local.is_dir() else Path.home() / 'ComfyUI'
+
+
 def install(comfy):
+    # 엉뚱한 곳에 ComfyUI 폴더를 새로 만들면 다른 스크립트가 그 빈 폴더를 설치본으로 잘못 고른다
+    if not (comfy/'main.py').is_file():raise SystemExit(f'ComfyUI 폴더를 찾지 못했습니다: {comfy} (--comfy 로 지정해 주세요)')
     target=comfy/'models'/'person_detection'/NAME
     license_file=ROOT/'third_party/person-framing/LICENSE.txt'
     if license_file.is_file():
@@ -30,5 +38,5 @@ def install(comfy):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--comfy',type=Path,default=ROOT/'ComfyUI')
-    install(parser.parse_args().comfy)
+    parser.add_argument('--comfy',type=Path,default=None)
+    install(parser.parse_args().comfy or default_comfy())

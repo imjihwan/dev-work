@@ -37,8 +37,12 @@ def download(spec, destination):
 def main():
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--comfy", type=Path, default=root / "ComfyUI")
+    parser.add_argument("--comfy", type=Path, default=None)
     args = parser.parse_args()
+    if args.comfy is None:   # README 의 위치 규칙: <프로젝트>\ComfyUI 가 있으면 그것, 없으면 %USERPROFILE%\ComfyUI
+        args.comfy = root / "ComfyUI" if (root / "ComfyUI").is_dir() else Path.home() / "ComfyUI"
+    if not (args.comfy / "main.py").is_file():
+        raise SystemExit(f"ComfyUI 폴더를 찾지 못했습니다: {args.comfy} (--comfy 로 지정해 주세요)")
     home = args.comfy.resolve().parent / "local-translator"
     home.mkdir(parents=True, exist_ok=True)
     spec = json.loads((root / "models.json").read_text(encoding="utf-8-sig"))["local_translation"]
@@ -51,8 +55,8 @@ def main():
     for item in spec["quality"]["files"]:
         download(item, home / "models" / spec["quality"]["model_dir"])
     helper = home.parent / "local-prompt-helper"
-    if not (helper / "runtime/llama-server.exe").is_file() or not (helper / "Qwen3.5-2B-Q4_K_M.gguf").is_file():
-        subprocess.run([sys.executable, str(root / "scripts/install_prompt_helper.py"), "--comfy", str(args.comfy)], check=True)
+    if not (helper / "runtime/llama-server.exe").is_file():
+        subprocess.run([sys.executable, str(root / "scripts/install_prompt_helper.py"), "--comfy", str(args.comfy), "--engine", "runtime"], check=True)
     print("CPU-only English-to-Korean translator is ready. ComfyUI packages and models were not changed.")
 
 

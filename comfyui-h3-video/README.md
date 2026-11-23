@@ -28,12 +28,14 @@ Windows, NVIDIA GPU, Git, Python 3.12 또는 uv가 필요하다. 고정된 Comfy
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -ComfyDir "$PWD\ComfyUI"
-.\ComfyUI\.venv\Scripts\python.exe scripts\get_models.py --comfy .\ComfyUI --all
+.\ComfyUI\.venv\Scripts\python.exe scripts\get_models.py --comfy .\ComfyUI
 ```
+
+두 번째 명령은 실행에 꼭 필요한 모델 5개(약 40GB)만 받고 검증한다. 비교용 선택 모델·LoRA 까지 받으려면 끝에 `--all` 을 붙인다(자동으로 받는 것만 약 67GB 추가). `Complete-Models.ps1` 도 필수 모델만 확인하며 `-All` 을 주면 선택 모델까지 받는다.
 
 Civitai에서 직접 받아야 하는 파일은 다운로드 안내를 따른다. 브라우저 로그인은 사용자가 진행한다. 파일 위치·검증 방법은 [모델 안내](docs/MODELS.md)와 `models.json`을 참고한다. 명세 파일의 파일명·다운로드 주소·해시는 설치 정보이며 모델 파일 자체가 아니다.
 
-**ComfyUI 위치 규칙**: 실행·설치 스크립트(`Start`/`Stop`/`Restart-H3-UI`/`Complete-Models.ps1`, `install_*.py`, `prepare_ui_restart.py`)는 `-ComfyDir`(또는 `--comfy`)로 준 폴더를 쓰고, 없으면 이 프로젝트 안의 `ComfyUI` 폴더, 그것도 없으면 `%USERPROFILE%\ComfyUI`(setup.ps1 기본값)를 쓴다. 프롬프트 도우미 파일(`local-prompt-helper`)은 **ComfyUI 폴더와 같은 위치**에 설치되고, 화면도 그 위치에서 찾는다. `simple_ui/`를 고친 뒤에는 ComfyUI 쪽 `simple_ui`로 복사(setup.ps1 이 하는 복사)한 다음 `Restart-H3-UI.ps1` 을 실행해야 반영된다.
+**ComfyUI 위치 규칙**: 실행·설치 스크립트(`Start`/`Stop`/`Restart-H3-UI`/`Complete-Models.ps1`, `install_*.py`, `restart_backend.py`)는 `-ComfyDir`(또는 `--comfy`)로 준 폴더를 쓰고, 없으면 이 프로젝트 안의 `ComfyUI` 폴더, 그것도 없으면 `%USERPROFILE%\ComfyUI`(setup.ps1 기본값)를 쓴다. `prepare_ui_restart.py` 는 `Restart-H3-UI.ps1` 이 넘겨주는 환경 변수 `SIMPLEUI_COMFY` 로 같은 규칙을 따른다. 설치 스크립트는 ComfyUI 가 없는 폴더를 새로 만들지 않고 멈춘다(빈 `ComfyUI` 폴더가 생기면 다른 스크립트가 그 폴더를 설치본으로 잘못 고른다). 프롬프트 도우미 파일(`local-prompt-helper`)은 **ComfyUI 폴더와 같은 위치**에 설치되고, 화면도 그 위치에서 찾는다. `simple_ui/`를 고친 뒤에는 ComfyUI 쪽 `simple_ui`로 복사(setup.ps1 이 하는 복사)한 다음 `Restart-H3-UI.ps1` 을 실행해야 반영된다.
 
 로컬 CPU 프롬프트 도우미는 별도로 준비한다.
 

@@ -83,10 +83,17 @@ def main():
     ap.add_argument("--downloads", default=os.path.join(os.path.expanduser("~"), "Downloads"),
                     help="Civitai 파일을 브라우저로 받은 폴더")
     a = ap.parse_args()
+    # 출력을 파일·파이프로 돌리면 한국어 Windows 에서는 cp949 가 되어, 목록의 '—' 나 한자 파일 이름에서 멈춘다
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="backslashreplace")
 
     with open(MANIFEST, encoding="utf-8") as manifest:
         files = json.load(manifest)["files"]
     if a.only:
+        unknown = sorted(set(a.only) - {f["id"] for f in files})
+        if unknown:
+            sys.exit("models.json 에 없는 id: " + ", ".join(unknown))
         files = [f for f in files if f["id"] in a.only]
     elif not a.all:
         files = [f for f in files if f["required"]]
@@ -95,6 +102,11 @@ def main():
     for spec in files:
         dest_dir = os.path.join(a.comfy, *spec["dest"].split("/"))
         dest = os.path.join(dest_dir, spec["filename"])
+        inside = os.path.normcase(os.path.realpath(a.comfy))
+        if not inside.endswith(os.sep):      # 드라이브 루트(D:\)는 이미 구분자로 끝난다
+            inside += os.sep
+        if not os.path.normcase(os.path.realpath(dest)).startswith(inside) or os.path.basename(spec["filename"]) != spec["filename"]:
+            sys.exit(f"models.json 의 위치가 ComfyUI 폴더를 벗어납니다: {spec['id']}")
         print(f"- {spec['id']}  ({human(spec['size'])})  {spec['role']}")
         if ok_file(dest, spec, verify):
             result.append((spec, "있음(확인됨)"))

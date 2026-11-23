@@ -7,7 +7,7 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = (
-    ".gitignore", "AGENTS.md", "README.md", "CHANGELOG.md", "TODO.md",
+    ".gitignore", ".gitattributes", "AGENTS.md", "README.md", "CHANGELOG.md", "TODO.md",
     "models.json", "versions.json", "requirements-test.txt",
     "Start-H3-Video.ps1", "Stop-H3-Video.ps1", "Restart-H3-UI.ps1", "Complete-Models.ps1", "Connect-Grok.ps1",
 )
@@ -20,9 +20,11 @@ THIRD_PARTY_FILES = ("third_party/dutchit/NOTICE.md", "third_party/dutchit/LICEN
 DOC_FILES = (
     "MODELS.md", "PROMPT_HELPER.md", "GROK_CLI.md", "PRODUCTION_ASSISTANT.md", "STORY.md", "UI.md",
     "ARCHITECTURE.md", "TESTING.md", "SOURCE_RELEASE.md", "HANDOFF.md", "FACE_REFERENCES.md", "LOCAL_TRANSLATION.md",
+    "PERFORMANCE.md", "TROUBLESHOOTING.md",
 )
 SCRIPT_FILES = (
     "test_get_models.py", "test_state_files.py", "test_server_http.py", "run_tests.py", "dev_sandbox.py", "test_queue_snapshot.py",
+    "test_setup_manifest.py", "test_auto_settings.cjs", "test_face_direction.py", "test_sigma_shift_wiring.py", "test_ui_state.py", "test_ui_sync.cjs",
     "install_queue_pause.py", "test_queue_pause.py", "test_queue_pause.cjs",
     "setup.ps1", "start_comfyui.bat", "get_models.py", "download-ranges.py",
     "install_prompt_helper.py", "install_grok_cli.py", "install_face_detector.py", "install_person_detector.py", "test_person_framing.py", "install_local_translator.py", "test_face_references.py", "prepare_ui_restart.py", "prepare_source_release.py", "restart_backend.py", "test_backend_restart.py",
@@ -43,6 +45,27 @@ ALLOWED_SUFFIXES = {".md", ".py", ".js", ".cjs", ".html", ".ps1", ".bat", ".json
 SECRET = re.compile(r"(?:xai-[A-Za-z0-9_-]{24,}|gh[pousr]_[A-Za-z0-9_]{30,}|github_pat_[A-Za-z0-9_]{40,}|-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----)")
 
 
+def check_template(template):
+    """공개 템플릿에 프롬프트·참조 사진이 남아 있지 않은지 확인한다.
+
+    Director 는 같은 프롬프트를 여러 칸에 겹쳐 둔다(prompt, timeline 의 resolved_prompt·builder_state.simple_prompt·
+    continuity.continuation_prompt·idea, builder_state.simple_prompt). 한 칸만 비우고 뽑은 틀이 통과하지 않게 모두 본다.
+    """
+    directors = [node for node in template.values() if isinstance(node, dict) and node.get("class_type") == "MiniMaxH3Director"]
+    if not directors:
+        raise ValueError("Expected a Director in the public template.")
+    for node in directors:
+        inputs = node.get("inputs", {})
+        timeline = json.loads(inputs["timeline_data"])
+        builder = json.loads(inputs.get("builder_state") or "{}")
+        continuity = timeline.get("continuity") or {}
+        texts = [inputs.get("prompt"), inputs.get("external_prompt_overwrite"), timeline.get("resolved_prompt"),
+                 (timeline.get("builder_state") or {}).get("simple_prompt"), continuity.get("continuation_prompt"),
+                 continuity.get("idea"), builder.get("simple_prompt")]
+        if any(isinstance(text, str) and text.strip() for text in texts) or timeline.get("items") or timeline.get("prompt_blocks"):
+            raise ValueError("Public template must have no prompt or reference-image items.")
+
+
 def prepare(destination):
     destination = destination.resolve()
     if destination.exists():
@@ -54,20 +77,13 @@ def prepare(destination):
         path = ROOT / relative
         if path.is_symlink() or not path.resolve().is_relative_to(ROOT):
             raise ValueError("A source allowlist path resolves outside this project.")
-        if path.name != ".gitignore" and path.suffix not in ALLOWED_SUFFIXES:
+        if path.name not in (".gitignore", ".gitattributes") and path.suffix not in ALLOWED_SUFFIXES:
             raise ValueError("Unexpected file extension in source allowlist.")
         data = path.read_bytes()
         if len(data) > 2_000_000 or SECRET.search(data.decode("utf-8-sig")):
             raise ValueError("Source release failed its size or credential check.")
         payload[relative] = data
-    template = json.loads(payload["simple_ui/template_api.json"].decode("utf-8-sig"))
-    directors = [node for node in template.values() if node.get("class_type") == "MiniMaxH3Director"]
-    if not directors:
-        raise ValueError("Expected a Director in the public template.")
-    for node in directors:
-        inputs = node.get("inputs", {})
-        if inputs.get("prompt", "").strip() or json.loads(inputs["timeline_data"]).get("items"):
-            raise ValueError("Public template must have no prompt or reference-image items.")
+    check_template(json.loads(payload["simple_ui/template_api.json"].decode("utf-8-sig")))
     manifest = []
     for relative, data in payload.items():
         target = destination / relative
