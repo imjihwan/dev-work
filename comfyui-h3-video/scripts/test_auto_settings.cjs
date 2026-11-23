@@ -62,6 +62,15 @@ assert.equal(S.level, 2, 'a quality-button step count is kept as a level, not as
 assert.equal(JSON.stringify(context.appliedShift({shift_video:10, shift_audio:3})), JSON.stringify({shift_video:12, shift_audio:3}));
 assert.equal(JSON.stringify(context.appliedShift({shift_video:10, shift_audio:3, shift_applied:true})), JSON.stringify({shift_video:10, shift_audio:3}));
 
+// Samplers and schedulers that do not suit H3 are explained next to the dropdowns (the lists are shared by every ComfyUI model).
+vm.runInContext(section('function samplingNotes(', 'function drawSamplingNote('), context);
+const samplingNotesFromServer = {samplers:{heun:'스텝마다 모델을 2~3번 불러 그만큼 오래 걸립니다.'}, schedulers:{karras:'영상·소리 shift 를 따르지 않습니다.'}};
+assert.deepEqual(Array.from(context.samplingNotes('euler', 'simple', samplingNotesFromServer)), []);
+assert.equal(context.samplingNotes('heun', 'karras', samplingNotesFromServer).length, 2);
+assert.match(context.samplingNotes('euler_cfg_pp', 'simple', samplingNotesFromServer)[0], /결과 영상이 깨집니다/);
+assert.deepEqual(Array.from(context.samplingNotes('heun', 'karras', undefined)), [], 'an older server without notes must not break the page');
+assert(html.includes('id="samplingNote"') && script.includes('listed(CAT.samplers, S.sampler)'));
+
 // The page ships automatic defaults and labels the advanced section accordingly.
 assert(script.includes('shift_video:11, shift_audio:4, manual:null, level:null'));
 assert(html.includes('id="advState"') && html.includes('자동 값으로 되돌리기'));

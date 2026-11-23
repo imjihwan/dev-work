@@ -8,7 +8,7 @@
       "codec": "Auto",
       "container": "Auto",
       "bit_depth": "Auto",
-      "quality": 25,
+      "quality": 20,
       "log_level": "Standard",
       "pingpong": false,
       "save_metadata": true,
@@ -84,9 +84,9 @@
       "max_resolution": 512,
       "jpeg_quality": 80,
       "suppress_default_preview": false,
-      "preview_frames": 120,
+      "preview_frames": 1,
       "preview_fps": 8,
-      "tiny_vae": "taeh3.safetensors",
+      "tiny_vae": "none",
       "model": [
         "1512:2692",
         0

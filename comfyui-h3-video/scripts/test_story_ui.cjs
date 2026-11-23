@@ -65,5 +65,13 @@ const plain=value=>JSON.parse(JSON.stringify(value));
   vm.runInContext("project.renders[2].stale=true;",context);context.updateStatus();assert.equal(get('merge').disabled,true);assert.equal(get('generate3').disabled,true);
   const ids=[...html.matchAll(/id="([a-zA-Z0-9_-]+)"/g)].map(match=>match[1]);assert.equal(new Set(ids).size,ids.length);
   assert(html.includes('각 단계')||html.includes('각 편'));assert(html.includes('이 단계 확정'));
+  // A saved sampler that is no longer in the catalog list (removed because it breaks on H3) must stay visible instead of being blanked.
+  const keepSource=html.match(/function keepListed\(id,value\)\{[^\n]*\}\r?\n/)[0];
+  const added=[];const select={options:[{value:'euler'}],add:option=>{added.push(option.value);select.options.push(option);}};
+  const keep=vm.runInNewContext(`(${keepSource.trim().replace('function keepListed','function')})`,{$:()=>select,Option:function(text,value){this.value=value;},String});
+  keep('sampler','euler');assert.deepEqual(added,[]);
+  keep('sampler','euler_cfg_pp');keep('sampler','euler_cfg_pp');assert.deepEqual(added,['euler_cfg_pp']);
+  keep('sampler','');keep('sampler',null);assert.deepEqual(added,['euler_cfg_pp']);
+  assert(html.includes("keepListed(key,definition.common[key])")&&html.includes("keepListed(key,values[key])"));
   console.log('Story UI checks passed: four clips, scoped AI drafts/edits, stale-source rejection, approval gates, stable inline playback.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -516,6 +516,43 @@ def detail_compare(comfy, videos, target, index=60, size=560, region="face"):
     return str(target)
 
 
+SFACE = "face_recognition_sface_2021dec.onnx"      # OpenCV Zoo 의 공개 얼굴 인식 모델(선택). 측정 폴더의 models/sface/ 에 있을 때만 쓴다
+
+
+def identity_score(comfy, root, video, reference, count=16):
+    """참조 사진의 얼굴과 영상 속 얼굴이 같은 사람으로 보이는 정도(SFace 코사인 유사도, 높을수록 같음. 같은 사람 기준 약 0.36 이상).
+    눈대중 대신 변형끼리 비교하기 위한 수치다. 모델 파일이 없으면 빈 값을 돌려준다."""
+    import cv2
+    detector_file = Path(comfy) / "models" / "face_detection" / "face_detection_yunet_2026may.onnx"
+    recogniser_file = Path(root) / "models" / "sface" / SFACE
+    if not (detector_file.is_file() and recogniser_file.is_file() and reference and Path(reference).is_file()):
+        return {}
+    detector = cv2.FaceDetectorYN_create(str(detector_file), "", (640, 640), 0.6, 0.3, 5000)
+    recogniser = cv2.FaceRecognizerSF_create(str(recogniser_file), "")
+
+    def feature(image):                    # image: BGR
+        detector.setInputSize((image.shape[1], image.shape[0]))
+        _, faces = detector.detect(image)
+        if faces is None or not len(faces):
+            return None
+        face = max(faces, key=lambda f: f[2] * f[3])
+        return recogniser.feature(recogniser.alignCrop(image, face)).copy()
+
+    base = feature(cv2.imread(str(reference)))
+    frames, _ = read_frames(video, colour=True)
+    if base is None or not frames:
+        return {}
+    scores = []
+    for index in range(count):
+        frame = frames[round(index * (len(frames) - 1) / max(count - 1, 1))]
+        found = feature(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+        if found is not None:
+            scores.append(float(recogniser.match(base, found, cv2.FaceRecognizerSF_FR_COSINE)))
+    if not scores:
+        return {"identity_faces": 0}
+    return {"identity_mean": round(sum(scores) / len(scores), 3), "identity_min": round(min(scores), 3), "identity_faces": len(scores)}
+
+
 def face_sheet(comfy, video, target, reference=None, count=7, size=288):
     """참조 사진의 얼굴과 영상 프레임들의 얼굴을 같은 크기로 잘라 나란히 놓는다(동일 인물 유지·얼굴 품질을 눈으로 확인).
     반환: 얼굴이 잡힌 프레임 비율, 얼굴이 화면에서 차지하는 비율, 얼굴 영역 선명도."""
@@ -602,6 +639,19 @@ def run_variant(instance, v, helpers, resources, timeout):
                 instance.stop()
                 raise Yield("사용자의 ComfyUI 가 켜져 측정을 멈췄습니다.")
         time.sleep(0.2)
+    if not final:                               # 시간 초과: 다음 변형이 이 작업 뒤에 줄 서지 않게 멈추고, 그래도 안 풀리면 인스턴스를 다시 띄운다
+        try:
+            http_json(instance.url + "/interrupt", {"prompt_id": prompt_id})
+            http_json(instance.url + "/queue", {"delete": [prompt_id]})
+        except (OSError, ValueError):
+            pass
+        time.sleep(20)
+        try:
+            busy = http_json(instance.url + "/prompt", timeout=10).get("exec_info", {}).get("queue_remaining", 0)
+        except (OSError, ValueError):
+            busy = 1
+        if busy:
+            instance.stop()
     time.sleep(0.5)
     tap.closing = True
     timing, end, mine = timings(tap.events, graph, prompt_id, submitted)
@@ -626,6 +676,8 @@ def run_variant(instance, v, helpers, resources, timeout):
             first = v["image"] if isinstance(v.get("image"), str) else (v.get("image") or [None])[0]
             result["face"] = face_sheet(instance.comfy, outputs[0], instance.root / "sheets" / f"{v['name']}.faces.jpg",
                                         instance.folders()["input"] / first if first else None)
+            if first:
+                result["face"].update(identity_score(instance.comfy, instance.root, outputs[0], instance.folders()["input"] / first))
         except Exception as exc:  # noqa: BLE001 - 지표 실패가 측정 기록을 버리게 두지 않는다
             result["metrics_error"] = repr(exc)
     return result
@@ -715,6 +767,8 @@ def main():
     sheet.add_argument("target")
     sheet.add_argument("--count", type=int, default=6)
     sheet.add_argument("--at", type=int, nargs="*")
+    identity = commands.add_parser("identity", help="기록된 결과들의 동일 인물 점수를 (다시) 계산해 표로 보여 준다")
+    identity.add_argument("names", nargs="*")
     detail = commands.add_parser("detail")
     detail.add_argument("target")
     detail.add_argument("videos", nargs="+")
@@ -746,6 +800,15 @@ def main():
             print(json.dumps(compare_videos(args.reference, args.other), ensure_ascii=False))
         elif args.command == "sheet":
             print(contact_sheet(args.video, args.target, args.count, at=args.at))
+        elif args.command == "identity":
+            for line in (instance.root / "results.jsonl").read_text(encoding="utf-8").splitlines():
+                row = json.loads(line)
+                image = (row.get("settings") or {}).get("image")
+                first = image if isinstance(image, str) else (image or [None])[0]
+                if not row.get("file") or not first or (args.names and not any(n in row["name"] for n in args.names)):
+                    continue
+                score = identity_score(instance.comfy, instance.root, row["file"], instance.folders()["input"] / first)
+                print(f"{row['name']:<34} mean {score.get('identity_mean')}  min {score.get('identity_min')}  faces {score.get('identity_faces')}/16", flush=True)
         elif args.command == "detail":
             print(detail_compare(args.comfy, args.videos, args.target, args.index, args.size, args.region))
         elif args.command == "frame":

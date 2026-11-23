@@ -316,11 +316,49 @@ def input_thumbnail(name, size=192):
 
 
 def upload(raw, ext):
-    name = f"simpleui_{uuid.uuid4().hex[:10]}.{ext}"
-    bnd = uuid.uuid4().hex
-    body = (f'--{bnd}\r\nContent-Disposition: form-data; name="image"; filename="{name}"\r\n'
-            f"Content-Type: application/octet-stream\r\n\r\n").encode() + raw + f"\r\n--{bnd}--\r\n".encode()
-    return json.load(comfy("/upload/image", body, {"Content-Type": f"multipart/form-data; boundary={bnd}"}))["name"]
+    """사진을 ComfyUI input 폴더에 올린다. 이름은 내용에서 만든다: 같은 사진을 다시 올리면 ComfyUI 가 이미 있는 파일을
+    그대로 쓰므로 복사본이 늘지 않고, 같은 사진·같은 문구를 다시 등록할 때 사진·문구 인코딩 결과를 다시 쓴다
+    (이름이 매번 다르면 그래프가 달라져 텍스트 모델과 참조 인코딩을 처음부터 다시 돈다).
+    드물게 다른 사진과 이름이 겹치면 ComfyUI 가 다른 이름을 돌려주므로, 그때만 예전처럼 임의 이름으로 올린다."""
+    import hashlib
+    stored = None
+    for name in (f"simpleui_{hashlib.sha256(raw).hexdigest()[:10]}.{ext}", f"simpleui_{uuid.uuid4().hex[:10]}.{ext}"):
+        bnd = uuid.uuid4().hex
+        body = (f'--{bnd}\r\nContent-Disposition: form-data; name="image"; filename="{name}"\r\n'
+                f"Content-Type: application/octet-stream\r\n\r\n").encode() + raw + f"\r\n--{bnd}--\r\n".encode()
+        stored = json.load(comfy("/upload/image", body, {"Content-Type": f"multipart/form-data; boundary={bnd}"}))["name"]
+        if stored == name:
+            break
+    return stored
+
+
+def upright_photo(raw):
+    """EXIF 방향이 걸린 사진(휴대폰으로 세워 찍은 사진 등)의 화소를 실제로 돌려 다시 만든다.
+    DaSiWa Director 는 사진을 읽을 때 EXIF 방향을 무시해서, 그대로 올리면 눕거나 뒤집힌 사진이 참조·첫 장면으로 들어간다
+    (캔버스는 세운 크기로 잡히므로 서로 어긋난다). 방향 표시가 없거나 정상이면 받은 바이트를 그대로 둔다(재압축 없음).
+    반환: (올릴 바이트, 확장자, (가로, 세로))"""
+    with Image.open(io.BytesIO(raw)) as im:
+        ext = {"PNG": "png", "WEBP": "webp"}.get(im.format, "jpg")
+        orientation = im.getexif().get(274)
+        # ImageOps.exif_transpose 와 같은 표. 그 함수는 돌린 뒤 EXIF 를 다시 쓰는데, 읽히기만 하고 다시 쓸 수 없는 EXIF 가 든 사진에서
+        # 예외가 난다. 여기서는 EXIF 를 버리므로 화소만 돌린다.
+        turn = {2: Image.Transpose.FLIP_LEFT_RIGHT, 3: Image.Transpose.ROTATE_180, 4: Image.Transpose.FLIP_TOP_BOTTOM,
+                5: Image.Transpose.TRANSPOSE, 6: Image.Transpose.ROTATE_270, 7: Image.Transpose.TRANSVERSE,
+                8: Image.Transpose.ROTATE_90}.get(orientation if isinstance(orientation, int) else None)
+        if turn is None:
+            return raw, ext, im.size
+        turned = im.transpose(turn)
+        extra = {"icc_profile": im.info["icc_profile"]} if im.info.get("icc_profile") else {}
+        out = io.BytesIO()
+        # 휴대폰 사진은 Pillow 가 JPEG 이 아니라 MPO(보조 영상이 붙은 JPEG)로 읽는 경우가 많다. 둘 다 JPEG 으로 다시 만든다.
+        if im.format in ("JPEG", "MPO") and turned.mode in ("RGB", "L"):
+            turned.save(out, format="JPEG", quality=95, subsampling=0, **extra)     # 원본이 JPEG 이면 크기를 지키며 화질 손실을 최소로
+        else:
+            if turned.mode not in ("RGB", "RGBA", "L", "LA"):
+                turned = turned.convert("RGB")
+            turned.save(out, format="PNG", compress_level=3, **extra)
+            ext = "png"
+        return out.getvalue(), ext, turned.size
 
 
 # =====================================================================
@@ -879,6 +917,9 @@ def effective(kind, card):
     else:
         e = {"strength": c.get("strength", 1.0), "steps": a.get("steps_hint") if a.get("turbo") else None}
     e.update({k: v for k, v in u.items() if v is not None})
+    # 예전에 기본값으로 저장해 둔 샘플러가 H3 에서 결과가 깨지는 계열이면 권장 샘플러로 되돌린다(자동 값이 거절되는 값을 가리키지 않게)
+    if kind == "model" and str(e.get("sampler") or "").endswith("_cfg_pp"):
+        e["sampler"] = "euler" if a.get("turbo") else "res_multistep"
     return e
 
 
@@ -913,12 +954,32 @@ def template_defaults():
             "mode": p[DIRECTOR]["inputs"].get("mode", "REF2VA")}
 
 
+# H3 는 CFG 없이(BasicGuider, 조건 하나) 돈다. ComfyUI 의 샘플러·스케줄러 목록은 모든 모델 공용이라 H3 에 맞지 않는 것이 섞여 있다
+# (근거: comfy/samplers.py · comfy/k_diffusion/sampling.py, 2026-11-23 확인).
+def h3_sampler_broken(name):
+    """*_cfg_pp 샘플러는 무조건부(네거티브) 예측으로 진행 방향을 만든다. H3 에는 그 예측이 없어 0 이 들어가고 결과 영상이 깨진다."""
+    return isinstance(name, str) and name.endswith("_cfg_pp")
+
+
+H3_SAMPLING_NOTES = {
+    "samplers": {**{name: "스텝마다 모델을 2~3번 불러 그만큼 오래 걸립니다." for name in
+                    ("heun", "heunpp2", "dpm_2", "dpm_2_ancestral", "dpmpp_2s_ancestral", "dpmpp_sde", "dpmpp_sde_gpu", "seeds_2", "seeds_3",
+                     "exp_heun_2_x0", "exp_heun_2_x0_sde", "sa_solver_pece")},
+                 "dpm_adaptive": "스텝 수와 스케줄러·shift 를 따르지 않습니다.", "dpm_fast": "스케줄러와 shift 를 따르지 않습니다."},
+    "schedulers": {**{name: "영상·소리 shift 를 따르지 않고 고노이즈 구간을 거의 건너뜁니다(구도·움직임이 무너질 수 있음)."
+                      for name in ("karras", "exponential", "kl_optimal")},
+                   "linear_quadratic": "영상·소리 shift 를 따르지 않습니다.",
+                   "ddim_uniform": "첫 스텝이 완전한 노이즈에서 시작하지 않습니다."},
+}
+
+
 def catalog():
     models = object_options("UNETLoader", "unet_name")
     loras = object_options("LoraLoaderModelOnly", "lora_name")
     out = {"models": [card_for("model", n) for n in models], "loras": [card_for("lora", n) for n in loras],
-           "samplers": object_options("KSamplerSelect", "sampler_name"),
+           "samplers": [name for name in object_options("KSamplerSelect", "sampler_name") if not h3_sampler_broken(name)],
            "schedulers": object_options("BasicScheduler", "scheduler"),
+           "sampling_notes": H3_SAMPLING_NOTES,
            "presets": _load_json(PRESETS, {}), "default": template_defaults(),
            "capabilities": {"queue_edit": True, "bulk_edit": True, "bulk_edit_all": True, "photo_sequence": True, "photo_reference_pool": True, "saved_settings": True, "restart_running": True, "priority_queue": True}}
     # 작은 LoRA 는 처음 보면 Civitai 정보를 자동으로 가져온다(큰 본체 모델은 버튼으로)
@@ -1056,6 +1117,8 @@ def regenerate_gallery(req):
         source = gallery_regeneration_entry(source_id)
         if source["mode"] != target["mode"]:
             raise ValueError("사진 참조 방식이 같은 영상에서 설정을 가져와 주세요.")
+        if str(source.get("sampler") or "").endswith("_cfg_pp"):       # 사진을 다시 올리기 전에 알린다(이 대화상자에서는 샘플러를 바꿀 수 없다)
+            raise ValueError("설정을 가져올 영상이 H3 에서 결과가 깨지는 샘플러로 만들어졌습니다. 다른 영상을 골라 주세요.")
         referenced = [int(value) for value in re.findall(r"<Picture\s*(\d+)>", source["prompt"], re.I)]
         if referenced and max(referenced) > len(target["images"]):
             raise ValueError("복사할 프롬프트가 대상에 없는 참조 사진 번호를 사용합니다. 다른 영상을 골라 주세요.")
@@ -1075,16 +1138,21 @@ def regenerate_gallery(req):
             ui["f"][key] = target[key]
         ui.update(final=source["prompt"], regeneration=identity)
         values["ui"] = ui
-        items = []
+        items, names = [], []
         for index, name in enumerate(target["images"]):
             if not isinstance(name, str) or not re.fullmatch(r"simpleui_[0-9a-f]{10}\.(jpg|png|webp)", name):
                 raise ValueError("원래 참조 사진 정보를 확인할 수 없습니다.")
             with comfy("/view?" + urllib.parse.urlencode({"filename": name, "type": "input"})) as response:
-                with Image.open(response) as image:
-                    width, height = image.size
-            items.append({"id": "image-" + uuid.uuid4().hex, "enabled": True, "order": index, "slot": index,
+                stored = response.read()
+            # 예전에 올린 사진에 EXIF 방향이 남아 있으면(눕거나 뒤집혀 들어가던 사진) 세운 사본을 올려 그것으로 다시 만든다
+            raw, ext, (width, height) = upright_photo(stored)
+            if raw is not stored:
+                name = upload(raw, ext)
+            names.append(name)
+            items.append({"id": f"image-{name.rsplit('.', 1)[0].rsplit('_', 1)[-1]}-{index}", "enabled": True, "order": index, "slot": index,
                           "start": index, "duration": 1, "type": "image", "value": name, "thumbnail": None,
                           "source_width": width, "source_height": height})
+        target = dict(target, images=names)
         reference = {"entry": target, "prompt": {DIRECTOR: {"inputs": {"timeline_data": json.dumps({"items": items})}}}}
         return build_and_queue(values, reference=reference, queue_first=True)
 
@@ -1131,12 +1199,9 @@ def prepare_photo_reference(req):
     if not isinstance(image,str) or not image.startswith("data:image/") or not isinstance(group,str) or not 1<=len(group)<=120:
         raise ValueError("준비할 사진과 폴더 정보를 확인해 주세요.")
     try:
-        raw=base64.b64decode(image.split(",",1)[1],validate=True)
-        with Image.open(io.BytesIO(raw)) as im:
-            width,height=im.size;fmt=im.format;orientation=im.getexif().get(274)
-        if orientation in (5,6,7,8):width,height=height,width
+        # EXIF 방향이 걸린 사진은 화소를 세워서 올린다(build_and_queue 와 같은 규칙)
+        raw,ext,(width,height)=upright_photo(base64.b64decode(image.split(",",1)[1],validate=True))
     except (ValueError,IndexError,OSError):raise ValueError("사진을 읽지 못했습니다.") from None
-    ext={"PNG":"png","WEBP":"webp"}.get(fmt,"jpg")
     name=upload(raw,ext);original={"value":name,"source_width":width,"source_height":height}
     auxiliary=dict(original);unavailable=False
     if req.get("face_boost") is True:
@@ -1299,6 +1364,8 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
     if req.get("scheduler"):
         p[SCHED]["inputs"]["scheduler"] = req["scheduler"]
     if req.get("sampler"):
+        if str(req["sampler"]).endswith("_cfg_pp"):      # h3_sampler_broken 과 같은 규칙(저장된 설정·이력에서 올 수 있다)
+            raise ValueError(f"샘플러 {req['sampler']} 는 CFG 가 없는 H3 에서 결과 영상이 깨집니다. euler 같은 다른 샘플러를 골라 주세요.")
         p[SAMPLER]["inputs"]["sampler_name"] = req["sampler"]
     for k in ("shift_video", "shift_audio"):
         if req.get(k) not in (None, ""):
@@ -1345,15 +1412,14 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
             sizes.append((item["source_width"], item["source_height"]))
     for i, data_url in enumerate([] if reference else imgs):
         head, b64 = data_url.split(",", 1)
-        raw = base64.b64decode(b64)
+        # EXIF 방향이 걸린 사진은 화소를 세워서 올린다(Director 는 EXIF 방향을 무시한다). 그 밖의 사진은 받은 그대로.
+        raw, ext, display_size = upright_photo(base64.b64decode(b64))
         raws.append(raw)
-        im = Image.open(io.BytesIO(raw))
-        display_size = im.size[::-1] if im.getexif().get(274) in (5,6,7,8) else im.size
         sizes.append(display_size)
-        ext = {"PNG": "png", "WEBP": "webp"}.get(im.format, "jpg")
         names.append(upload(raw, ext))
         # REF2VA: slot = 사진 번호 / FL2VA: slot 0 = 첫 프레임, 1 = 끝 프레임 / I2VA: slot 0
-        items.append({"id": f"image-{uuid.uuid4().int % 10**13}-{i}", "enabled": True, "order": i, "slot": i,
+        # id 는 사진 이름에서 만든다(임의 값이면 같은 사진·같은 문구의 재등록도 그래프가 달라져 인코딩을 다시 돈다)
+        items.append({"id": f"image-{names[-1].rsplit('.', 1)[0].rsplit('_', 1)[-1]}-{i}", "enabled": True, "order": i, "slot": i,
                       "start": i, "duration": 1, "type": "image", "value": names[-1], "thumbnail": None,
                       "source_width": display_size[0], "source_height": display_size[1]})
         if face_mode and not sequence and i == 0:

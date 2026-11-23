@@ -57,12 +57,39 @@ class RecommendedShiftTests(unittest.TestCase):
                 self.assertNotIn("shift_audio", row, name)
 
 
+class SavedSamplerTests(unittest.TestCase):
+    def test_saved_default_with_a_sampler_that_breaks_on_h3_falls_back_to_the_recommended_one(self):
+        tree = ast.parse((ROOT / "simple_ui/server.py").read_text(encoding="utf-8-sig"))
+        scope = {}
+        exec(compile(ast.Module([n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "effective"], []), "effective", "exec"), scope)
+        for turbo, expected in ((True, "euler"), (False, "res_multistep")):
+            card = {"auto": {"turbo": turbo}, "user": {"sampler": "euler_cfg_pp", "steps": 6}}
+            value = scope["effective"]("model", card)
+            self.assertEqual((value["sampler"], value["steps"]), (expected, 6))
+        self.assertEqual(scope["effective"]("model", {"auto": {"turbo": True}, "user": {"sampler": "lcm"}})["sampler"], "lcm")
+
+
 class SigmaShiftWiringTests(unittest.TestCase):
     def test_template_scheduler_reads_shift_patched_model(self):
         graph = json.loads((ROOT / "simple_ui/template_api.json").read_text(encoding="utf-8-sig"))
         self.assertEqual(graph[SCHED]["inputs"]["model"], [SHIFT, 0])
         self.assertEqual(graph[SHIFT]["inputs"]["model"], [LORA, 0])
         self.assertEqual(graph[SHIFT]["class_type"], "MiniMaxH3SigmaShift")
+
+    def test_template_does_not_pay_for_a_preview_nobody_sees(self):
+        # The simple UI never shows sampler previews. With a tiny VAE and 120 preview frames the node decoded the
+        # whole clip at every step: measured 19.83 -> 19.12 s per step with these two values, identical output frames.
+        graph = json.loads((ROOT / "simple_ui/template_api.json").read_text(encoding="utf-8-sig"))
+        preview = graph["2737"]
+        self.assertEqual(preview["class_type"], "ModelPreviewOverrideKJ")
+        self.assertEqual((preview["inputs"]["tiny_vae"], preview["inputs"]["preview_frames"]), ("none", 1))
+        self.assertEqual(graph["1512:2592"]["inputs"]["model"], ["2737", 0], "the node stays wired; only its values changed")
+
+    def test_template_saves_at_the_node_default_quality(self):
+        # quality 25 lost fine skin texture (45.9 dB against a near-lossless encode); 20 is the save node's own default (47.1 dB).
+        graph = json.loads((ROOT / "simple_ui/template_api.json").read_text(encoding="utf-8-sig"))
+        self.assertEqual(graph["2568"]["inputs"]["quality"], 20)
+        self.assertEqual((graph["2568"]["inputs"]["codec"], graph["2568"]["inputs"]["bit_depth"]), ("Auto", "Auto"))
 
     def test_built_graph_uses_requested_shift_even_from_old_template_wiring(self):
         fixture = fixtures.FeatureTests()

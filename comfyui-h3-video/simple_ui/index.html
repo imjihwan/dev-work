@@ -434,6 +434,7 @@ a{color:var(--acc)}
           <div><label>영상 shift</label><input type="number" id="shift_video" step="0.5" min="0"></div>
           <div><label>소리 shift</label><input type="number" id="shift_audio" step="0.5" min="0"></div>
         </div>
+        <div class="hint" id="samplingNote" role="status"></div>
         <label style="margin-top:12px"><input type="checkbox" id="trig" checked> LoRA 트리거 단어를 프롬프트에 자동으로 넣기</label>
         <div class="foot">
           <button class="textbtn" id="saveModelDefault">이 값을 이 모델의 기본값으로 저장</button>
@@ -1021,8 +1022,11 @@ $("loraAdd").onclick = () => { UI.loraOpen = !UI.loraOpen; drawLoras(); };
 
 function drawAdvanced(){
   const fill = (sel, list, val) => { sel.innerHTML = list.map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join(""); sel.value = val; };
-  fill($("sampler"), CAT.samplers, S.sampler);
-  fill($("scheduler"), CAT.schedulers, S.scheduler);
+  // 저장된 설정·이력의 값이 지금 목록에 없으면(H3 에서 결과가 깨져 목록에서 뺀 샘플러 등) 고른 값을 숨기지 않고 보여 준다
+  const listed = (list, val) => val && !list.includes(val) ? [...list, val] : list;
+  fill($("sampler"), listed(CAT.samplers, S.sampler), S.sampler);
+  fill($("scheduler"), listed(CAT.schedulers, S.scheduler), S.scheduler);
+  drawSamplingNote();
   $("steps").value = S.steps; $("shift_video").value = S.shift_video; $("shift_audio").value = S.shift_audio;
   $("trig").checked = S.trig !== false;
   const direct = PARAMS.filter(k => S.manual?.[k]);
@@ -1030,9 +1034,22 @@ function drawAdvanced(){
   const m = curModel();
   $("modelDetail").innerHTML = m ? `<div class="fname">모델 파일: ${esc(m.name)}</div>${civBlock(m, "model")}` : "";
 }
+// 고른 샘플러·스케줄러가 H3 에 맞지 않으면 이유를 알려 준다(목록은 ComfyUI 의 모든 모델 공용이다)
+function samplingNotes(sampler, scheduler, notes){
+  const out = [];
+  if (/_cfg_pp$/.test(sampler || "")) out.push(`샘플러 ${sampler}: CFG 가 없는 H3 에서는 결과 영상이 깨집니다. 다른 샘플러를 골라 주세요.`);
+  else if (notes?.samplers?.[sampler]) out.push(`샘플러 ${sampler}: ${notes.samplers[sampler]}`);
+  if (notes?.schedulers?.[scheduler]) out.push(`스케줄러 ${scheduler}: ${notes.schedulers[scheduler]}`);
+  return out;
+}
+function drawSamplingNote(){
+  const node = $("samplingNote"); if (!node) return;
+  node.textContent = samplingNotes(S.sampler, S.scheduler, CAT?.sampling_notes).join(" ");
+}
 PARAMS.forEach(id => $(id).addEventListener("input", () => {
   S[id] = ["sampler","scheduler"].includes(id) ? $(id).value : Number($(id).value);
   (S.manual ||= {})[id] = true;
+  if (["sampler","scheduler"].includes(id)) drawSamplingNote();
   if (id === "steps") { S.level = null; drawSpeed(); }
   $("advState").textContent = `— 직접 지정: ${PARAMS.filter(k => S.manual[k]).map(k => PARAM_NAME[k]).join(", ")}`;
   drawPresets(); save(); drawGoInfo();

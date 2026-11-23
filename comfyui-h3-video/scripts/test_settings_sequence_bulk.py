@@ -25,7 +25,7 @@ sys.path.insert(0,str(SOURCE))
 from bulk_progress import BulkProgress
 from queue_bulk import BuildCache, QueueBulkEditor
 TREE = ast.parse((SOURCE / "server.py").read_text(encoding="utf-8"))
-NAMES = {"_load_json", "_save_json", "save_settings", "rename_settings", "delete_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "person_canvas", "bulk_edit_queue", "bulk_queue_context", "commit_bulk_history", "bulk_queue_editor", "judge_face_side", "prepare_photo_reference", "pooled_photo_reference", "release_photo_references"}
+NAMES = {"_load_json", "_save_json", "save_settings", "rename_settings", "delete_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "person_canvas", "bulk_edit_queue", "bulk_queue_context", "commit_bulk_history", "bulk_queue_editor", "judge_face_side", "upright_photo", "prepare_photo_reference", "pooled_photo_reference", "release_photo_references"}
 
 
 class FeatureTests(unittest.TestCase):
@@ -207,6 +207,88 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual((prepared['width'],prepared['height']),(768,1536))
         state=json.loads(prepared['prompt'][self.env['DIRECTOR']]['inputs']['timeline_data'])
         self.assertEqual((state['items'][0]['source_width'],state['items'][0]['source_height']),(16,32))
+        # Director 는 EXIF 방향을 무시한다: 올라가는 사진 자체가 세워져 있어야 캔버스와 맞는다
+        with Image.open(io.BytesIO(self.uploaded[-1])) as stored:
+            self.assertEqual(stored.size,(16,32));self.assertNotIn(274,stored.getexif());self.assertEqual(stored.format,'JPEG')
+
+    def test_every_exif_orientation_is_stored_upright_and_plain_photos_are_untouched(self):
+        # 왼쪽 위만 흰 사진: 방향 표시대로 돌린 뒤의 흰 칸 위치가 Pillow 의 exif_transpose 와 같아야 한다
+        base=Image.new('RGB',(40,20),(0,0,0))
+        for x in range(10):
+            for y in range(10):base.putpixel((x,y),(255,255,255))
+        for orientation in range(2,9):
+            for kind in ('JPEG','PNG'):
+                with self.subTest(orientation=orientation,kind=kind):
+                    exif=Image.Exif();exif[274]=orientation;stream=io.BytesIO();base.save(stream,format=kind,exif=exif,**({'quality':95} if kind=='JPEG' else {}))
+                    raw,ext,size=self.env['upright_photo'](stream.getvalue())
+                    expected=ImageOps.exif_transpose(Image.open(io.BytesIO(stream.getvalue())))
+                    with Image.open(io.BytesIO(raw)) as stored:
+                        self.assertEqual(stored.size,expected.size);self.assertEqual(size,expected.size);self.assertNotIn(274,stored.getexif())
+                        self.assertEqual(ext,'jpg' if kind=='JPEG' else 'png')
+                        for corner in ((2,2),(expected.width-3,2),(2,expected.height-3),(expected.width-3,expected.height-3)):
+                            self.assertEqual(stored.convert('L').getpixel(corner)>128,expected.convert('L').getpixel(corner)>128,corner)
+        for orientation in (None,1):
+            exif=Image.Exif()
+            if orientation:exif[274]=orientation
+            stream=io.BytesIO();base.save(stream,format='JPEG',exif=exif);original=stream.getvalue()
+            raw,ext,size=self.env['upright_photo'](original)
+            self.assertIs(raw,original);self.assertEqual((ext,size),('jpg',(40,20)))      # 재압축하지 않는다
+
+    def test_phone_photos_read_as_mpo_are_stored_as_jpeg_not_as_a_large_png(self):
+        # 휴대폰 사진은 보조 영상이 붙은 JPEG(MPO)인 경우가 많다. PNG 로 다시 만들면 한 장이 수십 MB 가 된다.
+        base=Image.new('RGB',(40,20),(90,120,150));exif=Image.Exif();exif[274]=6;stream=io.BytesIO()
+        base.save(stream,format='MPO',save_all=True,append_images=[Image.new('RGB',(40,20),(10,10,10))],exif=exif)
+        with Image.open(io.BytesIO(stream.getvalue())) as source:self.assertEqual(source.format,'MPO')
+        raw,ext,size=self.env['upright_photo'](stream.getvalue())
+        with Image.open(io.BytesIO(raw)) as stored:
+            self.assertEqual((stored.format,ext,stored.size,size),('JPEG','jpg',(20,40),(20,40)));self.assertNotIn(274,stored.getexif())
+
+    def test_rotated_photo_with_exif_that_cannot_be_written_back_is_still_accepted(self):
+        # exif_transpose 는 돌린 뒤 EXIF 를 다시 쓰다가 이런 사진에서 예외를 낸다. 이전에는(눕힌 채로라도) 등록되던 사진이다.
+        from PIL.TiffImagePlugin import IFDRational
+        base=Image.new('RGB',(40,20),(90,120,150));exif=Image.Exif();exif[274]=6;stream=io.BytesIO();base.save(stream,format='JPEG',exif=exif)
+        original=Image.Image.getexif
+        def unwritable(image):
+            data=original(image)
+            if data.get(274)==6:data[271]=IFDRational(1,3)        # Make 칸에 글자가 아닌 값: 읽히지만 다시 쓰면 예외
+            return data
+        with patch.object(Image.Image,'getexif',unwritable):
+            with self.assertRaises(Exception):ImageOps.exif_transpose(Image.open(io.BytesIO(stream.getvalue())))
+            raw,ext,size=self.env['upright_photo'](stream.getvalue())
+        with Image.open(io.BytesIO(raw)) as stored:self.assertEqual((stored.size,size,ext),((20,40),(20,40),'jpg'))
+
+    def test_same_photo_and_prompt_build_the_same_graph_so_the_encoding_cache_is_reused(self):
+        # 사진 이름·항목 id 가 임의 값이면 같은 사진·같은 문구의 재등록도 그래프가 달라져 텍스트·참조 인코딩을 다시 돈다
+        names={}
+        def upload(raw,ext):
+            self.uploaded.append(raw);return names.setdefault(raw,f"simpleui_{len(names):010x}.{ext}")
+        self.env['upload']=upload
+        graphs=[self.env['build_and_queue'](self.request(images=self.photos[:2],count=1,seed='7'),prepare_only=True)['prompt'] for _ in range(2)]
+        director=self.env['DIRECTOR']
+        self.assertEqual(graphs[0][director]['inputs']['timeline_data'],graphs[1][director]['inputs']['timeline_data'])
+        self.assertEqual(graphs[0],graphs[1])
+        items=json.loads(graphs[0][director]['inputs']['timeline_data'])['items']
+        self.assertEqual(len({item['id'] for item in items}),2)
+
+    def test_sampler_that_breaks_without_cfg_is_refused_before_anything_is_uploaded(self):
+        # *_cfg_pp 는 네거티브 예측이 있어야 하는데 H3 는 CFG 없이 돈다 → 몇 분 뒤 깨진 영상이 나온다
+        for name in ("euler_cfg_pp","res_multistep_ancestral_cfg_pp"):
+            with self.assertRaisesRegex(ValueError,"결과 영상이 깨집니다"):
+                self.env["build_and_queue"](self.request(sampler=name,count=1))
+        self.assertEqual((self.uploaded,self.sent),([],[]))
+        self.env["build_and_queue"](self.request(sampler="res_multistep",count=1))
+        self.assertEqual(self.sent[-1][1]["prompt"][self.env["SAMPLER"]]["inputs"]["sampler_name"],"res_multistep")
+
+    def test_folder_reference_photos_are_stored_upright_too(self):
+        image=Image.new('RGB',(32,16),(120,140,160));exif=Image.Exif();exif[274]=8
+        stream=io.BytesIO();image.save(stream,format='JPEG',exif=exif)
+        photo='data:image/jpeg;base64,'+base64.b64encode(stream.getvalue()).decode()
+        self.env['PHOTO_REFERENCES']={}
+        prepared=self.env['prepare_photo_reference']({'image':photo,'group':'synthetic-folder'})
+        record=self.env['PHOTO_REFERENCES'][prepared['id']]['original']
+        self.assertEqual((record['source_width'],record['source_height']),(16,32))
+        with Image.open(io.BytesIO(self.uploaded[-1])) as stored:
+            self.assertEqual(stored.size,(16,32));self.assertNotIn(274,stored.getexif())
 
     def test_native_cover_crop_keeps_a_round_subject_round_and_has_no_black_padding(self):
         import importlib.util
@@ -731,6 +813,40 @@ class FeatureTests(unittest.TestCase):
                 self.assertTrue(1<=seed<=2**53)
                 self.assertEqual(self.sent[-1][1]["prompt"][self.env["SEED"]]["inputs"]["seed_value"],seed)
                 self.assertEqual(self.env["HIST_DB"][-1]["seed"],seed)
+
+
+class UploadNameTests(unittest.TestCase):
+    """실제 upload(): 같은 사진은 같은 이름으로 올린다(가짜 ComfyUI — 같은 이름·같은 내용이면 그대로, 내용이 다르면 '(1)' 을 붙인다)."""
+    def setUp(self):
+        self.files={};self.requests=[]
+        def comfy(path,data=None,headers=None):
+            self.assertEqual(path,"/upload/image")
+            head,_,rest=data.partition(b"\r\n\r\n");name=re.search(rb'filename="([^"]+)"',head).group(1).decode()
+            raw=rest[:rest.rindex(b"\r\n--")];self.requests.append(name)
+            stem,ext=os.path.splitext(name);index=0
+            while name in self.files and self.files[name]!=raw:
+                index+=1;name=f"{stem} ({index}){ext}"
+            self.files[name]=raw
+            return io.BytesIO(json.dumps({"name":name,"subfolder":"","type":"input"}).encode())
+        self.env={"json":json,"uuid":uuid,"comfy":comfy}
+        function=next(n for n in TREE.body if isinstance(n,ast.FunctionDef) and n.name=="upload")
+        exec(compile(ast.Module(body=[function],type_ignores=[]),"upload","exec"),self.env)
+
+    def test_same_photo_keeps_one_name_and_one_file(self):
+        first=self.env["upload"](b"synthetic photo bytes","png")
+        self.assertRegex(first,r"^simpleui_[0-9a-f]{10}\.png$")        # 갤러리·이력이 알아보는 이름 형식 그대로
+        self.assertEqual(self.env["upload"](b"synthetic photo bytes","png"),first)
+        self.assertEqual(list(self.files),[first])
+        other=self.env["upload"](b"another synthetic photo","png")
+        self.assertNotEqual(other,first);self.assertRegex(other,r"^simpleui_[0-9a-f]{10}\.png$")
+
+    def test_a_name_clash_with_a_different_photo_falls_back_to_a_random_name(self):
+        import hashlib
+        raw=b"synthetic photo bytes";clash=f"simpleui_{hashlib.sha256(raw).hexdigest()[:10]}.jpg"
+        self.files[clash]=b"a different photo that happens to share the short name"
+        stored=self.env["upload"](raw,"jpg")
+        self.assertRegex(stored,r"^simpleui_[0-9a-f]{10}\.jpg$");self.assertNotEqual(stored,clash)
+        self.assertEqual(self.files[stored],raw);self.assertEqual(self.files[clash],b"a different photo that happens to share the short name")
 
 
 if __name__=="__main__": unittest.main()

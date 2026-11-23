@@ -11,7 +11,7 @@ import time
 import unittest
 import urllib.parse
 
-from PIL import Image
+from PIL import Image, ImageOps
 from scripts import test_apply_queued_style as fixtures
 
 
@@ -26,7 +26,7 @@ class RegenerationTests(unittest.TestCase):
         self.addCleanup(self.fixture.doCleanups)
         self.env = self.fixture.env
         tree = ast.parse((SOURCE / "server.py").read_text(encoding="utf-8-sig"))
-        names = {"gallery_regeneration_entry", "applied_shift", "regenerate_gallery", "queue_prompt_first", "build_and_queue"}
+        names = {"gallery_regeneration_entry", "applied_shift", "regenerate_gallery", "queue_prompt_first", "build_and_queue", "upright_photo"}
         code = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
         exec(compile(ast.Module(body=code, type_ignores=[]), "synthetic-gallery-regeneration", "exec"), self.env)
         self.target = copy.deepcopy(self.fixture.entry)
@@ -40,15 +40,19 @@ class RegenerationTests(unittest.TestCase):
         self.history = [self.target, self.source]
         self.queue = {"queue_running": [[-50, "running", {"untouched": True}, {}, []]],
                       "queue_pending": [[-100, "priority-wait", {"untouched": True}, {}, []], [3, "normal-wait", {"untouched": True}, {}, []]]}
-        self.calls, self.submitted = [], []
+        self.calls, self.submitted, self.uploads = [], [], []
         photo = io.BytesIO()
         Image.new("RGB", (640, 384), "gray").save(photo, format="PNG")
         self.photo = photo.getvalue()
         self.env.update(HIST_DB=self.history, HLOCK=threading.Lock(), PLOCK=threading.Lock(), QUEUE_EDIT_LOCK=threading.Lock(),
                         GALLERY_REGENERATE_LOCK=threading.Lock(), CLIENT_ID="synthetic-client", PROGRESS={}, time=time, re=re,
-                        urllib=urllib, Image=Image, comfy=self.comfy, hist_add=lambda entries: self.history.extend(copy.deepcopy(entries)),
+                        urllib=urllib, Image=Image, ImageOps=ImageOps, io=io, comfy=self.comfy, upload=self.upload, hist_add=lambda entries: self.history.extend(copy.deepcopy(entries)),
                         object_options=lambda kind, field: ["synthetic-model", "source-model"] if kind=="UNETLoader" else ["source-lora"])
         self.request = {"target_id": "target", "source_id": "source", "request_id": "synthetic-request-0001"}
+
+    def upload(self, raw, ext):
+        self.uploads.append((raw, ext))
+        return "simpleui_00000000%02d.%s" % (len(self.uploads) + 10, ext)
 
     def comfy(self, path, data=None, headers=None):
         self.calls.append(path)
@@ -95,6 +99,30 @@ class RegenerationTests(unittest.TestCase):
         self.assertEqual(graph[self.env["SEED"]]["inputs"]["seed_value"], self.target["seed"])
         self.assertEqual(graph[self.env["ANCHOR_IMG"]]["inputs"]["image"], self.target["images"][0])
         self.assertTrue(all(not path.startswith(("/history", "/interrupt", "/upload")) for path in self.calls))
+
+    def test_photo_stored_with_an_exif_rotation_is_regenerated_from_an_upright_copy(self):
+        # 예전에 올린 휴대폰 세로 사진: 파일에는 눕힌 화소 + 방향 표시가 남아 있고 Director 는 그 표시를 무시한다
+        exif = Image.Exif(); exif[274] = 6
+        photo = io.BytesIO(); Image.new("RGB", (640, 384), "gray").save(photo, format="JPEG", exif=exif)
+        self.photo = photo.getvalue()
+        self.target.update(aspect="auto", resolution="auto")
+        self.env["regenerate_gallery"](self.request)
+        self.assertEqual(len(self.uploads), 1)
+        with Image.open(io.BytesIO(self.uploads[0][0])) as stored:
+            self.assertEqual(stored.size, (384, 640)); self.assertNotIn(274, stored.getexif())
+        added = self.history[-1]
+        self.assertEqual(added["images"], ["simpleui_0000000011.jpg"])
+        graph = self.submitted[0]["prompt"]
+        item = json.loads(graph[self.env["DIRECTOR"]]["inputs"]["timeline_data"])["items"][0]
+        self.assertEqual((item["value"], item["source_width"], item["source_height"]), ("simpleui_0000000011.jpg", 384, 640))
+        self.assertLess(added["width"], added["height"])                       # 세로 사진은 세로 캔버스
+        self.assertEqual(self.history[0]["images"], ["simpleui_0000000001.png"])  # 원래 이력은 그대로
+
+    def test_source_made_with_a_sampler_that_breaks_on_h3_is_refused_before_any_photo_is_touched(self):
+        self.source["sampler"] = "euler_cfg_pp"
+        with self.assertRaisesRegex(ValueError, "다른 영상을 골라"):
+            self.env["regenerate_gallery"](self.request)
+        self.assertEqual((self.calls, self.uploads, self.submitted), ([], [], []))
 
     def test_retry_returns_existing_job_even_if_original_history_was_removed(self):
         first = self.env["regenerate_gallery"](self.request)

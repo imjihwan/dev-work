@@ -81,8 +81,10 @@ function drawLoras(){
     row.querySelector('input').value=item.strength;select.onchange=()=>{item.name=select.value;markDirty();};row.querySelector('input').oninput=event=>{item.strength=Number(event.target.value);markDirty();};row.querySelector('button').onclick=()=>{advancedLoras.splice(index,1);drawLoras();markDirty();};$('loras').appendChild(row);
   });
 }
+// 저장된 샘플러·스케줄러가 지금 목록에 없으면(H3 에서 결과가 깨져 목록에서 뺀 샘플러 등) 고른 값을 지우지 않고 보여 준다
+function keepListed(id,value){const select=$(id);if(select?.options&&value!=null&&value!==''&&![...select.options].some(option=>option.value===String(value)))select.add(new Option(value,value));}
 function fill(definition){
-  $('title').value=definition.title||'';for(const key of COMMON)$(key).value=definition.common[key]??'';
+  $('title').value=definition.title||'';for(const key of COMMON){if(key==='sampler'||key==='scheduler')keepListed(key,definition.common[key]);$(key).value=definition.common[key]??'';}
   advancedLoras=structuredClone(definition.common.loras||[]);drawLoras();
   for(let i=0;i<5;i++)$('boundary'+i).value=definition.boundaries?.[i]||'';
   for(let i=0;i<COUNT;i++){const clip=definition.clips[i];$('scenario'+i).value=clip.scenario||'';$('seed'+i).value=clip.seed||'';fillDraft(i,clip.draft||{});}
@@ -201,7 +203,7 @@ function bind(){
   $('clearBgm').onclick=()=>{newBgm='';$('bgm').value='';markDirty();updateStatus();};
   $('addLora').onclick=()=>{const value=catalog.loras.find(item=>item.auto?.h3!==false);if(value&&advancedLoras.length<10){advancedLoras.push({name:value.name,strength:1});drawLoras();markDirty();}};
   $('importSettings').disabled=window.parent===window||typeof window.parent.storyModelSettings!=='function';
-  $('importSettings').onclick=()=>{const values=window.parent.storyModelSettings();for(const key of ['model','steps','sampler','scheduler','shift_video','shift_audio'])if(values[key]!=null)$(key).value=values[key];advancedLoras=values.loras;drawLoras();markDirty();updateStatus();};
+  $('importSettings').onclick=()=>{const values=window.parent.storyModelSettings();for(const key of ['model','steps','sampler','scheduler','shift_video','shift_audio'])if(values[key]!=null){if(key==='sampler'||key==='scheduler')keepListed(key,values[key]);$(key).value=values[key];}advancedLoras=values.loras;drawLoras();markDirty();updateStatus();};
   $('savedProjects').onchange=()=>{if($('savedProjects').value)loadProject($('savedProjects').value).catch(error=>say(error.message,true));};
   $('openProject').onclick=()=>loadProject($('openCode').value.trim()).catch(error=>say(error.message,true));
   $('projectCode').onclick=async()=>{try{await saveProject();await navigator.clipboard.writeText(project.id);say('프로젝트 코드를 복사했습니다. 다른 기기의 이 탭에서 코드로 열 수 있습니다.');}catch(error){if(project){$('openCode').value=project.id;say('프로젝트 코드를 코드 입력란에 표시했습니다. 복사해 주세요.');}else say(error.message,true);}};

@@ -208,7 +208,7 @@ class QueueSnapshotTests(unittest.TestCase):
                 thread.join()
             self.assertEqual(outcomes, ["timeout"] * 8)
             self.assertEqual(len(attempts), 1, "여덟 조회가 한 번의 받아 오기만 기다린다")
-            time.sleep(0.01)
+            time.sleep(0.05)                                 # Windows 의 monotonic 눈금(약 16ms)보다 길게: 같은 눈금이면 방금 실패를 함께 쓴다
             with self.assertRaises(TimeoutError):            # 그 뒤에 온 조회는 새로 시도한다
                 self.snapshot()
             self.assertEqual(len(attempts), 2)
