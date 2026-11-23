@@ -944,11 +944,52 @@ function speedChoices(){
   return [[20,"빠르게"],[25,"보통"],[30,"품질"]];
 }
 const runCount = () => Math.min(20, Math.max(1, Math.round(Number($("count").value) || 1)));
+// 예상 시간 모델(RTX 5060 Ti 16GB 실측, docs/PERFORMANCE.md): 스텝당 시간은 토큰 수(화소 × 잠재 프레임)의 약 1.45제곱에 비례한다.
+// 기준은 768×960·5초(124프레임 = 잠재 37프레임)·사진 1장: 스텝당 17.85초, 스텝 밖(문구·사진 인코딩, 저장) 약 11초, 디코드 13초.
+// 속도 우선(희소 어텐션)은 스텝 앞 20% 만 원래 계산이고 나머지는 스텝당 11.17초에서 1.17제곱으로 늘어난다(길수록 이득이 커진다).
+// 스텝 캐시를 함께 쓰면 첫 스텝만 원래 계산이고, 나머지의 약 4분의 1(8스텝 중 2회)을 건너뛴다.
+const ETA = {pixels:768 * 960, tokens:26640, step:17.85, power:1.45, sparse:11.17, sparsePower:1.17, sparseMin:12288, fixed:11, decode:13};
+const RES_PIXELS = {draft:0.4, "720p":0.879, "1080p":1.978};      // 서버 RES_MP 와 같은 값(백만 화소)
+function canvasPixels(aspect, resolution, photoRatio){
+  // 서버 canvas() 와 같은 계산: 기본(auto)은 짧은 변 768, 나머지 화질은 화소 면적이 정해져 있다. 32의 배수로 맞춘다
+  let ratio = photoRatio > 0 ? photoRatio : 3 / 4;
+  if (/^\d+:\d+$/.test(aspect || "")) { const [w, h] = aspect.split(":").map(Number); ratio = w / h; }
+  const snap = v => Math.max(32, Math.round(v / 32) * 32);
+  if (RES_PIXELS[resolution]) { const h = Math.sqrt(RES_PIXELS[resolution] * 1048576 / ratio); return snap(h * ratio) * snap(h); }
+  return ratio >= 1 ? snap(768 * ratio) * 768 : 768 * snap(768 / ratio);
+}
+function etaSeconds({pixels, seconds, steps, speed}){
+  const frames = actualFrames(seconds), area = pixels / ETA.pixels;
+  const tokens = area * ((frames - 5) / 17 * 5 + 2) / 37;      // 기준 대비 토큰 수
+  const dense = ETA.step * tokens ** ETA.power;
+  let sampling = steps * dense;
+  // 희소 어텐션은 토큰이 적은 짧고 작은 영상에서는 스스로 원래 계산을 쓴다(min_tokens)
+  if ((speed === "sparse" || speed === "sparse_cache") && tokens * ETA.tokens >= ETA.sparseMin) {
+    const sparse = ETA.sparse * tokens ** ETA.sparsePower, whole = Math.min(steps, Math.ceil(steps * 0.2));
+    sampling = speed === "sparse_cache"
+      ? dense + Math.max(0, steps - 1 - Math.round(steps * 0.25)) * sparse * 1.06
+      : whole * dense + (steps - whole + (steps > whole ? 0.2 : 0)) * sparse;      // 넘어가는 한 스텝은 조금 더 걸린다
+  }
+  return ETA.fixed + sampling + ETA.decode * area * frames / 124;
+}
+function etaScale(items){
+  // 이 PC 에서 실제로 걸린 시간(최근 완료 9건의 중앙값)으로 맞춘다: GPU·LoRA·사진 수·함께 켜 둔 프로그램에 따라 모델과 달라진다
+  const ratios = [];
+  for (const e of items || []) {
+    if (e.state !== "done" || !(e.generation_seconds > 0) || !(e.width > 0) || !(e.height > 0) || !(e.steps > 0)) continue;
+    ratios.push(e.generation_seconds / etaSeconds({pixels:e.width * e.height, seconds:e.duration, steps:e.steps, speed:e.speed}));
+    if (ratios.length === 9) break;
+  }
+  if (ratios.length < 3) return 1;
+  ratios.sort((a, b) => a - b);
+  return Math.min(3, Math.max(0.4, ratios[ratios.length >> 1]));
+}
 function etaText(n){
-  // 이 PC(5060 Ti) 실측: 768 기준 5초 영상 스텝당 약 26초 + 준비·디코딩 약 35초. 대략값.
-  const res = {draft:0.55, auto:1, "720p":1.6, "1080p":4}[$("resolution").value] || 1;
-  const dur = actualFrames($("duration").value) / 124;      // 실제로 만들어지는 프레임 수 기준(5초 = 124프레임)
-  const sec = (35 + S.steps * 26 * res * dur * speedTime(S.speed)) * (n || 1);
+  let recent = [];
+  try { recent = HIST.items; } catch {}      // 화면을 처음 그릴 때는 이력 목록이 아직 없다
+  const first = $("thumbs")?.querySelector?.("img");
+  const pixels = canvasPixels($("aspect").value, $("resolution").value, first ? first.naturalWidth / first.naturalHeight : 0);
+  const sec = etaSeconds({pixels, seconds:$("duration").value, steps:S.steps, speed:S.speed}) * etaScale(recent) * (n || 1);
   return `예상 약 ${Math.max(1, Math.round(sec / 60))}분`;
 }
 function drawSpeed(){
@@ -1055,15 +1096,14 @@ function drawAdvanced(){
   $("modelDetail").innerHTML = m ? `<div class="fname">모델 파일: ${esc(m.name)}</div>${civBlock(m, "model")}` : "";
 }
 // 속도 우선(선택): 결과 영상이 기본과 달라지는 가속. 서버가 이 ComfyUI 에 필요한 노드가 있는 방식만 알려 준다(capabilities.speed_modes).
-// 시간 배수는 이 PC 실측(5초 768×960 8스텝, 기본 159초 대비): 희소 어텐션 121초, 희소 어텐션+스텝 캐시 93초.
+// 이 PC 실측(5초 768×960 8스텝, 기본 159초 대비): 희소 어텐션 121초, 희소 어텐션+스텝 캐시 93초. 예상 시간은 etaSeconds() 가 계산한다.
 const SPEED_MODES = {
-  sparse: {label:"빠르게 — 희소 어텐션", short:"빠르게(희소 어텐션)", time:0.76,
-    hint:"어텐션에서 중요한 부분만 정확히 계산합니다. 같은 시드라도 기본과 다른 영상이 나옵니다(이 PC 실측: 한 편 159초 → 121초, 길거나 큰 영상일수록 더 줄어듭니다)."},
-  sparse_cache: {label:"더 빠르게 — 희소 어텐션 + 스텝 캐시", short:"더 빠르게(희소 어텐션+스텝 캐시)", time:0.58,
+  sparse: {label:"빠르게 — 희소 어텐션", short:"빠르게(희소 어텐션)",
+    hint:"어텐션에서 중요한 부분만 정확히 계산합니다. 같은 시드라도 기본과 다른 영상이 나옵니다(이 PC 실측: 5초 한 편 159초 → 121초, 10초 한 편 420초 → 284초. 길거나 큰 영상일수록 더 줄어듭니다)."},
+  sparse_cache: {label:"더 빠르게 — 희소 어텐션 + 스텝 캐시", short:"더 빠르게(희소 어텐션+스텝 캐시)",
     hint:"변화가 작은 스텝은 계산을 건너뛰고 앞 스텝 결과를 다시 씁니다. 이 방식에서는 희소 어텐션이 문구·참조 사진·소리 부분을 따로 보호하지 못해, '빠르게'보다 참조와의 닮음·소리·세부가 더 달라질 수 있습니다. 시안용으로 권합니다(이 PC 실측: 한 편 159초 → 93초)."},
 };
 const speedModes = () => (CAT?.capabilities?.speed_modes || []).filter(mode => SPEED_MODES[mode]);
-const speedTime = mode => SPEED_MODES[mode]?.time || 1;
 function drawSpeedMode(){
   const select = $("speedMode"); if (!select) return;
   const modes = speedModes();

@@ -81,7 +81,7 @@ assert.match(context.lengthNote(6), /실제 길이는 6\.6초\(158프레임\)/);
 assert.doesNotMatch(context.lengthNote(6), /학습한 길이/);
 assert.match(context.lengthNote(4), /실제 길이는 4\.5초\(107프레임\).*학습한 길이/);
 assert.match(context.lengthNote(3), /^5초보다 짧은 영상은/);
-assert(html.includes('id="lengthHint"') && script.includes('actualFrames($("duration").value) / 124'));
+assert(html.includes('id="lengthHint"'));
 
 // A turbo LoRA on a checkpoint that already has the distillation baked in is flagged (the author and the Pika Flex docs warn against stacking).
 context.base = name => name.split(/[\\/]/).pop();
@@ -105,7 +105,6 @@ assert.equal(speedBox.disabled, false); assert.equal(speedBox.value, '');
 assert.match(speedHint.textContent, /결과를 바꾸지 않는/);
 S.speed = 'sparse'; context.drawSpeedMode();
 assert.equal(speedBox.value, 'sparse'); assert.match(speedHint.textContent, /다른 영상이 나옵니다/);
-assert.equal(vm.runInContext('speedTime("sparse") < 1 && speedTime("sparse_cache") < speedTime("sparse") && speedTime("") === 1 && speedTime(undefined) === 1', context), true);
 context.CAT.capabilities = {speed_modes:[]};
 S.speed = 'sparse_cache'; context.drawSpeedMode();
 assert.equal(speedBox.value, 'sparse_cache', 'a saved mode stays visible on a ComfyUI that lacks the nodes');
@@ -120,6 +119,41 @@ for (const piece of ['speed: S.speed || ""', 'speed:m.speed||""', 'speed:model.s
   assert(script.includes(piece), piece);
 assert.equal(script.split('speed:m.speed||""').length - 1, 2, 'both batch request builders send it');
 assert(script.includes('applySnapshot({...snapshot, model:{speed:"", ...snapshot.model}})'), 'a bundle saved before this option loads with the default, not with the choice left on screen');
+
+// The time estimate follows the measured token model (docs/PERFORMANCE.md) and is calibrated by this PC's own finished jobs.
+vm.runInContext(section('const ETA =', 'function drawSpeed('), context);
+const eta = options => context.etaSeconds({pixels:768 * 960, seconds:5, steps:8, speed:'', ...options});
+const near = (value, measured, tolerance, label) => assert(Math.abs(value - measured) <= measured * tolerance, `${label}: model ${value.toFixed(1)} s, measured ${measured} s`);
+// Measured totals with a new prompt (text and photo encoding included); benchmark runs that reused the encoding have its 6.4 s added.
+near(eta({}), 167.4, 0.05, '5 s default through the page server');
+near(eta({seconds:10}), 419.8, 0.05, '10 s default');
+near(eta({speed:'sparse'}), 120.9 + 6.4, 0.05, '5 s sparse attention');
+near(eta({seconds:10, speed:'sparse'}), 284.0, 0.05, '10 s sparse attention');
+near(eta({speed:'sparse_cache'}), 100.9, 0.05, '5 s sparse attention + step cache through the page server');
+assert(eta({seconds:10, speed:'sparse'}) / eta({seconds:10}) < eta({speed:'sparse'}) / eta({}), 'longer clips gain more from sparse attention');
+assert.equal(eta({pixels:384 * 480, seconds:3, speed:'sparse'}), eta({pixels:384 * 480, seconds:3}), 'below min_tokens the sparse node computes densely');
+assert.equal(context.canvasPixels('auto', 'auto', 768 / 960), 768 * 960);
+assert.equal(context.canvasPixels('9:16', 'auto', 0), 768 * 1376, 'a fixed aspect ignores the photo; the long side snaps to 32');
+assert.equal(context.canvasPixels('16:9', 'auto', 0), 1376 * 768);
+assert.equal(context.canvasPixels('auto', 'auto', 0), 768 * 1024, 'no photo yet: assume a 3:4 phone photo');
+assert(context.canvasPixels('1:1', 'draft', 0) < context.canvasPixels('1:1', 'auto', 0) && context.canvasPixels('1:1', 'auto', 0) < context.canvasPixels('1:1', '1080p', 0));
+const finished = factor => ({state:'done', width:768, height:960, duration:5, steps:8, speed:'', generation_seconds:eta({}) * factor});
+assert.equal(context.etaScale([]), 1);
+assert.equal(context.etaScale([finished(2), finished(2)]), 1, 'two finished jobs are not enough to calibrate');
+near(context.etaScale([finished(1.4), finished(1.5), finished(9)]), 1.5, 0.001, 'median of recent jobs (a cold start does not dominate)');
+near(context.etaScale([{...finished(2), state:'error'}, {...finished(2), generation_seconds:null}, finished(1.2), finished(1.2), finished(1.2)]), 1.2, 0.001, 'only finished jobs with a recorded time count');
+assert.equal(context.etaScale([finished(50), finished(50), finished(50)]), 3, 'clamped');
+assert.equal(context.etaScale(Array.from({length:9}, () => finished(1)).concat(Array.from({length:30}, () => finished(2)))), 1, 'only the nine most recent finished jobs');
+context.$ = id => ({aspect:{value:'auto'}, resolution:{value:'auto'}, duration:{value:5}, thumbs:{querySelector:() => ({naturalWidth:768, naturalHeight:960})}})[id];
+S.steps = 8; S.speed = '';
+assert.equal(context.etaText(1), '예상 약 3분', 'before the history list exists the model is used as it is');
+vm.runInContext('var HIST = {items: []};', context);
+context.HIST.items = [finished(2), finished(2), finished(2)];
+assert.equal(context.etaText(1), '예상 약 6분');
+assert.equal(context.etaText(3), '예상 약 17분');
+context.$ = id => ({aspect:{value:'9:16'}, resolution:{value:'auto'}, duration:{value:5}, thumbs:{querySelector:() => null}})[id];
+context.HIST.items = [];
+assert.equal(context.etaText(1), '예상 약 5분', 'a 9:16 canvas has 1.43x the pixels of 768x960 and takes about 1.7x as long');
 
 // The page ships automatic defaults and labels the advanced section accordingly.
 assert(script.includes('shift_video:11, shift_audio:4, manual:null, level:null'));
