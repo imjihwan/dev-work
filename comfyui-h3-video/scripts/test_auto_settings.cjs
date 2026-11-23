@@ -247,6 +247,7 @@ assert.equal(context.etaText(1), '예상 약 5분');
 context.CAT.capabilities = undefined;
 assert.equal(context.etaText(1), '예상 약 5분', 'a catalog without capabilities is not an error');
 context.CAT.capabilities = savedCatalog; S.faceBoost = false; context.isRef = () => false;
+assert(/\$\("faceBoost"\)\.onchange = \(\) => \{[^}]*refreshSizeEstimate\(\);/.test(script), 'ticking the face option redraws both estimate labels, not only the one under the button');
 context.$ = id => ({aspect:{value:'auto'}, resolution:{value:'720p'}, duration:{value:10}, thumbs:{querySelector:() => ({naturalWidth:768, naturalHeight:960})}})[id];
 assert.equal(context.etaText(1), `예상 약 ${Math.round(context.etaSeconds({pixels:context.canvasPixels('auto', '720p', 0.8), seconds:10, steps:8, speed:''}) / 60)}분`, 'and the chosen quality and length');
 assert(context.etaSeconds({pixels:context.canvasPixels('auto', '720p', 0.8), seconds:10, steps:8, speed:''}) > 2.5 * eta({}));

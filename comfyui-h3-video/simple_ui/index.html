@@ -640,7 +640,7 @@ function drawThumbs(){
 }
 $("anchor").onchange = () => { S.anchor = $("anchor").checked; save(); drawGoInfo(); };
 $("oneTake").onchange = () => { S.oneTake = $("oneTake").checked; render(); };
-$("faceBoost").onchange = () => { S.faceBoost = $("faceBoost").checked; save(); drawGoInfo(); };
+$("faceBoost").onchange = () => { S.faceBoost = $("faceBoost").checked; save(); refreshSizeEstimate(); };      // 얼굴 크롭 상한이 있으면 예상 시간이 달라진다: 두 곳의 예상을 함께 다시 그린다
 $("drop").onclick = () => $("file").click();
 $("file").onchange = e => { addFiles(e.target.files); e.target.value = ""; };
 $("drop").ondragover = e => { e.preventDefault(); $("drop").classList.add("over"); };
