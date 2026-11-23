@@ -1090,6 +1090,16 @@ function civBlock(c, kind){
   return h;
 }
 
+// 참조 사진 방식에서 스타일 LoRA 는 참조 사진과 경쟁한다(H3 문서: 강도 약 0.5 권장). 실측(docs/PERFORMANCE.md 'LoRA 강도'):
+// 실사 사람 LoRA 는 고정 구도 장면에서 0.7부터 화면이 얼굴 쪽으로 당겨지고 1.0 에서는 극단적 클로즈업 + 닮음 저하(0.87 → 0.78), 0.5 에서는
+// 구도·닮음 유지. 걸어오는 장면에서는 1.0 에서도 구도가 유지됐고 화면만 어두워졌다.
+// 가속(터보) LoRA 는 강도 1 이 정상이라 알리지 않는다.
+function loraStrengthNote(lora, strength, reference){
+  if (!reference || lora?.auto?.turbo || !(Number(strength) >= 0.7)) return "";
+  const measured = /realism-people/i.test(lora?.name || "")
+    ? " 실측: 이 LoRA 는 구도가 고정된 장면에서 0.7부터 화면이 얼굴 쪽으로 당겨지고, 1.0 에서는 극단적 클로즈업이 되며 참조 인물과의 닮음도 떨어졌습니다(걸어오는 장면에서는 구도가 유지됐습니다). 0.5 에서는 두 장면 모두 구도와 닮음이 유지됐습니다." : "";
+  return `참조 사진 방식에서는 LoRA 가 참조 사진과 경쟁합니다. 강도 0.5 안팎을 권합니다(H3 문서).${measured}`;
+}
 function drawLoras(){
   const rows = Object.keys(S.loras).map(n => CAT.loras.find(l => l.name === n)).filter(Boolean);
   $("loraRows").innerHTML = rows.length ? rows.map(l => {
@@ -1102,6 +1112,7 @@ function drawLoras(){
         <button class="rm" title="빼기">✕</button></div>
       ${tw.length ? `<div>${tw.map(w => `<span class="tw">${esc(w)}</span>`).join("")}<span class="meta"> ${S.trig ? "← 프롬프트에 자동으로 들어감" : ""}</span></div>` : ""}
       ${warn}
+      <div class="note strnote" ${loraStrengthNote(l, v, isRef()) ? "" : "hidden"}>${esc(loraStrengthNote(l, v, isRef()))}</div>
       <div class="more"><button class="textbtn info">${open ? "자세히 닫기" : "자세히"}</button></div>
       ${open ? `<div class="fname">${esc(base(l.name))} · ${esc(metaLine(l))}</div>${civBlock(l, "lora")}
         <button class="textbtn savestr">이 강도(${Number(v).toFixed(2)})를 이 LoRA 기본값으로</button>
@@ -1112,7 +1123,11 @@ function drawLoras(){
   }).join("") : `<div class="empty">추가한 LoRA 없음</div>`;
   $("loraRows").querySelectorAll(".lrow").forEach(r => {
     const name = r.dataset.l, rg = r.querySelector("input[type=range]");
-    rg.oninput = () => { S.loras[name] = Number(rg.value); r.querySelector(".val").textContent = Number(rg.value).toFixed(2); save(); };
+    rg.oninput = () => {
+      S.loras[name] = Number(rg.value); r.querySelector(".val").textContent = Number(rg.value).toFixed(2); save();
+      const hint = r.querySelector(".strnote"), text = loraStrengthNote(CAT.loras.find(l => l.name === name), rg.value, isRef());
+      if (hint) { hint.textContent = text; hint.hidden = !text; }
+    };
     rg.onchange = () => drawPresets();
     r.querySelector(".rm").onclick = () => { const wasTurbo = turboLora(); delete S.loras[name]; if (wasTurbo && !turboLora()) applyModelDefaults(); drawModelCard(); render(); };
     r.querySelector(".info").onclick = () => { UI.info[name] = !UI.info[name]; drawLoras(); };

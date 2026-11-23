@@ -246,6 +246,18 @@ context.CAT.capabilities = undefined; context.drawEstimates();
 assert.equal(upOption.disabled, true, 'an older server without the capability must not offer it');
 assert(html.includes('<option value="up15">기본 + 1.5배 업스케일</option>') && script.includes('up15: "기본 + 1.5배 업스케일"'));
 
+// In reference mode a style LoRA competes with the reference photo: the page says so from strength 0.7 (measured on the realism LoRA).
+vm.runInContext(section('function loraStrengthNote(', 'function drawLoras('), context);
+const realism = {name:'loras\\h3-realism-people-t2v-i2v-r2v.safetensors', auto:{}}, cinematic = {name:'cinematic.safetensors', auto:{}}, turboLoraCard = {name:'ref2v_turbo_4step.safetensors', auto:{turbo:true}};
+assert.equal(context.loraStrengthNote(realism, 0.5, true), '');
+assert.match(context.loraStrengthNote(realism, 0.7, true), /0\.5 안팎을 권합니다.*실측: 이 LoRA 는 구도가 고정된 장면에서 0\.7부터/);
+assert.match(context.loraStrengthNote(realism, '1', true), /극단적 클로즈업/);
+assert.match(context.loraStrengthNote(cinematic, 1, true), /0\.5 안팎을 권합니다\(H3 문서\)\.$/, 'other LoRAs get the documented advice only, not the measurement');
+assert.equal(context.loraStrengthNote(turboLoraCard, 1, true), '', 'an acceleration LoRA is meant to run at 1');
+assert.equal(context.loraStrengthNote(realism, 1, false), '', 'first/last-frame modes have no reference photo to compete with');
+assert.equal(context.loraStrengthNote(undefined, undefined, true), '');
+assert(script.includes('class="note strnote"') && script.includes('hint.hidden = !text'));
+
 // The page ships automatic defaults and labels the advanced section accordingly.
 assert(script.includes('shift_video:11, shift_audio:4, manual:null, level:null'));
 assert(html.includes('id="advState"') && html.includes('자동 값으로 되돌리기'));
