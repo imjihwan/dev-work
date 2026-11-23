@@ -12,6 +12,11 @@
   <a href="#문서-목록">문서 목록</a>
 </p>
 
+<p align="center">
+  <a href="https://colab.research.google.com/github/imjihwan/dev-work/blob/main/pitect-case/model/pitect_colab.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Colab에서 열기"></a>
+  <br><sub>실측값을 넣어 모델을 다시 만들고 3D로 확인하기 (설치 없이 브라우저에서 실행)</sub>
+</p>
+
 > [!IMPORTANT]
 > **결론: 원본 도면은 그대로 출력할 수 없습니다.** 조립이나 기능이 안 되는 곳이 10군데 있습니다. 이를 모두 고친 출력용 모델을 세 가지 결합 방식으로 만들어 두었고, 첫 출력은 **모델 A**를 권합니다.
 
@@ -127,7 +132,7 @@
 ## 받은 뒤 할 일
 
 1. **실측 4가지** · USB 포트에서 구멍까지 거리, 삼각대 나사 길이, 플러그 몸통 크기, LED 테두리 지름
-2. **값이 다르면 다시 생성** · [파라메트릭 생성기](reports/parametric.md)에 실측값을 넣으면 STL이 새로 나옵니다
+2. **값이 다르면 다시 생성** · [Colab 노트북](https://colab.research.google.com/github/imjihwan/dev-work/blob/main/pitect-case/model/pitect_colab.ipynb)에 실측값을 넣고 실행하면 STL이 새로 나옵니다. 다른 방법은 [파라메트릭 적용 기능](reports/parametric.md)에 있습니다
 3. **시험 조각부터 출력** · 창, 바닥 조각으로 맞춤을 확인합니다
 4. **본체 출력** · 모델 A, PETG, 레이어 0.2, 서포트 없음
 
@@ -144,6 +149,7 @@
 | **[파라메트릭 적용 기능](reports/parametric.md)** | 실측값을 넣어 STL을 다시 만드는 방법과 변수 설명 |
 | **[모델 최종 검수](reports/final-check.md)** | Claude와 Codex의 STL 검수 결과, 검증 범위와 한계 |
 | **[출력 가이드](reports/print-guide.md)** | 출력 전에 잴 값, 시험 조각, 출력과 조립 순서 |
+| **[Colab 노트북](https://colab.research.google.com/github/imjihwan/dev-work/blob/main/pitect-case/model/pitect_colab.ipynb)** | 설치 없이 브라우저에서 파이썬 모델을 실행. 실측값 입력, 3D 확인, STL 내려받기 |
 | **[대화형 리포트](docs/index.html)** | 내려받아 브라우저로 열면 3D 미리보기를 돌려 볼 수 있는 HTML 판 |
 | **[검토 원본 PDF](original/마프_3D프린팅_도면.pdf)** | 검토한 4쪽 도면 |
 
