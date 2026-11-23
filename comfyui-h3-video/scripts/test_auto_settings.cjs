@@ -199,6 +199,9 @@ near(eta({photos:9, refArea:cropArea(512)}), 222.5, 0.03, 'nine photos, eight fa
 near(eta({photos:9, speed:'sparse'}), 275.7, 0.03, 'nine photos with sparse attention');
 near(eta({photos:9, refArea:cropArea(512), speed:'sparse'}), 180.3, 0.03, 'nine photos, crops capped at 512, sparse attention');
 assert(eta({photos:9, speed:'sparse'}) / eta({photos:9}) > eta({speed:'sparse'}) / eta({}), 'sparse attention saves a smaller share when there are many reference photos');
+// The same nine photos on a larger canvas and in a longer clip (measured: 331.7 s at 768x1376, 515.5 s for 10 s).
+near(eta({pixels:768 * 1376, photos:9, refArea:8 * 512 * 512 / (768 * 1376)}), 331.7, 0.03, 'nine photos at 9:16');
+near(eta({seconds:10, photos:9, refArea:cropArea(512)}), 515.5, 0.03, 'nine photos in a 10 s clip');
 assert.equal(eta({photos:9, refArea:8}), eta({photos:9}), 'eight full-size photos are the count');
 assert.equal(eta({photos:9, refArea:99}), eta({photos:9}), 'a photo never weighs more than one');
 assert.equal(eta({photos:9, refArea:0}), eta({}), 'tiny supplementary photos cost next to nothing');

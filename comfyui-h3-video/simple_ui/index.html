@@ -1010,16 +1010,17 @@ function etaSeconds({pixels, seconds, steps, speed, photos, upscale, refArea}){
   const frames = actualFrames(seconds), area = pixels / ETA.pixels, latent = (frames - 5) / 17 * 5 + 2;
   const tokens = area * latent / 37;      // 기준 대비 토큰 수
   // 참조 사진이 한 장 늘 때마다 스텝이 약 8.5% 느려지고(5초 실측: 1장 17.97초, 3장 21.0초, 9장 30.55초) 사진 인코딩이 약 7초 더 든다.
-  // H3 는 사진마다 생성 화소 수까지만 줄여 쓰므로(ref_image_size match) 그보다 큰 사진은 모두 이 값이다. 긴 영상에서는 그 몫이 작아진다
+  // H3 는 사진마다 생성 화소 수까지만 줄여 쓰므로(ref_image_size match) 그보다 큰 사진은 모두 이 값이다
   // refArea: 보조 사진들의 넓이를 생성 화소 대비로 더한 값(서버가 이력에 적는다 — 작은 사진이나 줄인 얼굴 크롭은 한 장이 1 보다 작다). 없으면 장수로 센다
   const count = Math.max(0, (Number(photos) || 1) - 1), share = Number(refArea);
-  const extra = refArea != null && share >= 0 ? Math.min(count, share) : count, refs = 1 + 0.085 * extra * 37 / latent;
+  // 긴 영상에서는 사진의 몫이 조금만 작아진다(10초 실측: 얼굴 크롭 8장 512 제한에서 스텝 47.67초 → 57.12초, 한 장분 7.0% — 5초의 8.5% 대비 0.82배)
+  const extra = refArea != null && share >= 0 ? Math.min(count, share) : count, lengthShare = (37 / latent) ** 0.3, refs = 1 + 0.085 * extra * lengthShare;
   const dense = ETA.step * tokens ** (tokens >= 1 ? ETA.power : ETA.smallPower) * refs;
   let sampling = steps * dense;
   // 희소 어텐션은 토큰이 적은 짧고 작은 영상에서는 스스로 원래 계산을 쓴다(min_tokens)
   if ((speed === "sparse" || speed === "sparse_cache") && tokens * ETA.tokens >= ETA.sparseMin) {
     // 참조 사진의 몫은 희소 스텝에서도 거의 그대로 든다(5초 실측: 사진 1장 11.16초, 얼굴 크롭 8장 512 제한 14.86초, 그대로 21.89초 — 한 장에 약 1.3초, 희소 스텝의 11.8%)
-    const sparse = ETA.sparse * tokens ** ETA.sparsePower * (1 + 0.118 * extra * 37 / latent), whole = Math.min(steps, Math.ceil(steps * 0.2));
+    const sparse = ETA.sparse * tokens ** ETA.sparsePower * (1 + 0.118 * extra * lengthShare), whole = Math.min(steps, Math.ceil(steps * 0.2));
     sampling = speed === "sparse_cache"
       ? dense + Math.max(0, steps - 1 - Math.round(steps * 0.25)) * sparse * 1.06
       : whole * dense + (steps - whole + (steps > whole ? 0.2 : 0)) * sparse;      // 넘어가는 한 스텝은 조금 더 걸린다
