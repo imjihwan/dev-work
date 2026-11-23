@@ -182,8 +182,8 @@ assert.equal(context.etaScale([finished(0.3), finished(0.3), finished(0.3)]), 0.
 const many = factor => Array.from({length:30}, () => finished(factor));
 assert.equal(context.etaScale([...Array.from({length:5}, () => finished(1)), ...Array.from({length:4}, () => finished(2)), ...many(3)]), 1, 'the window is not larger than nine finished jobs');
 assert.equal(context.etaScale([...Array.from({length:4}, () => finished(2)), ...Array.from({length:5}, () => finished(1)), ...many(3)]), 1, 'the window is not smaller than nine finished jobs');
-// Below the reference size the growth is flatter (draft 576x736 measured at about 0.6x of 768x960 on 11/13); above it the fitted power applies.
-assert(eta({pixels:576 * 736}) / eta({}) > 0.55 && eta({pixels:576 * 736}) / eta({}) < 0.65, 'draft');
+// Below the reference size the growth is a little flatter (draft 576x736 measured: 9.21 s a step against 19.14 s, 90 s a clip against 177 s); above it the fitted power applies.
+assert(eta({pixels:576 * 736}) / eta({}) > 0.48 && eta({pixels:576 * 736}) / eta({}) < 0.56, 'draft');
 assert(eta({pixels:768 * 1376}) / eta({}) > 1.55 && eta({pixels:768 * 1376}) / eta({}) < 1.7, '9:16 at the default quality');
 context.$ = id => ({aspect:{value:'auto'}, resolution:{value:'auto'}, duration:{value:5}, thumbs:{querySelector:() => ({naturalWidth:768, naturalHeight:960})}})[id];
 S.steps = 8; S.speed = '';
