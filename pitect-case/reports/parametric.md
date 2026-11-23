@@ -2,9 +2,41 @@
 
 # 파라메트릭 적용 기능
 
-모델은 고정된 도형이 아니라 **실측값을 변수로 둔 계산식**입니다. 원본 도면은 평면도와 단면도를 따로 그려 스탠드오프 위치가 서로 어긋났는데, 지금은 [`model/pitect.js`](../model/pitect.js) 하나에서 세 버전의 STL 14개가 모두 나오므로 값 하나를 바꾸면 관련된 치수가 함께 따라갑니다.
+모델은 고정된 도형이 아니라 **실측값을 변수로 둔 계산식**입니다. 원본 도면은 평면도와 단면도를 따로 그려 스탠드오프 위치가 서로 어긋났는데, 지금은 모델 정의 하나에서 세 버전의 STL 14개가 모두 나오므로 값 하나를 바꾸면 관련된 치수가 함께 따라갑니다.
 
-## 쓰는 방법
+모델 정의는 파이썬 판 [`pitect.py`](../model/pitect.py)와 브라우저 판 [`pitect.js`](../model/pitect.js) 두 가지이고 같은 형상을 만듭니다. 기본값에서 부품 14개의 크기와 부피, 검사 64건의 결과가 서로 일치하는 것을 확인했습니다.
+
+세 가지 방법으로 쓸 수 있고, 셋 다 같은 결과를 냅니다.
+
+| 방법 | 필요한 것 | 맞는 경우 |
+|---|---|---|
+| **Colab 노트북** | 브라우저와 Google 계정 | 설치 없이 바로 돌려 보고 싶을 때 |
+| **내 컴퓨터의 파이썬** | 파이썬 3.9 이상 | 명령줄에서 반복해서 만들 때 |
+| **브라우저 생성기** | 브라우저 | 파일을 내려받아 오프라인 폴더에서 쓸 때 |
+
+## Colab에서 바로 실행
+
+<a href="https://colab.research.google.com/github/imjihwan/dev-work/blob/main/pitect-case/model/pitect_colab.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Colab에서 열기"></a>
+
+1. 위 배지를 눌러 노트북을 엽니다. Google 계정으로 로그인해야 실행할 수 있습니다.
+2. 메뉴에서 **런타임 → 모두 실행**을 누릅니다. 1분 안에 끝납니다.
+3. 3번 셀의 칸에 실측값을 넣고 그 셀부터 다시 실행합니다. 검사 결과와 부품 목록이 나옵니다.
+4. 4번 셀에서 버전을 골라 3D로 돌려 봅니다.
+5. 5번 셀을 실행하면 STL 14개가 zip으로 내려받아집니다.
+
+노트북 파일은 [`model/pitect_colab.ipynb`](../model/pitect_colab.ipynb)입니다. 저장소가 공개 상태일 때만 배지로 열립니다.
+
+## 내 컴퓨터의 파이썬으로
+
+```bash
+pip install manifold3d==3.5.5 numpy
+python3 model/pitect.py --out models              # 기본값으로 STL 14개 저장
+python3 model/pitect.py usbOver=2.5 --out models  # 값을 바꿔서 저장
+```
+
+검사에서 실패가 하나라도 있으면 종료 코드가 1이 됩니다. 모델 정의는 [`model/pitect.py`](../model/pitect.py)입니다.
+
+## 브라우저 생성기로
 
 1. [`model/index.html`](../model/index.html)을 내려받아 브라우저로 엽니다. 인터넷 연결이 필요합니다.
 2. 실측값과 여유를 입력하고 **모델 생성**을 누릅니다. 약 0.5초 걸립니다.
@@ -34,7 +66,7 @@ python3 model/serve.py        # http://localhost:8765/ 에서 생성 후 "models
 | `ledHole` `ledWindow` | 6.4, 5.0 | LED 구멍(A·C)과 빛 창(B) 지름 | 뚜껑의 LED 자리 |
 | `fit` | 0.4 | 끼움 여유 | B 레일 틈, C 스냅 홈 |
 
-벽 두께(`wall` 2.4), 바닥(`floor` 2.4), 스탠드오프 높이(`standoff` 5) 같은 나머지 값은 `pitect.js`의 `DEFAULTS`에서 고칩니다.
+벽 두께(`wall` 2.4), 바닥(`floor` 2.4), 스탠드오프 높이(`standoff` 5) 같은 나머지 값은 `pitect.py`나 `pitect.js`의 `DEFAULTS`에서 고칩니다. 파이썬 명령줄에서는 `wall=2.0`처럼 바로 줄 수도 있습니다.
 
 ## 생성할 때 자동으로 하는 검사
 
