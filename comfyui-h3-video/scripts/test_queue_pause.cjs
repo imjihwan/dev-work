@@ -10,6 +10,9 @@ const win={document:doc,clearTimeout(){},setTimeout(){},fetch:async(url,options)
  release();await pending;assert.equal(ui.button.textContent,'작업 재개');assert(ui.status.textContent.includes('현재 작업 완료 후'));
  state={supported:true,paused:true,state:'paused'};await ui.poll();assert(ui.status.textContent.includes('일시정지됨'));
  const resume=ui.button.onclick();release();await resume;assert.deepEqual(JSON.parse(requests.at(-1).body),{paused:false});
+ assert.equal(ui.button.hidden,false,'a usable pause button is shown');
  state={supported:false,state:'unsupported'};await ui.poll();assert(ui.button.disabled);assert(ui.status.textContent.includes('ComfyUI 재시작'));
+ assert.equal(ui.button.hidden,true,'a button that cannot be pressed does not take a row: only the reason is shown');
+ state={supported:true,paused:false,state:'running'};await ui.poll();assert.equal(ui.button.hidden,false,'it comes back when pausing becomes available');assert.equal(ui.button.textContent,'작업 일시정지');
  console.log('Queue pause UI passed: explicit state, duplicate taps, finish-current status and unsupported activation.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -9,7 +9,9 @@
     let state=null,busy=false,loading=false,revision=0,timer;
     function render(value){
       state=value;button.disabled=busy||!value?.supported;
-      if(!value?.supported){button.textContent=value?.state==='unsupported'?'일시정지 준비 필요':'일시정지 연결 확인';status.textContent=value?.state==='unsupported'?'ComfyUI 재시작 후 활성화됩니다.':'영상 서버 연결을 확인하고 있습니다.';return;}
+      // 쓸 수 없는 동안에는 누를 수 없는 버튼을 세워 두지 않는다(핸드폰에서 만들기 바가 한 줄 더 길어진다). 이유만 한 줄로 알린다
+      button.hidden=!value?.supported;
+      if(!value?.supported){button.textContent=value?.state==='unsupported'?'일시정지 준비 필요':'일시정지 연결 확인';status.textContent=value?.state==='unsupported'?'작업 일시정지는 ComfyUI 재시작 후 쓸 수 있습니다.':'영상 서버 연결을 확인하고 있습니다.';return;}
       button.textContent=busy?'처리 중…':value.paused?'작업 재개':'작업 일시정지';
       button.setAttribute('aria-pressed',String(value.paused));
       button.title='현재 작업은 완료하고 다음 작업부터 멈춥니다. 재개하면 기존 순서대로 진행합니다.';

@@ -72,15 +72,20 @@ h1{font-size:20px;margin:0 0 4px;grid-column:1/-1}
 @media (max-width:600px){
   /* 핸드폰: 버튼 한 줄 + 상태 한두 줄로 줄여 입력 칸을 덜 가린다 */
   .action-bar{padding:8px 10px}
-  .action-main{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px}
+  /* 실측(375px): 버튼 두 줄 + 요약 두 줄 + 일시정지 줄로 화면의 40%를 가렸다 → 버튼은 한 줄에, 요약은 한 줄로 */
+  .action-main{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:6px}
   .action-main .go{grid-column:1;grid-row:1;width:100%;min-width:0;padding:10px 6px;font-size:15px}
-  .add-menu{grid-column:2;grid-row:1}
-  .run-menu{grid-column:3;grid-row:1}
+  .priority-go{grid-column:2;grid-row:1;max-width:76px;padding:4px 6px;font-size:12px;line-height:1.25;white-space:normal;word-break:keep-all}
+  .add-menu{grid-column:3;grid-row:1}
+  .run-menu{grid-column:4;grid-row:1}
   .add-menu>summary{padding:4px 8px;font-size:12px}
-  .priority-go{grid-column:1/-1;grid-row:2}
+  .action-info{grid-column:1/-1;grid-row:2}
+  #queuePauseHost{grid-column:1/-1;grid-row:3;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  #queuePauseHost span{max-width:none!important}
+  #queuePauseHost:not(:has(button:not([hidden]))) span{color:var(--mute)}
   #stopPhotoBatch{grid-column:1/-1;grid-row:4}
-  .action-info{grid-column:1/-1;grid-row:3}
-  .action-info .hint,.action-info .status{font-size:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .action-info .hint{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .action-info .status{font-size:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .action-info:has(.status:not(:empty)) .hint{display:none}
 }
 .settings-actions,.section-title{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:space-between}
