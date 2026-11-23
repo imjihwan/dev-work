@@ -180,15 +180,30 @@ assert(html.includes('id="sizeHint"') && script.includes('addEventListener("load
 assert(context.canvasPixels('1:1', 'draft', 0) < context.canvasPixels('1:1', 'auto', 0) && context.canvasPixels('1:1', 'auto', 0) < context.canvasPixels('1:1', '1080p', 0));
 const row = (factor, job = {}) => {
   const j = {width:768, height:960, duration:5, steps:8, speed:'', ...job};
-  return {state:'done', ...j, generation_seconds:context.etaSeconds({pixels:j.width * j.height, seconds:j.duration, steps:j.steps, speed:j.speed, photos:j.mode === 'REF2VA' ? j.images.length : 1, upscale:j.resolution === 'up15' ? 1.5 : undefined}) * factor};
+  return {state:'done', ...j, generation_seconds:context.etaSeconds({pixels:j.width * j.height, seconds:j.duration, steps:j.steps, speed:j.speed, photos:j.mode === 'REF2VA' ? j.images.length : 1, refArea:j.mode === 'REF2VA' ? j.ref_area : undefined, upscale:j.resolution === 'up15' ? 1.5 : undefined}) * factor};
 };
-// Every extra reference photo slows each step by about 8% at 5 s (measured: 17.97 s with one photo, 21.0 s with three; 209.6 s for the clip).
+// Every extra reference photo slows each step by about 8.5% and adds about 7 s of encoding at 5 s
+// (measured step: 17.97 s with one photo, 21.0 s with three, 30.55 s with nine; 209.6 s and 324 s for the clip).
 near(eta({photos:3}), 209.6, 0.03, '5 s with three reference photos');
 near(eta({photos:9}), 324, 0.03, '5 s with nine reference photos (one photo plus eight face crops at full size)');
 assert.equal(eta({photos:1}), eta({}), 'one photo is the reference case');
 assert.equal(eta({photos:0}), eta({}));
 assert(eta({seconds:10, photos:3}) / eta({seconds:10}) < eta({photos:3}) / eta({}), 'the photos weigh less in a longer clip');
 near(context.etaScale([row(1.3, {mode:'REF2VA', images:['a', 'b', 'c']}), row(1.3, {mode:'FL2VA', images:['a', 'b']}), row(1.3, {mode:'REF2VA', images:['a']})]), 1.3, 0.001, 'reference photos are counted for the reference mode only');
+// H3 uses each reference at no more than the generation's pixel area, so a smaller supplementary photo costs in proportion to its area.
+// Measured with eight face crops capped at 640 and at 512: 250.9 s and 222.5 s (324 s uncapped). The server records the summed area per job (ref_area).
+const cropArea = side => 8 * side * side / (768 * 960);
+near(eta({photos:9, refArea:cropArea(640)}), 250.9, 0.03, 'nine photos, eight face crops capped at 640');
+near(eta({photos:9, refArea:cropArea(512)}), 222.5, 0.03, 'nine photos, eight face crops capped at 512');
+assert.equal(eta({photos:9, refArea:8}), eta({photos:9}), 'eight full-size photos are the count');
+assert.equal(eta({photos:9, refArea:99}), eta({photos:9}), 'a photo never weighs more than one');
+assert.equal(eta({photos:9, refArea:0}), eta({}), 'tiny supplementary photos cost next to nothing');
+for (const missing of [undefined, null, -1, NaN, 'x']) assert.equal(eta({photos:9, refArea:missing}), eta({photos:9}), `an unusable area (${missing}) falls back to the count`);
+const nine = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
+near(context.etaScale([row(1.3, {mode:'REF2VA', images:nine, ref_area:cropArea(512)}), row(1.3, {mode:'REF2VA', images:['a']}), row(1.3, {mode:'REF2VA', images:nine}), row(1.3, {mode:'FL2VA', images:['a', 'b'], ref_area:0.2})]),
+  1.3, 0.001, 'one-photo jobs and capped nine-photo jobs calibrate to the same factor');
+// Without the recorded area a capped nine-photo job would look about 30% faster than the model and skew the factor for one-photo jobs.
+assert(context.etaSeconds({pixels:768 * 960, seconds:5, steps:8, speed:'', photos:9}) / eta({photos:9, refArea:cropArea(512)}) > 1.4);
 const finished = factor => row(factor);
 assert.equal(context.etaScale([]), null);
 assert.equal(context.etaScale([finished(2), finished(2)]), null, 'two finished jobs are not enough to calibrate');
@@ -216,6 +231,22 @@ context.HIST.items = [];
 S.speed = 'sparse'; assert.equal(context.etaText(1), '예상 약 2분', 'the speed mode is part of the estimate');
 S.speed = ''; S.steps = 4; assert.equal(context.etaText(1), '예상 약 2분', 'so are the steps');
 S.steps = 8;
+// Nine reference photos: 320 s. When the server caps the face crops (capabilities.face_crop_max) and the face option is on, the eight crops cost less.
+context.isRef = () => true; vm.runInContext('var images = Array.from({length: 9}, (_, i) => ({i}));', context);
+const savedCatalog = context.CAT.capabilities;
+context.CAT.capabilities = {}; S.faceBoost = true;
+assert.equal(context.etaText(1), '예상 약 5분', 'no crop limit on the server: full-size photos are assumed');
+context.CAT.capabilities = {face_crop_max:512};
+assert.equal(context.etaText(1), '예상 약 4분', 'crops capped at 512: 221 s');
+S.faceBoost = false;
+assert.equal(context.etaText(1), '예상 약 5분', 'the limit only applies to face crops, not to originals');
+S.faceBoost = true; context.CAT.capabilities = {face_crop_max:4096};
+assert.equal(context.etaText(1), '예상 약 5분', 'a limit above the generation size changes nothing');
+context.CAT.capabilities = {face_crop_max:'junk'};
+assert.equal(context.etaText(1), '예상 약 5분');
+context.CAT.capabilities = undefined;
+assert.equal(context.etaText(1), '예상 약 5분', 'a catalog without capabilities is not an error');
+context.CAT.capabilities = savedCatalog; S.faceBoost = false; context.isRef = () => false;
 context.$ = id => ({aspect:{value:'auto'}, resolution:{value:'720p'}, duration:{value:10}, thumbs:{querySelector:() => ({naturalWidth:768, naturalHeight:960})}})[id];
 assert.equal(context.etaText(1), `예상 약 ${Math.round(context.etaSeconds({pixels:context.canvasPixels('auto', '720p', 0.8), seconds:10, steps:8, speed:''}) / 60)}분`, 'and the chosen quality and length');
 assert(context.etaSeconds({pixels:context.canvasPixels('auto', '720p', 0.8), seconds:10, steps:8, speed:''}) > 2.5 * eta({}));

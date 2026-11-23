@@ -579,6 +579,31 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(self.env['HIST_DB'][0]['images'],values)
         self.assertEqual(outcome['face_crops'],{'cropped':len(self.photos)-1,'original':0})
 
+    def test_history_records_the_area_of_supplementary_photos_for_the_time_estimate(self):
+        # H3 는 참조 사진을 생성 화소 수까지만 줄여 쓴다: 그보다 큰 사진은 한 장이 1, 작은 크롭은 넓이 비율만큼 든다(사진 1은 세지 않는다)
+        sizes=iter([(512,512),(4000,3000)])
+        self.crop_module.crop_reference=lambda raw,model:(b'face-crop',next(sizes))
+        outcome=self.env['build_and_queue'](self.request(images=self.photos[:3],count=1,face_boost=True,resolution='auto',aspect='4:5'))
+        pixels=outcome['width']*outcome['height']
+        self.assertGreater(pixels,512*512)
+        expected=round(512*512/pixels+1,3)
+        self.assertEqual(outcome['jobs'][0]['ref_area'],expected)
+        self.assertEqual(self.env['HIST_DB'][0]['ref_area'],expected)
+        # 얼굴인식강화 없이 올린 작은 원본도 실제 넓이로 센다
+        self.env['HIST_DB'].clear()
+        plain=self.env['build_and_queue'](self.request(images=self.photos[:3],count=1,resolution='auto',aspect='4:5'))
+        self.assertEqual(plain['jobs'][0]['ref_area'],round((17*9+18*10)/pixels,3))
+        # 순차 추가: 작업마다 사진 1이 바뀌고 나머지가 보조 사진이다
+        self.env['HIST_DB'].clear()
+        self.crop_module.crop_reference=lambda raw,model:(b'face-crop',(4000,3000))
+        rotated=self.env['build_and_queue'](self.request(images=self.photos[:3],photo_sequence=True,count=3,face_boost=True,resolution='auto',aspect='4:5'))
+        self.assertEqual([job['ref_area'] for job in rotated['jobs']],[2.0,2.0,2.0])
+        # 참조 방식이 아니면 참조 토큰이 없다
+        self.env['HIST_DB'].clear()
+        frames=self.env['build_and_queue'](self.request(images=self.photos[:2],mode='FL2VA',count=1))
+        self.assertIsNone(frames['jobs'][0]['ref_area'])
+        self.assertIsNone(self.env['HIST_DB'][0]['ref_area'])
+
     def test_face_boost_never_crops_first_last_frames(self):
         self.crop_module.ensure_available=lambda path:(_ for _ in ()).throw(AssertionError('FL2VA frames are not cropped'))
         self.env['build_and_queue'](self.request(images=self.photos[:2],mode='FL2VA',count=1,face_boost=True))

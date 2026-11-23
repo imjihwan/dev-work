@@ -1004,7 +1004,7 @@ def catalog():
            "sampling_notes": H3_SAMPLING_NOTES,
            "presets": _load_json(PRESETS, {}), "default": model_defaults(),
            "capabilities": {"queue_edit": True, "bulk_edit": True, "bulk_edit_all": True, "photo_sequence": True, "photo_reference_pool": True, "saved_settings": True, "restart_running": True, "priority_queue": True,
-                            "speed_modes": speed_modes_available(), "upscale_modes": upscale_modes_available()}}
+                            "speed_modes": speed_modes_available(), "upscale_modes": upscale_modes_available(), "face_crop_max": face_crop_max()}}
     # 작은 LoRA 는 처음 보면 Civitai 정보를 자동으로 가져온다(큰 본체 모델은 버튼으로)
     for c in out["loras"]:
         if "civitai" not in c and c["fetch"]["state"] == "idle" and (c["auto"].get("size_gb") or 99) < 4:
@@ -1546,8 +1546,19 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
                "speed": speed_mode,
                "loras": [{"name": x["name"], "strength": float(x.get("strength", 1))} for x in loras],
                "aspect": j.get("actual_aspect",aspect), "requested_aspect":aspect,"protect_person":protect_person,"framing_fallback":j.get("framing_fallback",False), "resolution": resolution, "duration": duration, "width": j["width"], "height": j["height"],
-               "count": count, "anchor": anchor, "prompt": text, "images": j["images"], "face_side": j.get("face_side"),
+               "count": count, "anchor": anchor, "prompt": text, "images": j["images"], "ref_area": j.get("ref_area"), "face_side": j.get("face_side"),
                "sequence_index": j["sequence_index"], "ui": req.get("ui")} for j in done]
+
+    def reference_area(job_items, job_w, job_h):
+        # 보조 참조 사진(사진 2부터)의 넓이를 생성 화소 대비로 더한 값. H3 는 사진마다 생성 화소 수까지만 줄여 쓰므로(ref_image_size match)
+        # 한 장의 몫은 1 을 넘지 않고, 더 작은 사진·줄인 얼굴 크롭은 그만큼 덜 든다. 화면이 예상 시간을 실제 걸린 시간에 맞출 때 쓴다
+        if mode != "REF2VA" or not (job_w and job_h):
+            return None
+        total = 0.0
+        for item in job_items[1:]:
+            w, h = item.get("source_width") or 0, item.get("source_height") or 0
+            total += min(1.0, w * h / (job_w * job_h)) if w > 0 and h > 0 else 1.0
+        return round(total, 3)
     priority_number = None
     try:
         for index, s in enumerate(seeds):
@@ -1579,7 +1590,7 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
                 prepared = {"prompt":p,"images":list(names),"width":job_w,"height":job_h,"seed":s}
                 if edit_id:
                     job = {"id":edit_id,"seed":s,"width":job_w,"height":job_h,"model":model,"steps":steps,
-                           "anchor":anchor,"face_side":face_side_for(0),"images":list(names),"actual_aspect":actual_aspect,"framing_fallback":fallback,
+                           "anchor":anchor,"face_side":face_side_for(0),"images":list(names),"ref_area":reference_area(tl["items"],job_w,job_h),"actual_aspect":actual_aspect,"framing_fallback":fallback,
                            "sequence_index":reference["entry"].get("sequence_index")}
                     entry = make_entries([job])[0]
                     entry.update(t=reference["entry"]["t"],edited_at=time.time())
@@ -1599,7 +1610,8 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
                 PROGRESS.setdefault(r["prompt_id"],{"pct":0.0,"label":"대기"})["classes"]=classes
             jobs.append({"id": r["prompt_id"], "seed": s, "width": job_w, "height": job_h,
                          "model": model, "steps": steps, "anchor": anchor, "actual_aspect":actual_aspect,"framing_fallback":fallback,"prompt_verified": bool(edit_id and r.get("prompt_verified")), "face_side": face_side_for(index if sequence else 0),
-                         "images": list(job_names), "sequence_index": index + 1 if sequence else reference["entry"].get("sequence_index") if reference else None})
+                         "images": list(job_names), "ref_area": reference_area(tl["items"], job_w, job_h),
+                         "sequence_index": index + 1 if sequence else reference["entry"].get("sequence_index") if reference else None})
     except Exception as exc:
         # 여러 편 등록 중 실패: 이미 ComfyUI 에 들어간 작업은 이력에 남겨 추적·중지·결과 연결이 되게 한다
         if jobs and not edit_id:
@@ -1825,6 +1837,15 @@ def upscale_modes_available():
         return list(UPSCALE_SCALES) if upscale_ready() else []
     except (OSError, ValueError, KeyError, TypeError, IndexError):
         return []
+
+
+def face_crop_max():
+    """얼굴 크롭의 긴 변 상한(환경 변수 SIMPLEUI_FACE_CROP_MAX, 0 = 줄이지 않음). 화면이 예상 시간을 낼 때 쓴다."""
+    try:
+        from face_references import crop_limit
+        return crop_limit()
+    except ImportError:      # Pillow 가 없으면 얼굴 크롭 자체를 쓰지 못한다
+        return 0
 
 
 def node_available(cls):

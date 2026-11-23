@@ -1006,12 +1006,14 @@ function sizeNote(aspect, resolution, photoRatio, job = {}){
   return resolution === "1080p" ? text
     : `${text} 모델의 기준 화소(약 1.0MP)보다 큰 크기이고, 실측에서는 화소를 기준만큼 줄여도 얼굴 세부와 닮음이 같았습니다. 더 빨리 만들려면 화질에서 720p(화소 수 고정)를 고르세요.`;
 }
-function etaSeconds({pixels, seconds, steps, speed, photos, upscale}){
+function etaSeconds({pixels, seconds, steps, speed, photos, upscale, refArea}){
   const frames = actualFrames(seconds), area = pixels / ETA.pixels, latent = (frames - 5) / 17 * 5 + 2;
   const tokens = area * latent / 37;      // 기준 대비 토큰 수
   // 참조 사진이 한 장 늘 때마다 스텝이 약 8.5% 느려지고(5초 실측: 1장 17.97초, 3장 21.0초, 9장 30.55초) 사진 인코딩이 약 7초 더 든다.
   // H3 는 사진마다 생성 화소 수까지만 줄여 쓰므로(ref_image_size match) 그보다 큰 사진은 모두 이 값이다. 긴 영상에서는 그 몫이 작아진다
-  const extra = Math.max(0, (Number(photos) || 1) - 1), refs = 1 + 0.085 * extra * 37 / latent;
+  // refArea: 보조 사진들의 넓이를 생성 화소 대비로 더한 값(서버가 이력에 적는다 — 작은 사진이나 줄인 얼굴 크롭은 한 장이 1 보다 작다). 없으면 장수로 센다
+  const count = Math.max(0, (Number(photos) || 1) - 1), share = Number(refArea);
+  const extra = refArea != null && share >= 0 ? Math.min(count, share) : count, refs = 1 + 0.085 * extra * 37 / latent;
   const dense = ETA.step * tokens ** (tokens >= 1 ? ETA.power : ETA.smallPower) * refs;
   let sampling = steps * dense;
   // 희소 어텐션은 토큰이 적은 짧고 작은 영상에서는 스스로 원래 계산을 쓴다(min_tokens)
@@ -1031,7 +1033,7 @@ function etaScale(items){
   const ratios = [];
   for (const e of items || []) {
     if (e.state !== "done" || !(e.generation_seconds > 0) || !(e.width > 0) || !(e.height > 0) || !(e.steps > 0)) continue;
-    const ratio = e.generation_seconds / etaSeconds({pixels:e.width * e.height, seconds:e.duration, steps:e.steps, speed:e.speed, photos:e.mode === "REF2VA" ? (e.images || []).length : 1, upscale:UPSCALE[e.resolution]});
+    const ratio = e.generation_seconds / etaSeconds({pixels:e.width * e.height, seconds:e.duration, steps:e.steps, speed:e.speed, photos:e.mode === "REF2VA" ? (e.images || []).length : 1, refArea:e.mode === "REF2VA" ? e.ref_area : undefined, upscale:UPSCALE[e.resolution]});
     // 같은 사진·문구·시드를 다시 넣으면 ComfyUI 가 저장해 둔 결과로 몇 초 만에 끝난다. 그런 작업은 속도의 표본이 아니다
     if (!(ratio >= 0.25)) continue;
     ratios.push(ratio);
@@ -1068,7 +1070,10 @@ function etaText(n){
   try { recent = HIST.items; } catch {}      // 화면을 처음 그릴 때는 이력 목록이 아직 없다
   const pixels = canvasPixels($("aspect").value, $("resolution").value, firstPhotoRatio());
   const photos = typeof isRef === "function" && isRef() && typeof images !== "undefined" ? images.length : 1;      // 참조 방식만: 첫·끝 장면 사진은 참조 토큰이 아니다
-  const sec = etaSeconds({pixels, seconds:$("duration").value, steps:S.steps, speed:S.speed, photos, upscale:UPSCALE[$("resolution").value]}) * etaFactor(recent) * (n || 1);
+  // 서버가 얼굴 크롭의 긴 변을 제한하고 있으면(SIMPLEUI_FACE_CROP_MAX) 얼굴인식강화의 보조 사진은 그 넓이만큼만 든다
+  const limit = typeof CAT !== "undefined" && Number(CAT?.capabilities?.face_crop_max) || 0;
+  const refArea = photos > 1 && limit > 0 && S.faceBoost && pixels > 0 ? (photos - 1) * Math.min(1, limit * limit / pixels) : undefined;
+  const sec = etaSeconds({pixels, seconds:$("duration").value, steps:S.steps, speed:S.speed, photos, refArea, upscale:UPSCALE[$("resolution").value]}) * etaFactor(recent) * (n || 1);
   return `예상 약 ${Math.max(1, Math.round(sec / 60))}분`;
 }
 function drawSpeed(){
