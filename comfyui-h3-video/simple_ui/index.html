@@ -379,6 +379,7 @@ a{color:var(--acc)}
       <textarea id="summary" rows="2" placeholder="예: The mug slowly rotates."></textarea>
 
       <div class="shots-head"><label>장면별 동작 <small>— 시작 시각(초)과 동작</small></label><label class="dur-inline">영상 길이 <input type="number" id="duration" value="5" min="1" max="15" step="1"> 초</label></div>
+      <div class="hint" id="lengthHint" role="status"></div>
       <label for="actionMode">동작 입력 방식</label><select id="actionMode"><option value="timeline">시간별로 나누기</option><option value="single">한 칸으로 작성 · 시간 지정 없이</option></select>
       <textarea id="actionText" hidden style="min-height:240px" placeholder="전체 동작의 흐름을 자연스럽게 적으세요. 초 단위로 나누지 않아도 됩니다."></textarea>
       <div id="shots"></div>
@@ -695,7 +696,15 @@ function pics(n){ const p = [...Array(n)].map((_,i)=>`<Picture ${i+1}>`); return
 // 영상 길이 이상에서 시작하는 장면(첫 장면 제외) 번호
 const lateShots = () => { const dur = Number($("duration").value) || 5;
   return [...$("shots").children].map((d,i) => i && Number(d.querySelector("input").value) >= dur ? i : -1).filter(i => i > 0); };
-const ONE_TAKE_KEEP = "Use one uninterrupted camera take with continuous real-time action from the first frame to the last. Follow only the camera movement explicitly specified in the camera instructions. Any requested framing adjustment happens through visible, continuous camera movement within this same take. The camera settling into position does not begin a new shot. Preserve continuous subject motion and background geometry throughout, with no scene changes or new locations. Preserve the same environment as <Picture 1>, allowing its perspective and occlusion to follow the specified camera movement. No cuts, jump cuts, dissolves, fades or viewpoint resets.";
+// H3 는 길이를 17프레임 묶음 격자(17k+5 프레임, 24fps)로만 잡는다. Director 가 요청한 길이를 그 격자로 올린다(4초 → 107프레임 = 4.5초).
+function actualFrames(seconds){ let n = Math.max(5, Math.floor((Number(seconds) || 5) * 24 + 0.5)); while (n % 17 !== 5) n++; return n; }
+function lengthNote(seconds){
+  const frames = actualFrames(seconds), real = frames / 24, out = [];
+  if (Math.abs(real - (Number(seconds) || 5)) >= 0.2) out.push(`실제 길이는 ${real.toFixed(1)}초(${frames}프레임)입니다. H3 는 17프레임 단위로만 길이를 잡아, 적은 값보다 길게 만들어집니다.`);
+  if (frames < 124) out.push("5초보다 짧은 영상은 H3 가 학습한 길이(약 5~15초) 밖이라 움직임·소리가 불안정할 수 있습니다.");
+  return out.join(" ");
+}
+const ONE_TAKE_KEEP ="Use one uninterrupted camera take with continuous real-time action from the first frame to the last. Follow only the camera movement explicitly specified in the camera instructions. Any requested framing adjustment happens through visible, continuous camera movement within this same take. The camera settling into position does not begin a new shot. Preserve continuous subject motion and background geometry throughout, with no scene changes or new locations. Preserve the same environment as <Picture 1>, allowing its perspective and occlusion to follow the specified camera movement. No cuts, jump cuts, dissolves, fades or viewpoint resets.";
 const FACE_REFERENCE_RETENTION="<Subject 1>: preserve one consistent facial identity throughout the shot. Keep the same underlying facial proportions, eye spacing, eyelid shape, nose, lips, jawline and natural asymmetries during blinking, speech and the expressions requested by the scene. Expression changes affect facial motion without changing the person, age or facial structure. Use <Picture 1> to resolve conflicting appearance details in the supplementary references.";
 function faceReferenceDefinition(count){
   const other=Array.from({length:count-1},(_,index)=>`<Picture ${index+2}>`),labels=other.join(", ");
@@ -769,6 +778,7 @@ function render(){
   const late = lateShots(), dur = Number($("duration").value) || 5;
   [...$("shots").children].forEach((d,i) => d.querySelector("input").classList.toggle("late", late.includes(i)));
   $("shotHint").textContent = late.length ? `장면 ${late.map(i => i + 1).join(", ")}은(는) 영상 길이(${dur}초) 이후에 시작해서 프롬프트에서 뺐습니다. 시각을 ${dur}초보다 앞으로 당기거나 길이를 늘리세요.` : "";
+  if ($("lengthHint")) $("lengthHint").textContent = lengthNote(dur);
   if (!manualFinal) $("final").value = build();
   refreshFaceReferenceAction();
   drawGoInfo();
@@ -927,7 +937,7 @@ const runCount = () => Math.min(20, Math.max(1, Math.round(Number($("count").val
 function etaText(n){
   // 이 PC(5060 Ti) 실측: 768 기준 5초 영상 스텝당 약 26초 + 준비·디코딩 약 35초. 대략값.
   const res = {draft:0.55, auto:1, "720p":1.6, "1080p":4}[$("resolution").value] || 1;
-  const dur = (Number($("duration").value) || 5) / 5;
+  const dur = actualFrames($("duration").value) / 124;      // 실제로 만들어지는 프레임 수 기준(5초 = 124프레임)
   const sec = (35 + S.steps * 26 * res * dur) * (n || 1);
   return `예상 약 ${Math.max(1, Math.round(sec / 60))}분`;
 }

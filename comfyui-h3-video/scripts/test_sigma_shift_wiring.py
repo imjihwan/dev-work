@@ -69,6 +69,26 @@ class SavedSamplerTests(unittest.TestCase):
         self.assertEqual(scope["effective"]("model", {"auto": {"turbo": True}, "user": {"sampler": "lcm"}})["sampler"], "lcm")
 
 
+class ModelDefaultsTests(unittest.TestCase):
+    def test_catalog_default_follows_the_default_models_recommendation(self):
+        # The story page starts new projects from catalog.default; it must match what the main page uses for the same model.
+        tree = ast.parse((ROOT / "simple_ui/server.py").read_text(encoding="utf-8-sig"))
+        wanted = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in ("template_defaults", "model_defaults")]
+        scope = {"json": json, "TEMPLATE": str(ROOT / "simple_ui/template_api.json"), "LORA": LORA, "SCHED": SCHED, "SHIFT": SHIFT,
+                 "LOADERS": ("1512:2586", "1512:2588"), "SAMPLER": "1512:2598", "DIRECTOR": "2730"}
+        exec(compile(ast.Module(wanted, []), "defaults", "exec"), scope)
+        template = scope["template_defaults"]()
+        scope["card_for"] = lambda kind, name: {"effective": {"steps": 8, "sampler": "euler", "scheduler": "simple", "shift_video": 7.0, "shift_audio": 4.0}}
+        value = scope["model_defaults"]()
+        self.assertEqual((value["model"], value["mode"]), (template["model"], template["mode"]))
+        self.assertEqual((value["shift_video"], value["shift_audio"], value["steps"]), (7.0, 4.0, 8))
+
+        def unreadable(kind, name):
+            raise OSError("model file missing")
+        scope["card_for"] = unreadable
+        self.assertEqual(scope["model_defaults"](), template)
+
+
 class SigmaShiftWiringTests(unittest.TestCase):
     def test_template_scheduler_reads_shift_patched_model(self):
         graph = json.loads((ROOT / "simple_ui/template_api.json").read_text(encoding="utf-8-sig"))

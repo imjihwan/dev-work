@@ -73,5 +73,15 @@ const plain=value=>JSON.parse(JSON.stringify(value));
   keep('sampler','euler_cfg_pp');keep('sampler','euler_cfg_pp');assert.deepEqual(added,['euler_cfg_pp']);
   keep('sampler','');keep('sampler',null);assert.deepEqual(added,['euler_cfg_pp']);
   assert(html.includes("keepListed(key,definition.common[key])")&&html.includes("keepListed(key,values[key])"));
+  // Choosing another model moves steps/sampler/shift to that model's recommendation (no 8-step turbo settings on a 25-step model).
+  const applySource=html.match(/function applyModelRecommended\(name\)\{[\s\S]*?\n\}\r?\n/)[0];
+  const fields={steps:{value:'8'},sampler:{value:'euler'},scheduler:{value:'simple'},shift_video:{value:'10'},shift_audio:{value:'3'}};
+  const apply=vm.runInNewContext(`(${applySource.trim().replace('function applyModelRecommended','function')})`,
+    {$:id=>fields[id],keepListed:()=>{},String,catalog:{models:[{name:'regular',effective:{steps:25,sampler:'res_multistep',scheduler:'simple',shift_video:11,shift_audio:4}},{name:'bare'}]}});
+  assert.equal(apply('regular'),true);
+  assert.deepEqual(Object.fromEntries(Object.entries(fields).map(([key,field])=>[key,String(field.value)])),{steps:'25',sampler:'res_multistep',scheduler:'simple',shift_video:'11',shift_audio:'4'});
+  assert.equal(apply('regular'),false,'nothing to change the second time');
+  assert.equal(apply('bare'),false);assert.equal(apply('missing'),false);
+  assert(html.includes("applyModelRecommended($('model').value)"));
   console.log('Story UI checks passed: four clips, scoped AI drafts/edits, stale-source rejection, approval gates, stable inline playback.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -81,6 +81,17 @@ function drawLoras(){
     row.querySelector('input').value=item.strength;select.onchange=()=>{item.name=select.value;markDirty();};row.querySelector('input').oninput=event=>{item.strength=Number(event.target.value);markDirty();};row.querySelector('button').onclick=()=>{advancedLoras.splice(index,1);drawLoras();markDirty();};$('loras').appendChild(row);
   });
 }
+// 고른 모델의 권장값(서버가 모델 카드에서 계산한 effective)을 스텝·샘플러·스케줄러·shift 칸에 넣는다. 권장값을 모르면 그대로 둔다.
+function applyModelRecommended(name){
+  const recommended=catalog?.models?.find(item=>item.name===name)?.effective;if(!recommended)return false;
+  let changed=false;
+  for(const key of ['steps','sampler','scheduler','shift_video','shift_audio']){
+    if(recommended[key]==null||String($(key).value)===String(recommended[key]))continue;
+    if(key==='sampler'||key==='scheduler')keepListed(key,recommended[key]);
+    $(key).value=recommended[key];changed=true;
+  }
+  return changed;
+}
 // 저장된 샘플러·스케줄러가 지금 목록에 없으면(H3 에서 결과가 깨져 목록에서 뺀 샘플러 등) 고른 값을 지우지 않고 보여 준다
 function keepListed(id,value){const select=$(id);if(select?.options&&value!=null&&value!==''&&![...select.options].some(option=>option.value===String(value)))select.add(new Option(value,value));}
 function fill(definition){
@@ -195,6 +206,8 @@ function bind(){
   document.querySelectorAll('input,textarea,select').forEach(input=>{if(!['photoFiles','bgm','savedProjects','openCode','storyHelperEngine','defaultMuteToggle'].includes(input.id))input.addEventListener('input',()=>{markDirty();updateStatus();});});
   try{const saved=localStorage.getItem('h3simple.promptHelperEngine.v1');$('storyHelperEngine').value=saved==='grok'?'grok':'dutchit';}catch{$('storyHelperEngine').value='dutchit';}
   $('storyHelperEngine').onchange=()=>{try{localStorage.setItem('h3simple.promptHelperEngine.v1',$('storyHelperEngine').value);}catch{}};
+  // 모델을 바꾸면 스텝·샘플러·shift 를 그 모델의 권장값으로 맞춘다(터보 8스텝 설정으로 일반 25스텝 모델을 돌리는 일이 없게)
+  $('model').addEventListener('change',()=>{if(applyModelRecommended($('model').value))say('고른 모델의 권장 스텝·샘플러·shift 로 맞췄습니다. 필요하면 고급 설정에서 바꾸세요.');});
   document.querySelectorAll('[data-jump]').forEach(button=>button.onclick=()=>$(button.dataset.jump).scrollIntoView({behavior:'smooth',block:'start'}));
   $('saveProject').onclick=()=>saveProject().then(()=>say('프로젝트를 저장했습니다.')).catch(error=>say(error.message,true));
   $('newProject').onclick=()=>{if(dirty&&!confirm('저장하지 않은 변경사항을 두고 새 프로젝트를 만들까요?'))return;project=null;newImages=[];newBgm=undefined;dirty=false;previews.clear();document.querySelectorAll('.preview').forEach(box=>{box.querySelectorAll('video').forEach(video=>video.pause());box.replaceChildren();box.hidden=true;});fill(defaults());drawPhotos();updateStatus();say('새 프로젝트입니다. 공통 사진과 시나리오를 입력해 주세요.');};

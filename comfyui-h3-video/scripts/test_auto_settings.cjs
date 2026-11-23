@@ -71,6 +71,18 @@ assert.match(context.samplingNotes('euler_cfg_pp', 'simple', samplingNotesFromSe
 assert.deepEqual(Array.from(context.samplingNotes('heun', 'karras', undefined)), [], 'an older server without notes must not break the page');
 assert(html.includes('id="samplingNote"') && script.includes('listed(CAT.samplers, S.sampler)'));
 
+// The requested length is rounded UP to the model's 17k+5 frame grid by the Director; the page says so and warns below the trained range.
+vm.runInContext(section('function actualFrames(', 'const ONE_TAKE_KEEP'), context);
+const grid = {1:39, 2:56, 3:73, 4:107, 5:124, 6:158, 7:175, 8:192, 9:226, 10:243, 11:277, 12:294, 13:328, 14:345, 15:362};
+for (const [seconds, frames] of Object.entries(grid)) assert.equal(context.actualFrames(Number(seconds)), frames, `${seconds}s`);
+assert.equal(context.lengthNote(5), '', '5 s is on the grid within rounding and inside the trained range');
+assert.equal(context.lengthNote(8), '');
+assert.match(context.lengthNote(6), /실제 길이는 6\.6초\(158프레임\)/);
+assert.doesNotMatch(context.lengthNote(6), /학습한 길이/);
+assert.match(context.lengthNote(4), /실제 길이는 4\.5초\(107프레임\).*학습한 길이/);
+assert.match(context.lengthNote(3), /^5초보다 짧은 영상은/);
+assert(html.includes('id="lengthHint"') && script.includes('actualFrames($("duration").value) / 124'));
+
 // The page ships automatic defaults and labels the advanced section accordingly.
 assert(script.includes('shift_video:11, shift_audio:4, manual:null, level:null'));
 assert(html.includes('id="advState"') && html.includes('자동 값으로 되돌리기'));

@@ -298,6 +298,24 @@ class FeatureTests(unittest.TestCase):
         self.env["node_available"]=lambda cls:True
         self.assertIn(chunk,built())
 
+    def test_values_missing_from_a_request_follow_the_models_recommendation_not_the_template(self):
+        # 틀 값은 터보 모델 기준(8스텝·euler·shift 10/3)이다. 값 없이 일반 모델을 요청하면 그 모델의 권장값으로 돌아야 한다.
+        recommended={"steps":25,"sampler":"res_multistep","scheduler":"simple","shift_video":11.0,"shift_audio":4.0}
+        self.env["card_for"]=lambda *args:{"auto":{"h3":True,"fmt":"int8"},"effective":dict(recommended)}
+        request=self.request(count=1);del request["steps"]
+        graph=self.env["build_and_queue"](request,prepare_only=True)["prompt"]
+        env=self.env
+        self.assertEqual((graph[env["SCHED"]]["inputs"]["steps"],graph[env["SAMPLER"]]["inputs"]["sampler_name"],graph[env["SCHED"]]["inputs"]["scheduler"]),(25,"res_multistep","simple"))
+        self.assertEqual((graph[env["SHIFT"]]["inputs"]["shift_video"],graph[env["SHIFT"]]["inputs"]["shift_audio"]),(11.0,4.0))
+        explicit=self.env["build_and_queue"](self.request(count=1,steps=6,sampler="lcm",shift_video=8,shift_audio=3),prepare_only=True)["prompt"]
+        self.assertEqual((explicit[env["SCHED"]]["inputs"]["steps"],explicit[env["SAMPLER"]]["inputs"]["sampler_name"]),(6,"lcm"))
+        self.assertEqual((explicit[env["SHIFT"]]["inputs"]["shift_video"],explicit[env["SHIFT"]]["inputs"]["shift_audio"]),(8.0,3.0))
+        self.env["card_for"]=lambda *args:{"auto":{"h3":True,"fmt":"int8"}}          # 권장값을 모르면 틀 값이 남는다
+        template=json.loads((ROOT/"simple_ui/template_api.json").read_text(encoding="utf-8-sig"))
+        fallback=self.env["build_and_queue"](request,prepare_only=True)["prompt"]
+        self.assertEqual(fallback[env["SCHED"]]["inputs"]["steps"],template[env["SCHED"]]["inputs"]["steps"])
+        self.assertEqual(fallback[env["SHIFT"]]["inputs"]["shift_video"],template[env["SHIFT"]]["inputs"]["shift_video"])
+
     def test_sampler_that_breaks_without_cfg_is_refused_before_anything_is_uploaded(self):
         # *_cfg_pp 는 네거티브 예측이 있어야 하는데 H3 는 CFG 없이 돈다 → 몇 분 뒤 깨진 영상이 나온다
         for name in ("euler_cfg_pp","res_multistep_ancestral_cfg_pp"):

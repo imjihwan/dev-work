@@ -956,6 +956,18 @@ def template_defaults():
             "mode": p[DIRECTOR]["inputs"].get("mode", "REF2VA")}
 
 
+def model_defaults():
+    """새 작업의 기본값: 틀의 기본 모델 + 그 모델의 권장 스텝·샘플러·스케줄러·shift(모델 카드의 effective).
+    틀에 적힌 값(예: shift 10/3)을 그대로 쓰면 일반 화면(모델별 권장값)과 이어 만들기 화면의 기본값이 서로 달라진다."""
+    values = template_defaults()
+    try:
+        recommended = card_for("model", values["model"])["effective"]
+    except (OSError, ValueError, KeyError):
+        return values                       # 모델 파일을 못 읽으면 틀 값 그대로
+    values.update({key: recommended[key] for key in ("steps", "sampler", "scheduler", "shift_video", "shift_audio") if recommended.get(key) is not None})
+    return values
+
+
 # H3 는 CFG 없이(BasicGuider, 조건 하나) 돈다. ComfyUI 의 샘플러·스케줄러 목록은 모든 모델 공용이라 H3 에 맞지 않는 것이 섞여 있다
 # (근거: comfy/samplers.py · comfy/k_diffusion/sampling.py, 2026-11-23 확인).
 def h3_sampler_broken(name):
@@ -982,7 +994,7 @@ def catalog():
            "samplers": [name for name in object_options("KSamplerSelect", "sampler_name") if not h3_sampler_broken(name)],
            "schedulers": object_options("BasicScheduler", "scheduler"),
            "sampling_notes": H3_SAMPLING_NOTES,
-           "presets": _load_json(PRESETS, {}), "default": template_defaults(),
+           "presets": _load_json(PRESETS, {}), "default": model_defaults(),
            "capabilities": {"queue_edit": True, "bulk_edit": True, "bulk_edit_all": True, "photo_sequence": True, "photo_reference_pool": True, "saved_settings": True, "restart_running": True, "priority_queue": True}}
     # 작은 LoRA 는 처음 보면 Civitai 정보를 자동으로 가져온다(큰 본체 모델은 버튼으로)
     for c in out["loras"]:
@@ -1359,19 +1371,25 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
         raise ValueError(f"이 화면에서 쓸 수 없는 모델입니다: {mc['auto'].get('note')}")
     for k in LOADERS:
         p[k]["inputs"]["unet_name"] = model
-    steps = int(req.get("steps") or p[SCHED]["inputs"]["steps"])
+    # 요청에 없는 샘플링 값은 틀 값이 아니라 고른 모델의 권장값으로 채운다. 틀 값은 틀을 뽑을 때의 한 모델(터보) 기준이라,
+    # 다른 모델을 값 없이 요청하면 터보 8스텝·shift 10/3 으로 도는 일이 있었다. 권장값을 모르면 틀 값이 남는다.
+    auto = mc.get("effective") or {}
+    steps = int(req.get("steps") or auto.get("steps") or p[SCHED]["inputs"]["steps"])
     if not 1 <= steps <= 60:
         raise ValueError("스텝은 1~60 사이로 정해 주세요.")
     p[SCHED]["inputs"]["steps"] = steps
-    if req.get("scheduler"):
-        p[SCHED]["inputs"]["scheduler"] = req["scheduler"]
+    if req.get("scheduler") or auto.get("scheduler"):
+        p[SCHED]["inputs"]["scheduler"] = req.get("scheduler") or auto["scheduler"]
     if req.get("sampler"):
         if str(req["sampler"]).endswith("_cfg_pp"):      # h3_sampler_broken 과 같은 규칙(저장된 설정·이력에서 올 수 있다)
             raise ValueError(f"샘플러 {req['sampler']} 는 CFG 가 없는 H3 에서 결과 영상이 깨집니다. euler 같은 다른 샘플러를 골라 주세요.")
         p[SAMPLER]["inputs"]["sampler_name"] = req["sampler"]
+    elif auto.get("sampler"):
+        p[SAMPLER]["inputs"]["sampler_name"] = auto["sampler"]
     for k in ("shift_video", "shift_audio"):
-        if req.get(k) not in (None, ""):
-            p[SHIFT]["inputs"][k] = float(req[k])
+        value = req.get(k) if req.get(k) not in (None, "") else auto.get(k)
+        if value not in (None, ""):
+            p[SHIFT]["inputs"][k] = float(value)
     # 스케줄러가 shift 노드 뒤 모델을 받아야 Shift Video 가 영상 sigma 스케줄에 반영된다
     # (shift 앞 모델이면 H3 기본값 12 로 고정되고 화면 값은 오디오 환산에만 쓰여 어긋난다).
     p[SCHED]["inputs"]["model"] = [SHIFT, 0]
