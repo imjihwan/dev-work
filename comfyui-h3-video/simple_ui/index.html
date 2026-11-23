@@ -1018,14 +1018,15 @@ function etaSeconds({pixels, seconds, steps, speed, photos, upscale, refArea}){
   let sampling = steps * dense;
   // 희소 어텐션은 토큰이 적은 짧고 작은 영상에서는 스스로 원래 계산을 쓴다(min_tokens)
   if ((speed === "sparse" || speed === "sparse_cache") && tokens * ETA.tokens >= ETA.sparseMin) {
-    const sparse = ETA.sparse * tokens ** ETA.sparsePower * refs, whole = Math.min(steps, Math.ceil(steps * 0.2));
+    // 참조 사진의 몫은 희소 스텝에서도 거의 그대로 든다(5초 실측: 사진 1장 11.16초, 얼굴 크롭 8장 512 제한 14.86초, 그대로 21.89초 — 한 장에 약 1.3초, 희소 스텝의 11.8%)
+    const sparse = ETA.sparse * tokens ** ETA.sparsePower * (1 + 0.118 * extra * 37 / latent), whole = Math.min(steps, Math.ceil(steps * 0.2));
     sampling = speed === "sparse_cache"
       ? dense + Math.max(0, steps - 1 - Math.round(steps * 0.25)) * sparse * 1.06
       : whole * dense + (steps - whole + (steps > whole ? 0.2 : 0)) * sparse;      // 넘어가는 한 스텝은 조금 더 걸린다
   }
   // 업스케일 화질: 키우는 단계(화소·길이에 비례)가 더 들고, 디코드는 키운 화소만큼 든다
   const grow = Number(upscale) > 1 ? Number(upscale) : 1;
-  return ETA.fixed + 7 * extra + sampling +(grow > 1 ? ETA.upscale * area * frames / 124 : 0) + ETA.decode * area * grow * grow * frames / 124;
+  return ETA.fixed + 7 * extra + sampling + (grow > 1 ? ETA.upscale * area * frames / 124 : 0) + ETA.decode * area * grow * grow * frames / 124;
 }
 function etaScale(items){
   // 이 PC 에서 실제로 걸린 시간으로 맞춘다: GPU·LoRA·사진 수·함께 켜 둔 프로그램에 따라 모델과 달라진다.

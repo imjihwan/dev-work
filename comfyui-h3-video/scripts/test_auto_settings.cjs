@@ -195,6 +195,10 @@ near(context.etaScale([row(1.3, {mode:'REF2VA', images:['a', 'b', 'c']}), row(1.
 const cropArea = side => 8 * side * side / (768 * 960);
 near(eta({photos:9, refArea:cropArea(640)}), 250.9, 0.03, 'nine photos, eight face crops capped at 640');
 near(eta({photos:9, refArea:cropArea(512)}), 222.5, 0.03, 'nine photos, eight face crops capped at 512');
+// With sparse attention the photos cost almost as much per step as without (measured sparse step: 11.16 s with one photo, 14.86 s and 21.89 s with eight crops capped at 512 and uncapped).
+near(eta({photos:9, speed:'sparse'}), 275.7, 0.03, 'nine photos with sparse attention');
+near(eta({photos:9, refArea:cropArea(512), speed:'sparse'}), 180.3, 0.03, 'nine photos, crops capped at 512, sparse attention');
+assert(eta({photos:9, speed:'sparse'}) / eta({photos:9}) > eta({speed:'sparse'}) / eta({}), 'sparse attention saves a smaller share when there are many reference photos');
 assert.equal(eta({photos:9, refArea:8}), eta({photos:9}), 'eight full-size photos are the count');
 assert.equal(eta({photos:9, refArea:99}), eta({photos:9}), 'a photo never weighs more than one');
 assert.equal(eta({photos:9, refArea:0}), eta({}), 'tiny supplementary photos cost next to nothing');
