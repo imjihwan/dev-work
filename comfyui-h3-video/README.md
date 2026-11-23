@@ -47,6 +47,8 @@ powershell -ExecutionPolicy Bypass -File Start-H3-Video.ps1 -NoBrowser
 
 PC 화면은 `http://127.0.0.1:8190/`이다. 다른 기기는 같은 네트워크에서 `http://<PC의 LAN IPv4 주소>:8190/`으로 접속한다. 필요한 경우 Windows 방화벽에서 TCP 8190을 집 네트워크 범위에 허용한다. ComfyUI 8188은 PC 내부용으로 유지한다. 현재 UI에는 별도 로그인 기능이 없으므로 인터넷 포트 포워딩 대상으로 사용하지 않는다.
 
+다른 웹 사이트가 브라우저를 통해 이 서버로 보내는 변경 요청(POST)은 거절한다(요청의 `Origin` 이 화면을 연 주소와 다르면 403). 주소를 바꿔 전달하는 프록시 뒤에 둘 때만 화면 주소를 환경 변수 `SIMPLEUI_TRUSTED_ORIGINS`(쉼표 구분, 예: `https://video.example.test`)에 적는다. 한 요청의 본문 한도는 `SIMPLEUI_MAX_BODY_MB`(기본 1024)다. 조회에는 여전히 로그인이 없으므로 신뢰하는 네트워크에서만 연다.
+
 ## 업데이트와 검증
 
 수정 소스는 `simple_ui/`, 실제 실행 복사본은 `ComfyUI/simple_ui/`에 있다. 코드만 업데이트하며 이력·저장 설정·프로젝트 폴더를 덮어쓰지 않는다. 화면 파일만 바뀌었으면 새로고침으로 반영된다. Python 서버 변경은 UI 서버 재시작이 필요하며, 실행 중인 ComfyUI를 함께 재시작하지 않는다.

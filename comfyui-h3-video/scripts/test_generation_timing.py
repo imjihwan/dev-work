@@ -100,5 +100,17 @@ class TimingTests(unittest.TestCase):
         self.assertEqual(self.env['hist_list'](0,20,'missing'),{'items':[],'total':0})
         self.assertEqual(self.env['hist_list'](0,20)['total'],2)
 
+    def test_history_page_that_observes_completion_carries_end_time_and_duration(self):
+        entry=self.entry(end=85123)
+        def comfy(path,*args,**kwargs):
+            if path=='/queue':return io.BytesIO(json.dumps({'queue_running':[],'queue_pending':[]}).encode())
+            return io.BytesIO(json.dumps({'synthetic':entry}).encode())
+        self.env['comfy']=comfy
+        item=self.env['hist_list'](0,20)['items'][0]
+        self.assertEqual(item['state'],'done');self.assertEqual(item['generation_seconds'],85.123);self.assertIn('t_end',item)
+        # The page is a copy: later edits to the live entry cannot alter an answer already built.
+        self.row['state']='changed-later';self.assertEqual(item['state'],'done')
+        self.assertEqual(len(self.env['hist_list'](-5,0)['items']),1)
+
 
 if __name__=='__main__':unittest.main()

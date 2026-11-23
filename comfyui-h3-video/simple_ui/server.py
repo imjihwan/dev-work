@@ -180,6 +180,42 @@ def comfy(path, data=None, headers=None, timeout=60):
     return urllib.request.urlopen(req, timeout=timeout)
 
 
+def comfy_rejection(exc):
+    """ComfyUI 가 HTTP 오류로 답한 이유를 한 줄로 만든다.
+
+    ComfyUI 는 켜져 있는데 요청을 받아 주지 않은 경우(검증 실패 400 등)다. 연결 실패(URLError)와 달리
+    '연결할 수 없습니다'로 알리면 사용자가 엉뚱하게 ComfyUI 실행 여부를 살피게 되므로, 응답 본문의 사유를 보여 준다.
+    """
+    def clip(value, limit=220):
+        text = " ".join(str(value or "").split())
+        return text if len(text) <= limit else text[:limit - 1] + "…"
+    parts = []
+    try:
+        data = json.loads(exc.read(200000) or b"{}")
+        error = data.get("error") if isinstance(data, dict) else None
+        if isinstance(error, dict):
+            parts.append(": ".join(text for text in (clip(error.get("message")), clip(error.get("details"))) if text))
+        elif isinstance(error, str):
+            parts.append(clip(error))
+        node_errors = data.get("node_errors") if isinstance(data, dict) else None
+        for node_id, info in list(node_errors.items())[:3] if isinstance(node_errors, dict) else []:
+            errors = info.get("errors") if isinstance(info, dict) else None
+            for item in [x for x in errors if isinstance(x, dict)][:2] if isinstance(errors, list) else []:
+                reason = ": ".join(text for text in (clip(item.get("message")), clip(item.get("details"))) if text)
+                if reason:
+                    parts.append(f"{clip(info.get('class_type') or node_id, 60)} — {reason}")
+    except Exception:  # noqa: BLE001 — 본문이 없거나 예상한 모양이 아니면 상태 코드만 알린다
+        parts = []
+    finally:
+        try:
+            exc.close()
+        except Exception:  # noqa: BLE001
+            pass
+    detail = " / ".join(part for part in parts if part)
+    code = getattr(exc, "code", "?")
+    return clip(f"ComfyUI 가 요청을 받지 않았습니다(HTTP {code})" + (f": {detail}" if detail else ". ComfyUI 창의 기록을 확인해 주세요."), 1200)
+
+
 def queue_pause(body=None):
     """Proxy only the queue gate's booleans/counts; never fetch queued graphs."""
     if body is not None and (not isinstance(body,dict) or set(body)!={'paused'} or type(body['paused']) is not bool):
@@ -224,19 +260,77 @@ CLOCK = threading.RLock()
 DIRS = {"model": ("diffusion_models", "unet"), "lora": ("loras",)}
 
 
-def _load_json(path, default):
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
+def _load_json(path, default, strict=False, owned=False):
+    """상태 파일을 읽는다. 파일이 없으면 default.
+
+    파일이 '있는데 못 읽은' 경우(잠깐 잠김·내용 깨짐)를 없음으로 취급하면 다음 저장이 사용자의 이력·저장 설정을
+    통째로 덮어쓴다. 쓰임에 따라 셋으로 나눈다. 잠깐 잠긴 파일(Windows 백신·동기화 도구)은 어느 쪽이든 몇 번 다시 읽는다.
+    - 읽기만 하는 곳(기본): 못 읽으면 default. 파일은 건드리지 않는다.
+    - strict: 읽고-고쳐-쓰는 곳. 못 읽으면 ValueError — 기존 파일을 덮어쓰지 않고 실패를 알린다.
+    - owned: 한 번 읽어 메모리에 두고 계속 다시 쓰는 저장소(이력·카드·화면 상태). 잠긴 파일은 ValueError,
+      깨진 파일은 '<이름>.corrupt-<시각>.bak' 으로 옮겨 보관한 뒤 default 로 시작한다.
+      파일을 옮기므로 부르는 쪽이 겹치지 않게 해야 한다(서버를 켤 때, 또는 그 저장소의 잠금 안에서).
+    최상위 형식이 default 와 다르면(목록 자리에 객체 등) 깨진 것으로 본다.
+    """
+    import time
+    name, problem = os.path.basename(path), None
+    for attempt in range(4):
+        try:
+            # 메모장 등으로 고쳐 BOM 이 붙은 파일도 읽는다
+            with open(path, encoding="utf-8-sig") as f:
+                data = json.load(f)
+            if default is not None and not isinstance(data, type(default)):
+                raise ValueError("unexpected top-level type")
+            return data
+        except FileNotFoundError:
+            return default
+        except (ValueError, RecursionError) as exc:      # JSON·인코딩이 깨짐(지나치게 깊은 중첩 포함): 다시 읽어도 같다
+            problem = ValueError(str(exc))
+            break
+        except OSError as exc:
+            problem = exc
+            time.sleep(0.05 * (attempt + 1))
+    if owned and isinstance(problem, ValueError):
+        backup = f"{path}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}-{time.time_ns() % 10**9:09d}.bak"
+        try:
+            os.rename(path, backup)
+        except OSError:
+            raise ValueError(f"{name} 내용이 깨져 있고 보관용 사본도 만들지 못했습니다. 파일을 확인해 주세요.") from problem
+        print(f"{name} 내용이 깨져 있어 {os.path.basename(backup)} 으로 보관하고 빈 상태로 시작합니다.", flush=True)
         return default
+    if strict or owned:
+        raise ValueError(f"{name} 을(를) 읽지 못했습니다. 기존 내용을 지키려고 중단했으니 잠시 뒤 다시 시도해 주세요.") from problem
+    return default
 
 
 def _save_json(path, obj):
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, path)
+    """임시 파일에 디스크까지 다 쓴 뒤 바꿔치기한다(중간에 꺼져도 예전 파일이나 새 파일 중 하나는 온전하다).
+
+    Windows 에서는 백신·동기화 도구나 읽는 중인 다른 스레드·점검 스크립트가 대상 파일을 잠깐 잡고 있으면
+    바꿔치기가 PermissionError 로 실패한다. 이미 대기열에 넣은 작업의 이력을 잃지 않도록 잠깐 다시 시도한다.
+    임시 파일 이름은 프로세스·스레드마다 달라, 겹친 저장이 서로의 내용을 내보내지 않는다.
+    """
+    import threading
+    import time
+    tmp = f"{path}.{os.getpid()}-{threading.get_ident()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False, indent=1)
+            f.flush()
+            os.fsync(f.fileno())
+        for attempt in range(8):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:
+                if attempt == 7:
+                    raise
+                time.sleep(0.02 * (attempt + 1))
+    finally:
+        try:
+            os.remove(tmp)   # 바꿔치기에 성공했으면 이미 없다
+        except OSError:
+            pass
 
 
 SETTINGS = os.path.join(HERE, "saved-settings.json")
@@ -253,7 +347,7 @@ _ui_state = None
 def _ui_state_data():
     global _ui_state
     if _ui_state is None:
-        data = _load_json(UI_STATE, {})
+        data = _load_json(UI_STATE, {}, owned=True)
         _ui_state = data if isinstance(data, dict) else {}
     return _ui_state
 
@@ -301,7 +395,7 @@ def save_settings(name, data):
     if not isinstance(photos, list) or any(not isinstance(photo, str) or not re.fullmatch(r"data:image/[\w.+-]+;base64,[A-Za-z0-9+/=\r\n]*", photo) for photo in photos):
         raise ValueError("저장할 사진 형식이 올바르지 않습니다.")
     with SETTINGS_LOCK:
-        settings = _load_json(SETTINGS, {})
+        settings = _load_json(SETTINGS, {}, strict=True)
         settings[name] = {"data": data, "saved_at": time.time()}
         _save_json(SETTINGS, settings)
     return {"ok": True, "name": name}
@@ -313,7 +407,7 @@ def rename_settings(name, new_name):
     if not new_name or len(new_name) > 60:
         raise ValueError('새 설정 이름은 1~60자로 입력해 주세요.')
     with SETTINGS_LOCK:
-        settings = _load_json(SETTINGS, {})
+        settings = _load_json(SETTINGS, {}, strict=True)
         if name not in settings:
             raise ValueError('저장된 설정을 찾지 못했습니다.')
         if name != new_name:
@@ -327,12 +421,34 @@ def rename_settings(name, new_name):
 def delete_settings(name):
     name = str(name or '').strip()
     with SETTINGS_LOCK:
-        settings = _load_json(SETTINGS, {})
+        settings = _load_json(SETTINGS, {}, strict=True)
         if name not in settings:
             raise ValueError('저장된 설정을 찾지 못했습니다.')
         del settings[name]
         _save_json(SETTINGS, settings)
     return {'ok': True, 'name': name}
+
+
+PRESET_LOCK = threading.Lock()
+
+
+def save_preset(name, data):
+    name = str(name or "").strip()[:60]
+    if not name:
+        raise ValueError("조합 이름을 적어 주세요.")
+    with PRESET_LOCK:
+        presets = _load_json(PRESETS, {}, strict=True)
+        presets[name] = data or {}
+        _save_json(PRESETS, presets)
+        return presets
+
+
+def delete_preset(name):
+    with PRESET_LOCK:
+        presets = _load_json(PRESETS, {}, strict=True)
+        presets.pop(name, None)
+        _save_json(PRESETS, presets)
+        return presets
 
 
 def _seed(path):
@@ -367,7 +483,10 @@ def applied_shift(entry):
 
 
 def _migrate_legacy_presets():
-    presets = _load_json(PRESETS, {})
+    try:
+        presets = _load_json(PRESETS, {}, strict=True)
+    except ValueError:
+        return   # 못 읽는 파일은 그대로 둔다(조합 저장 때 사유를 알린다)
     if isinstance(presets, dict) and [name for name, preset in presets.items() if drop_legacy_shift(preset)]:
         _save_json(PRESETS, presets)
 
@@ -377,7 +496,7 @@ _migrate_legacy_presets()
 # ---------- 작업 이력: 생성할 때의 설정·프롬프트·사진 ↔ 결과 영상 (history.json, 이 PC 에만) ----------
 HIST = os.path.join(HERE, "history.json")
 HLOCK = threading.Lock()
-HIST_DB = _load_json(HIST, [])         # 오래된 것 → 최근 순
+HIST_DB = _load_json(HIST, [], owned=True)         # 오래된 것 → 최근 순
 try:
     GALLERY.remember(HIST_DB)  # Persist links without decoding photos or result videos.
 except OSError:
@@ -460,7 +579,7 @@ def hist_result(pid, st):
             GALLERY.remember([changed])
         except OSError:
             pass  # A later gallery refresh can retry saving the association.
-CARD_DB = _load_json(CARDS, {"model": {}, "lora": {}})
+CARD_DB = _load_json(CARDS, {"model": {}, "lora": {}}, owned=True)
 CARD_DB.setdefault("model", {})
 CARD_DB.setdefault("lora", {})
 if [name for name, card in CARD_DB["model"].items() if drop_legacy_shift(card.get("user"))]:
@@ -1065,6 +1184,27 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
     duration = float(req.get("duration") or 5)
     if not 1 <= duration <= 15:
         raise ValueError("길이는 1~15초 사이로 정해 주세요(H3 최대 15초).")
+    # 반복: 같은 구성으로 시드만 바꿔 count 개를 대기열에 넣는다.
+    # 시드를 적었으면 그 값부터 1씩 늘리고(재현 가능), 비웠으면 매번 랜덤.
+    # 사진을 올리기 전에 확인한다(잘못된 값 때문에 쓰지 않을 사진이 input 폴더에 남지 않게).
+    try:
+        count = len(imgs) if sequence else int(req.get("count") or 1)
+    except (TypeError, ValueError, OverflowError):
+        count = 0
+    if not 1 <= count <= 20:
+        raise ValueError("반복 횟수는 1~20 사이로 정해 주세요.")
+    seed = str(req.get("seed") or "").strip()
+    if seed:
+        try:
+            first_seed = int(seed)
+        except ValueError:
+            raise ValueError("시드는 숫자로 적어 주세요(비우면 랜덤).") from None
+        # 0 은 SeedControl 이 스스로 랜덤을 뽑는 값이라 이력에 적힌 시드로 재현되지 않는다. 범위는 노드의 64비트 한도.
+        if first_seed < 1 or first_seed + count - 1 > 2**64 - 1:
+            raise ValueError("시드는 1 이상의 정수로 적어 주세요(비우면 랜덤).")
+        seeds = [first_seed + i for i in range(count)]
+    else:
+        seeds = [random.randint(1, 2**53) for _ in range(count)]
 
     def read_template():
         with open(TEMPLATE, encoding="utf-8-sig") as handle:
@@ -1206,13 +1346,6 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
 
     d.update(mode=mode, width=w, height=h, duration=duration)
     set_prompt(text.replace(FACE_SIDE_TOKEN, (face_side_for(0) or {}).get("used", "right")))
-    # 반복: 같은 구성으로 시드만 바꿔 count 개를 대기열에 넣는다.
-    # 시드를 적었으면 그 값부터 1씩 늘리고(재현 가능), 비웠으면 매번 랜덤.
-    count = len(imgs) if sequence else int(req.get("count") or 1)
-    if not 1 <= count <= 20:
-        raise ValueError("반복 횟수는 1~20 사이로 정해 주세요.")
-    seed = str(req.get("seed") or "").strip()
-    seeds = [int(seed) + i for i in range(count)] if seed else [random.randint(1, 2**53) for _ in range(count)]
     anchor = bool(req.get("anchor")) and mode == "REF2VA"
     if anchor:
         add_anchor(p, names[0])
@@ -1281,8 +1414,12 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
     except Exception as exc:
         # 여러 편 등록 중 실패: 이미 ComfyUI 에 들어간 작업은 이력에 남겨 추적·중지·결과 연결이 되게 한다
         if jobs and not edit_id:
-            hist_add(make_entries(jobs))
-            raise ValueError(f"{len(jobs)}개는 대기열에 등록했고 그다음 등록에서 실패했습니다: {exc}") from exc
+            try:
+                hist_add(make_entries(jobs))
+            except OSError:
+                print("이력 파일 저장 실패: 등록된 작업은 메모리의 이력에 남아 다음 저장 때 기록됩니다.", flush=True)
+            reason = comfy_rejection(exc) if isinstance(exc, urllib.error.HTTPError) else exc
+            raise ValueError(f"{len(jobs)}개는 대기열에 등록했고 그다음 등록에서 실패했습니다: {reason}") from exc
         raise
     now = time.time()
     entries = make_entries(jobs)
@@ -1297,9 +1434,18 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
                 entry.update(entries[0])
             entry["edited_at"] = now
             entry.pop("t_end", None)
-            _save_json(HIST, HIST_DB)
+            try:
+                _save_json(HIST, HIST_DB)
+            except OSError:
+                # 수정은 이미 ComfyUI 대기열에 반영됐다. 바뀐 항목은 메모리의 이력에 있어 다음 저장 때 기록된다.
+                print("이력 파일 저장 실패: 수정한 작업은 메모리의 이력에 남아 다음 저장 때 기록됩니다.", flush=True)
     else:
-        hist_add(entries)
+        try:
+            hist_add(entries)
+        except OSError:
+            # 작업은 이미 ComfyUI 대기열에 있다. 여기서 실패로 답하면 화면이 등록 실패로 보고 다시 넣어 같은 작업이 두 번 생긴다.
+            # 항목은 메모리의 이력에 들어가 있어 다음 저장 때 함께 기록된다.
+            print("이력 파일 저장 실패: 등록된 작업은 메모리의 이력에 남아 다음 저장 때 기록됩니다.", flush=True)
     return {"jobs": jobs, "id": jobs[0]["id"], "seed": jobs[0]["seed"], "width": jobs[0]["width"], "height": jobs[0]["height"],
             "model": os.path.basename(model.replace("\\", "/")), "steps": steps, "loras": len(loras), "mode": mode,
             "anchor": anchor, "face_crops": dict({"cropped": face_cropped, "original": (len(imgs) if sequence else len(imgs) - 1) - face_cropped},
@@ -1520,10 +1666,12 @@ def _status(pid, q=None):
 
 def hist_list(offset, limit, identity=None):
     """최근 순. 아직 결과가 없는 항목은 지금 상태를 물어 채운다(ComfyUI 가 잊은 작업은 '결과 없음')."""
+    offset, limit = max(0, offset), max(1, limit)
     with HLOCK:
         if identity is not None and (not isinstance(identity,str) or not identity or len(identity)>100):raise ValueError("작업 ID를 확인해 주세요.")
         items = [entry for entry in reversed(HIST_DB) if identity is None or entry["id"]==identity]
-    page = items[offset:offset + limit]
+        # 이 페이지만 복사해 둔다: 응답을 만드는 동안 다른 요청이 같은 항목을 고쳐도(상태·수정) 직렬화가 깨지지 않게
+        page = json.loads(json.dumps(items[offset:offset + limit]))
     q = None  # 페이지마다 대기열은 한 번만 받는다(대기 수백 건이면 항목마다 받던 것이 수백 번이 됐다)
     for i, e in enumerate(page):
         if e.get("state") in ("queued", "running"):
@@ -1536,6 +1684,10 @@ def hist_list(offset, limit, identity=None):
             if st["state"] == "unknown":
                 st = {"state": "lost", "error": "결과 없음(ComfyUI 재시작 등으로 중단)"}
             hist_result(e["id"], st)
+            with HLOCK:
+                # 방금 적힌 결과(끝난 시각·생성 시간)까지 담도록 최신 항목을 다시 복사한다
+                live = next((entry for entry in HIST_DB if entry["id"] == e["id"]), None)
+                e = json.loads(json.dumps(live)) if live is not None else e
             page[i] = dict(e, **{k: v for k, v in st.items() if k in ("state", "video", "error", "pct", "position")})
     return {"items": page, "total": len(items)}
 
@@ -1839,10 +1991,167 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
-    def do_GET(self):
-        u = urllib.parse.urlparse(self.path)
-        q = dict(urllib.parse.parse_qsl(u.query))
+    def parse_request(self):
+        """요청 줄·헤더를 읽은 직후, 본문을 읽기 전에 받지 않을 POST 를 거른다."""
+        if not super().parse_request():
+            return False
+        self._headers_flushed = False   # 위에서 '100 Continue' 를 보냈더라도 그것은 최종 응답이 아니다
+        if self.command == "POST":
+            rejected = self._post_rejection()
+            if rejected:
+                self._reject(*rejected)
+                return False
+        return True
+
+    def end_headers(self):
+        self._headers_flushed = True
+        super().end_headers()
+
+    def _reject(self, code, reason, discard):
+        """본문을 읽지 않고 거절한다. 이 연결은 다시 쓰지 않는다(남은 본문이 다음 요청으로 읽히지 않게)."""
+        import time
+        body = json.dumps({"error": reason}, ensure_ascii=False).encode()
         try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(body)
+            # 읽지 않은 본문을 남긴 채 닫으면 받는 쪽에서 안내 응답보다 연결 초기화가 먼저 보일 수 있다.
+            # 작은 본문만, 정해진 시간 안에서만 읽어 버린다.
+            deadline = time.monotonic() + 2
+            while discard > 0 and time.monotonic() < deadline:
+                self.connection.settimeout(max(0.05, min(0.5, deadline - time.monotonic())))
+                chunk = self.rfile.read1(min(discard, 65536))
+                if not chunk:
+                    break
+                discard -= len(chunk)
+        except OSError:
+            pass   # 받을 쪽이 이미 떠났거나 더 보내지 않는다
+        self.close_connection = True
+
+    def _post_rejection(self):
+        """받지 않을 POST 면 (상태 코드, 안내문, 읽어서 버릴 본문 바이트 수), 받아도 되면 None."""
+        lengths = [value.strip(" \t") for value in self.headers.get_all("Content-Length") or []]
+        # 본문 경계가 모호한 요청(조각 전송, 길이 두 개, 숫자가 아닌 길이)은 남은 바이트가 다음 요청으로 읽힐 수 있어 받지 않는다.
+        # 길이는 ASCII 숫자 18자리까지만 받는다(그 이상은 어차피 한도를 넘고, 끝없는 자릿수는 변환하지 않는다).
+        if (self.headers.get("Transfer-Encoding") is not None or len(lengths) > 1
+                or (lengths and not (lengths[0].isascii() and lengths[0].isdigit() and len(lengths[0]) <= 18))):
+            return 400, "요청 길이를 확인하지 못했습니다.", 0
+        length = int(lengths[0]) if lengths else 0
+        origin = self.headers.get("Origin")
+        site = self.headers.get("Sec-Fetch-Site")
+        # 로그인이 없는 서버라, 브라우저로 연 다른 웹 페이지가 이 주소로 몰래 POST(이력 삭제·작업 중지 등)를 보내는 것을 막는다.
+        # Origin 이 없는 요청(스크립트·서버 내부 호출)은 받되, 브라우저가 같은 사이트 요청이 아니라고 표시한 것은 받지 않는다.
+        if (origin is not None and not self._same_origin(origin)) or (
+                origin is None and site is not None and site.strip(" \t").lower() not in ("same-origin", "none")):
+            return (403, "다른 사이트에서 보낸 요청은 처리하지 않습니다. 이 화면을 연 주소 그대로 사용해 주세요(프록시를 쓰면 SIMPLEUI_TRUSTED_ORIGINS 에 화면 주소를 적습니다).",
+                    length if length <= 1024 * 1024 else 0)
+        try:
+            limit = max(1, int(os.environ.get("SIMPLEUI_MAX_BODY_MB") or 1024))
+        except ValueError:
+            limit = 1024
+        if length > limit * 1024 * 1024:
+            return 413, f"요청이 너무 큽니다(최대 {limit}MB). 사진 수나 크기를 줄여 주세요.", 0
+        return None
+
+    def _same_origin(self, origin):
+        """브라우저가 붙인 Origin 이 이 요청이 도착한 주소(Host)와 호스트·포트까지 같은지.
+
+        Host 에 포트가 없으면 Origin 의 스킴 기본 포트로 온 것으로 본다(브라우저는 기본 포트일 때만 포트를 뺀다).
+        X-Forwarded-Host 는 주소를 바꿔 전달하는 프록시용이다. 다른 사이트의 페이지는 이 헤더를 붙여 보낼 수 없다
+        (붙이면 브라우저가 사전 확인 요청을 보내고, 이 서버는 그 요청을 허용하지 않는다).
+        """
+        defaults = {"http": 80, "https": 443}
+        trusted = {value.strip().lower().rstrip("/") for value in (os.environ.get("SIMPLEUI_TRUSTED_ORIGINS") or "").split(",") if value.strip()}
+        if "*" in trusted or origin.strip().lower().rstrip("/") in trusted:
+            return True
+        try:
+            page = urllib.parse.urlsplit(origin.strip())
+            if page.scheme not in defaults or not page.hostname:
+                return False   # "null"(파일·샌드박스 문서) 등
+            default = defaults[page.scheme]
+            wanted = (page.hostname.rstrip("."), default if page.port is None else page.port)
+            for host in [self.headers.get("Host")] + (self.headers.get("X-Forwarded-Host") or "").split(","):
+                if not host or not host.strip():
+                    continue
+                arrived = urllib.parse.urlsplit(f"{page.scheme}://{host.strip()}")
+                if ((arrived.hostname or "").rstrip("."), default if arrived.port is None else arrived.port) == wanted:
+                    return True
+        except ValueError:
+            pass   # 형식이 잘못된 주소·포트
+        return False
+
+    @staticmethod
+    def _attachment(name):
+        """내려받기 이름. 헤더를 깨는 글자(줄바꿈·따옴표)를 빼고, 한글 이름은 RFC 5987 형식으로 함께 싣는다."""
+        name = str(name or "").replace("\\", "/").rsplit("/", 1)[-1]
+        name = "".join(ch for ch in name if ch >= " " and ch not in '"\x7f').strip() or "video.mp4"
+        plain = name.encode("ascii", "replace").decode().replace("?", "_")
+        return f"attachment; filename=\"{plain}\"; filename*=UTF-8''{urllib.parse.quote(name, safe='')}"
+
+    @staticmethod
+    def _error_text(error):
+        """화면에 보일 오류 문구. 서버의 전체 경로(사용자 폴더 이름 포함)는 파일 이름만 남긴다."""
+        import re
+        if isinstance(error, str):
+            text = error
+        elif isinstance(error, OSError) and getattr(error, "filename", None):
+            text = f"{error.strerror or type(error).__name__}: {os.path.basename(str(error.filename))}"
+        elif isinstance(error, KeyError):
+            text = f"필요한 값이 없습니다: {error.args[0] if error.args else ''}"
+        else:
+            text = str(error) or type(error).__name__
+        # 문구에 섞인 경로에서는 이 서버가 아는 폴더(ComfyUI 폴더, 사용자 홈)의 앞부분만 지운다.
+        # 경로처럼 보이는 글을 추측해 고치지 않으므로 다른 문구·주소는 바뀌지 않는다.
+        roots = {os.path.dirname(os.path.abspath(str(globals().get("HERE") or "."))), os.path.expanduser("~")}
+        for root in sorted((root for root in roots if len(root) > 3), key=len, reverse=True):
+            # 구분자는 \ 와 / 가 섞이거나 겹쳐 적혀도(repr) 같은 폴더로 본다. 이름이 이어지는 이웃 폴더(ComfyUI-backup)는 건드리지 않는다.
+            names = [re.escape(name) for name in re.split(r"[\\/]+", root) if name]
+            pattern = (r"[\\/]+" if root[:1] in "\\/" else r"(?<![A-Za-z0-9])") + r"[\\/]+".join(names) + r"(?:[\\/]+|(?=$|[\s'\"<>|,;)\]]))"
+            text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+        return text.encode("utf-8", "replace").decode("utf-8")   # 짝 없는 대리 문자로 응답 인코딩이 깨지지 않게
+
+    def _fail(self, error, code):
+        """오류 응답. 이미 응답을 내보내기 시작했다면 두 번째 응답을 섞지 않고 연결을 닫아 끊겼음을 알린다."""
+        if getattr(self, "_headers_flushed", False):
+            self.close_connection = True
+            return
+        self._headers_buffer = []   # send_response 뒤 end_headers 전에 실패한 경우의 반쯤 쌓인 헤더를 버린다
+        try:
+            self._json({"error": self._error_text(error)}, code)
+        except OSError:
+            self.close_connection = True   # 받을 쪽이 이미 떠남
+
+    def _relay(self, response, disposition=None):
+        """ComfyUI /view 응답(영상)을 그대로 전달한다. Range 응답의 상태·헤더를 유지한다.
+
+        길이를 모르거나 알린 길이만큼 오지 않았으면 연결을 닫는다. 열어 둔 연결에서 덜 온 본문 뒤에
+        다음 응답이 이어지면 받는 쪽이 영상의 끝과 끊김을 구분하지 못한다.
+        """
+        with response:
+            length = (response.headers.get("Content-Length") or "").strip()
+            self.send_response(response.status)
+            for key in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
+                if response.headers.get(key):
+                    self.send_header(key, response.headers[key])
+            if disposition:
+                self.send_header("Content-Disposition", disposition)
+            if not length.isdigit():
+                self.send_header("Connection", "close")
+            self.end_headers()
+            sent = 0
+            while chunk := response.read(1 << 16):
+                self.wfile.write(chunk)
+                sent += len(chunk)
+            if not length.isdigit() or sent != int(length):
+                self.close_connection = True
+
+    def do_GET(self):
+        try:
+            u = urllib.parse.urlparse(self.path)
+            q = dict(urllib.parse.parse_qsl(u.query))
             if u.path in ("/","/story","/gallery"):
                 source=INDEX if u.path=="/" else os.path.join(HERE,"story.html" if u.path=="/story" else "gallery.html")
                 with open(source,"rb") as page: b=page.read()
@@ -1914,13 +2223,7 @@ class H(BaseHTTPRequestHandler):
                 headers={"Range":self.headers["Range"]} if self.headers.get("Range") else {}
                 try: response=comfy("/view?"+query,None,headers)
                 except urllib.error.HTTPError as error: response=error
-                with response:
-                    self.send_response(response.status)
-                    for key in ("Content-Type","Content-Length","Content-Range","Accept-Ranges"):
-                        if response.headers.get(key): self.send_header(key,response.headers[key])
-                    if q.get("download"): self.send_header("Content-Disposition","attachment; filename=story-video.mp4")
-                    self.end_headers()
-                    while chunk:=response.read(65536): self.wfile.write(chunk)
+                self._relay(response,"attachment; filename=story-video.mp4" if q.get("download") else None)
             elif u.path == "/api/ui-state":
                 have = {}
                 for part in UI_STATE_PARTS:
@@ -1959,7 +2262,7 @@ class H(BaseHTTPRequestHandler):
             elif u.path == "/api/catalog":
                 self._json(catalog())
             elif u.path == "/api/fetch-state":
-                self._json({f"{k}|{n}": v for (k, n), v in FETCH.items()})
+                self._json({f"{k}|{n}": v for (k, n), v in list(FETCH.items())})   # 조회 중 작업 스레드가 항목을 더해도 안전하게
             elif u.path == "/api/video":
                 qs = urllib.parse.urlencode({k: q.get(k, "") for k in ("filename", "subfolder", "type")})
                 hdr = {"Range": self.headers["Range"]} if self.headers.get("Range") else {}
@@ -1967,23 +2270,20 @@ class H(BaseHTTPRequestHandler):
                     r = comfy("/view?" + qs, None, hdr)
                 except urllib.error.HTTPError as e:
                     r = e
-                self.send_response(r.status)
-                for k in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
-                    if r.headers.get(k):
-                        self.send_header(k, r.headers[k])
-                if q.get("download"):
-                    self.send_header("Content-Disposition", f'attachment; filename="{q.get("filename")}"')
-                self.end_headers()
-                while chunk := r.read(1 << 16):
-                    self.wfile.write(chunk)
+                self._relay(r, self._attachment(q.get("filename")) if q.get("download") else None)
             else:
                 self._json({"error": "not found"}, 404)
         except (ConnectionError, BrokenPipeError):
-            pass
+            # 받는 쪽이 떠났거나 ComfyUI 가 보내다 끊겼다. 반쯤 보낸 응답 뒤에 다음 응답이 이어지지 않게 연결을 닫는다.
+            self.close_connection = True
+        except urllib.error.HTTPError as e:
+            self._fail(comfy_rejection(e), 502)
         except urllib.error.URLError as e:
-            self._json({"error": f"ComfyUI(8188)에 연결할 수 없습니다: {e}"}, 502)
+            self._fail(f"ComfyUI(8188)에 연결할 수 없습니다: {e.reason}", 502)
+        except ValueError as e:
+            self._fail(e, 400)
         except Exception as e:  # noqa: BLE001
-            self._json({"error": str(e)}, 500)
+            self._fail(e, 500)
 
     def do_POST(self):
         try:
@@ -2069,18 +2369,9 @@ class H(BaseHTTPRequestHandler):
                     _save_json(CARDS, CARD_DB)
                 self._json(card_for(kind, name))
             elif self.path == "/api/preset/save":
-                name = (body.get("name") or "").strip()[:60]
-                if not name:
-                    raise ValueError("조합 이름을 적어 주세요.")
-                ps = _load_json(PRESETS, {})
-                ps[name] = body.get("data") or {}
-                _save_json(PRESETS, ps)
-                self._json(ps)
+                self._json(save_preset(body.get("name"), body.get("data")))
             elif self.path == "/api/preset/delete":
-                ps = _load_json(PRESETS, {})
-                ps.pop(body.get("name"), None)
-                _save_json(PRESETS, ps)
-                self._json(ps)
+                self._json(delete_preset(body.get("name")))
             elif self.path == "/api/history/delete":
                 self._json(delete_history(body))
             elif self.path == "/api/gallery/update":
@@ -2107,16 +2398,29 @@ class H(BaseHTTPRequestHandler):
                 self._json({"ok": True})
             else:
                 self._json({"error": "not found"}, 404)
+        except urllib.error.HTTPError as e:
+            self._fail(comfy_rejection(e), 502)
         except urllib.error.URLError as e:
-            self._json({"error": f"ComfyUI(8188)에 연결할 수 없습니다: {e}"}, 502)
+            self._fail(f"ComfyUI(8188)에 연결할 수 없습니다: {e.reason}", 502)
         except Exception as e:  # noqa: BLE001
-            self._json({"error": str(e)}, 400)
+            self._fail(e, 400)
 
     def log_message(self, fmt, *a):
-        line = a[0] if a else ""
+        # 요청 한 건에 한 줄만 남긴다. 오류 응답은 오류 기록(a[0] 이 숫자)과 요청 기록이 따로 오므로 요청 기록만 쓴다.
+        # 잘못된 요청은 command·path 가 없을 수 있다(예: https 로 잘못 접속한 브라우저의 TLS 바이트).
+        # 예전에는 여기서 예외가 나 요청마다 스택이 찍혔다.
+        if not str(fmt).startswith('"%s"'):
+            return
+        line = a[0] if a and isinstance(a[0], str) else ""
         # 자주 부르는 조회만 숨긴다(이력 삭제 같은 POST 는 남김)
-        if not (line.startswith("GET ") and any(s in line for s in ("/api/production-assistant/status", "/api/production-assistant/conversation", "/api/status", "/api/fetch-state", "/api/history", "/api/input", "/api/video", "/api/gallery", "/api/queue/bulk-context", "/api/ui-state"))):
-            print("%s %s" % (self.command, self.path), flush=True)
+        if line.startswith("GET ") and any(s in line for s in ("/api/production-assistant/status", "/api/production-assistant/conversation", "/api/status", "/api/fetch-state", "/api/history", "/api/input", "/api/video", "/api/gallery", "/api/queue/bulk-context", "/api/ui-state")):
+            return
+        command, path = getattr(self, "command", None), getattr(self, "path", None)
+        if command and path:
+            # 경로만 남긴다: 주소의 ?뒤에는 저장 설정 이름·파일 이름 같은 값이 실릴 수 있다
+            print("%s %s" % (command, str(path).split("?", 1)[0]), flush=True)
+        else:
+            print("알 수 없는 요청을 거절했습니다(http:// 주소로 접속했는지 확인).", flush=True)
 
 
 if __name__ == "__main__":

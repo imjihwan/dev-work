@@ -698,5 +698,39 @@ class FeatureTests(unittest.TestCase):
         self.env["build_and_queue"](self.request(count=1))
         self.assertEqual(self.direction_calls,[]);self.assertIsNone(self.env["HIST_DB"][0]["face_side"])
 
+    def test_seed_that_cannot_be_reproduced_is_rejected_before_any_upload(self):
+        # 0 은 SeedControl 이 스스로 랜덤을 뽑아 이력의 시드와 실제 시드가 달라진다. 범위 밖·숫자 아님도 등록 전에 거절한다.
+        for seed,count in [("0",1),("-3",1),("abc",1),("1.5",1),(str(2**64),1),(str(2**64-1),2)]:
+            with self.subTest(seed=seed,count=count),self.assertRaisesRegex(ValueError,"시드"):
+                self.env["build_and_queue"](self.request(seed=seed,count=count))
+        for count in (21,-1,"many",float("inf"),"1.5"):
+            with self.subTest(count=count),self.assertRaisesRegex(ValueError,"반복 횟수"):
+                self.env["build_and_queue"](self.request(count=count))
+        self.assertEqual((self.uploaded,self.sent,self.env["HIST_DB"]),([],[],[]))
+
+    def test_history_file_failure_after_the_backend_accepted_never_reports_the_job_as_failed(self):
+        # 대기열에는 이미 들어갔다. 실패로 답하면 화면이 다시 넣어 같은 작업이 두 번 생긴다.
+        def broken(*args):raise PermissionError(13,"synthetic lock")
+        self.env["_save_json"]=broken
+        result=self.env["build_and_queue"](self.request(count=2))
+        self.assertEqual(len(self.sent),2);self.assertEqual([job["id"] for job in result["jobs"]],[pid for pid,_ in self.sent])
+        self.assertEqual([entry["id"] for entry in self.env["HIST_DB"]],[pid for pid,_ in self.sent])   # 메모리의 이력에는 남는다
+        entry=json.loads(json.dumps(self.env["HIST_DB"][0]));pid=entry["id"]
+        edited=self.env["build_and_queue"](dict(entry,edit_id=pid,count=1,prompt="edited synthetic prompt"),reference={"entry":entry,"prompt":self.sent[0][1]["prompt"]})
+        self.assertEqual(edited["id"],pid);self.assertEqual(len(self.edited),1)
+        self.assertEqual(self.env["HIST_DB"][0]["prompt"],"edited synthetic prompt")
+
+    def test_seed_limits_and_blank_seed_are_recorded_exactly(self):
+        top=2**64-1
+        result=self.env["build_and_queue"](self.request(seed=f" {top-1} ",count=2))
+        self.assertEqual([job["seed"] for job in result["jobs"]],[top-1,top])
+        self.assertEqual([payload["prompt"][self.env["SEED"]]["inputs"]["seed_value"] for _,payload in self.sent],[top-1,top])
+        for blank in ("",None,0):
+            with self.subTest(blank=blank):
+                seed=self.env["build_and_queue"](self.request(seed=blank,count=1))["seed"]
+                self.assertTrue(1<=seed<=2**53)
+                self.assertEqual(self.sent[-1][1]["prompt"][self.env["SEED"]]["inputs"]["seed_value"],seed)
+                self.assertEqual(self.env["HIST_DB"][-1]["seed"],seed)
+
 
 if __name__=="__main__": unittest.main()

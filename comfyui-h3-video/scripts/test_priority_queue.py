@@ -1,9 +1,11 @@
 """Priority submissions against a fake queue; no live work or private media."""
 import ast
 import copy
+import io
 import json
 import threading
 import unittest
+import urllib.error
 
 from scripts import test_settings_sequence_bulk as fixtures
 
@@ -15,13 +17,14 @@ class PriorityQueueTests(unittest.TestCase):
         self.addCleanup(self.fixture.doCleanups)
         self.env = self.fixture.env
         tree = ast.parse((fixtures.SOURCE / "server.py").read_text(encoding="utf-8"))
-        functions = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "queue_prompt_first"]
+        functions = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in ("queue_prompt_first", "comfy_rejection")]
         exec(compile(ast.Module(body=functions, type_ignores=[]), "priority-test", "exec"), self.env)
         self.queue = {"queue_running": [[-8, "running", {}, {}, []]],
                       "queue_pending": [[-10, "previous-first", {}, {}, []], [4, "previous-second", {}, {}, []]]}
         self.original = copy.deepcopy(self.queue)
         self.calls, self.submitted = [], []
         self.fail_at = None
+        self.rejection = None
         self.env.update(comfy=self.comfy, QUEUE_EDIT_LOCK=threading.Lock())
 
     def comfy(self, path, data=None, headers=None):
@@ -32,6 +35,8 @@ class PriorityQueueTests(unittest.TestCase):
         if path == "/prompt":
             payload = json.loads(data)
             if self.fail_at == len(self.submitted) + 1:
+                if self.rejection is not None:
+                    raise urllib.error.HTTPError("http://synthetic/prompt", 400, "Bad Request", {}, io.BytesIO(json.dumps(self.rejection).encode()))
                 raise ValueError("Synthetic submission failure")
             identity = "priority-" + str(len(self.submitted) + 1)
             self.submitted.append(payload)
@@ -88,6 +93,20 @@ class PriorityQueueTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "1개는 대기열에 등록"):
             self.env["build_and_queue"](self.request(count=3), queue_first=True)
         self.assertEqual(len(self.submitted), 1)
+        self.assertEqual(self.env["HIST_DB"][-1]["id"], "priority-1")
+        self.check_existing_work()
+
+    def test_partial_failure_explains_why_the_backend_refused_the_next_job(self):
+        self.fail_at = 2
+        self.rejection = {"error": {"message": "Prompt outputs failed validation", "details": ""},
+                          "node_errors": {"7": {"class_type": "LoadImage", "errors": [{"message": "Invalid image file", "details": "synthetic-missing.png"}]}}}
+        with self.assertRaises(ValueError) as caught:
+            self.env["build_and_queue"](self.request(count=3), queue_first=True)
+        message = str(caught.exception)
+        self.assertIn("1개는 대기열에 등록", message)
+        self.assertIn("LoadImage", message)
+        self.assertIn("synthetic-missing.png", message)
+        self.assertNotIn("HTTP Error 400", message)
         self.assertEqual(self.env["HIST_DB"][-1]["id"], "priority-1")
         self.check_existing_work()
 
