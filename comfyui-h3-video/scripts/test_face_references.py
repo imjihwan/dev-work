@@ -53,6 +53,23 @@ class CropTests(unittest.TestCase):
             self.assertEqual(image.size,(80,80))
             self.assertEqual(image.getpixel((0,0)),(255,0,0))
 
+    def test_optional_limit_shrinks_large_crops_only_and_reports_the_saved_size(self):
+        # SIMPLEUI_FACE_CROP_MAX: 보조 얼굴 크롭의 긴 변 상한(선택). 기본은 줄이지 않는다
+        detector=self.fake_detector(np.array([detection(x=160,y=120,w=200,h=200)]))      # 검출은 640 으로 줄인 미리보기 좌표(원본에서는 500 화소 얼굴)
+        raw=self.raw((1600,1200))
+        def crop(**env):
+            with patch.dict(os.environ,env),patch.object(face,'_detector',return_value=detector):
+                data,size=face.crop_reference(raw,'unused')
+            with Image.open(io.BytesIO(data)) as image:self.assertEqual(image.size,size)
+            return size
+        os.environ.pop('SIMPLEUI_FACE_CROP_MAX',None)
+        self.assertEqual(crop(),(1000,1000))
+        self.assertEqual(crop(SIMPLEUI_FACE_CROP_MAX='640'),(640,640))
+        self.assertEqual(crop(SIMPLEUI_FACE_CROP_MAX='2000'),(1000,1000),'작은 크롭은 키우지 않는다')
+        self.assertEqual(crop(SIMPLEUI_FACE_CROP_MAX='0'),(1000,1000))
+        self.assertEqual(crop(SIMPLEUI_FACE_CROP_MAX='100'),(256,256),'너무 작은 값은 256 으로 본다')
+        self.assertEqual(crop(SIMPLEUI_FACE_CROP_MAX='big'),(1000,1000),'읽을 수 없는 값은 줄이지 않는다')
+
     def test_exif_orientation_is_applied_before_detection(self):
         exif=Image.Exif();exif[274]=6
         detector=self.fake_detector(np.array([detection(x=20,y=10,w=32,h=32)]))

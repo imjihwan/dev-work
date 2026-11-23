@@ -49,7 +49,7 @@ powershell -ExecutionPolicy Bypass -File Start-H3-Video.ps1 -NoBrowser
 
 PC 화면은 `http://127.0.0.1:8190/`이다. 다른 기기는 같은 네트워크에서 `http://<PC의 LAN IPv4 주소>:8190/`으로 접속한다. 필요한 경우 Windows 방화벽에서 TCP 8190을 집 네트워크 범위에 허용한다. ComfyUI 8188은 PC 내부용으로 유지한다. 현재 UI에는 별도 로그인 기능이 없으므로 인터넷 포트 포워딩 대상으로 사용하지 않는다.
 
-다른 웹 사이트가 브라우저를 통해 이 서버로 보내는 변경 요청(POST)은 거절한다(요청의 `Origin` 이 화면을 연 주소와 다르면 403). 주소를 바꿔 전달하는 프록시 뒤에 둘 때만 화면 주소를 환경 변수 `SIMPLEUI_TRUSTED_ORIGINS`(쉼표 구분, 예: `https://video.example.test`)에 적는다. 한 요청의 본문 한도는 `SIMPLEUI_MAX_BODY_MB`(기본 1024)다. 결과가 같은 속도 노드(청크 피드포워드, [PERFORMANCE](docs/PERFORMANCE.md))를 빼고 틀 그대로 돌리려면 `SIMPLEUI_CHUNK_FF=0` 을 준다. 네 편 이어 만들기의 최종 파일을 각 편의 코덱 그대로가 아니라 항상 H.264 로 다시 인코딩해 받으려면 `SIMPLEUI_STORY_MERGE=reencode` 를 준다([STORY](docs/STORY.md)). 조회에는 여전히 로그인이 없으므로 신뢰하는 네트워크에서만 연다.
+다른 웹 사이트가 브라우저를 통해 이 서버로 보내는 변경 요청(POST)은 거절한다(요청의 `Origin` 이 화면을 연 주소와 다르면 403). 주소를 바꿔 전달하는 프록시 뒤에 둘 때만 화면 주소를 환경 변수 `SIMPLEUI_TRUSTED_ORIGINS`(쉼표 구분, 예: `https://video.example.test`)에 적는다. 한 요청의 본문 한도는 `SIMPLEUI_MAX_BODY_MB`(기본 1024)다. 결과가 같은 속도 노드(청크 피드포워드, [PERFORMANCE](docs/PERFORMANCE.md))를 빼고 틀 그대로 돌리려면 `SIMPLEUI_CHUNK_FF=0` 을 준다. 네 편 이어 만들기의 최종 파일을 각 편의 코덱 그대로가 아니라 항상 H.264 로 다시 인코딩해 받으려면 `SIMPLEUI_STORY_MERGE=reencode` 를 준다([STORY](docs/STORY.md)). 얼굴인식강화·폴더별 번갈아 추가가 만드는 보조 얼굴 크롭의 긴 변을 줄여 사진이 여러 장인 작업을 빠르게 하려면 `SIMPLEUI_FACE_CROP_MAX=640` 처럼 준다(기본은 줄이지 않음 — 실측과 한계는 [PERFORMANCE](docs/PERFORMANCE.md)의 '참조 사진 수와 보조 사진 크기'). 조회에는 여전히 로그인이 없으므로 신뢰하는 네트워크에서만 연다.
 
 ## 업데이트와 검증
 

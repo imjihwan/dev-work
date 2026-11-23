@@ -57,6 +57,14 @@ H3 참조 처리 코드 자체는 얼굴을 자동으로 검출·분리하지 �
 
 출처: [YuNet 작성자 모델 안내](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet), [OpenCV 검출 API](https://docs.opencv.org/4.x/d0/dd4/tutorial_dnn_face.html), [공개 시험 사진의 출처](https://scikit-image.org/docs/stable/api/skimage.data.html#skimage.data.astronaut).
 
+## 사진 수와 크롭 크기의 생성 시간 실측 (2026-11-24)
+
+위 5번에서 미뤄 둔 생성 속도를 측정 전용 ComfyUI 에서 합성 인물로 쟀다(조건·표는 [PERFORMANCE](PERFORMANCE.md)의 '참조 사진 수와 보조 사진 크기').
+
+- 사진 1 + 얼굴 크롭 8장은 사진 1장보다 한 편이 거의 두 배 걸린다(5초 768×960: 168초 → 324초). `match` 는 사진마다 생성 화소 수까지만 줄이므로, 생성 화소 수보다 큰 크롭 여덟 장은 각각 영상 한 프레임 크기의 참조가 된다.
+- 크롭의 긴 변을 640·512 로 줄이면 251초·222초가 된다. 합성 인물에서는 동일 인물 점수와 프레임이 달라지지 않았다. 실제 사진의 닮음은 확인하지 못했다.
+- 기본 동작은 그대로다(크롭을 줄이지 않는다). 화면 서버 환경 변수 `SIMPLEUI_FACE_CROP_MAX` 로 얼굴 크롭의 긴 변 상한을 줄 수 있다(`crop_reference()` — 256 미만은 256, 크롭이 상한보다 작으면 그대로, 키우지 않는다). 사진 1 과 원본 그대로 넣는 보조 사진에는 적용하지 않는다.
+
 ## 근거와 검증 범위
 
 ### DaSiWa v5 GXS Turbo 추가 조사 (2026-11-16)

@@ -1009,7 +1009,8 @@ function sizeNote(aspect, resolution, photoRatio, job = {}){
 function etaSeconds({pixels, seconds, steps, speed, photos, upscale}){
   const frames = actualFrames(seconds), area = pixels / ETA.pixels, latent = (frames - 5) / 17 * 5 + 2;
   const tokens = area * latent / 37;      // 기준 대비 토큰 수
-  // 참조 사진이 한 장 늘 때마다 스텝이 약 8% 느려지고(5초 실측: 1장 17.97초, 3장 21.0초) 사진 인코딩이 몇 초 더 든다. 긴 영상에서는 그 몫이 작아진다
+  // 참조 사진이 한 장 늘 때마다 스텝이 약 8.5% 느려지고(5초 실측: 1장 17.97초, 3장 21.0초, 9장 30.55초) 사진 인코딩이 약 7초 더 든다.
+  // H3 는 사진마다 생성 화소 수까지만 줄여 쓰므로(ref_image_size match) 그보다 큰 사진은 모두 이 값이다. 긴 영상에서는 그 몫이 작아진다
   const extra = Math.max(0, (Number(photos) || 1) - 1), refs = 1 + 0.085 * extra * 37 / latent;
   const dense = ETA.step * tokens ** (tokens >= 1 ? ETA.power : ETA.smallPower) * refs;
   let sampling = steps * dense;
@@ -1022,7 +1023,7 @@ function etaSeconds({pixels, seconds, steps, speed, photos, upscale}){
   }
   // 업스케일 화질: 키우는 단계(화소·길이에 비례)가 더 들고, 디코드는 키운 화소만큼 든다
   const grow = Number(upscale) > 1 ? Number(upscale) : 1;
-  return ETA.fixed + 5 * extra + sampling + (grow > 1 ? ETA.upscale * area * frames / 124 : 0) + ETA.decode * area * grow * grow * frames / 124;
+  return ETA.fixed + 7 * extra + sampling +(grow > 1 ? ETA.upscale * area * frames / 124 : 0) + ETA.decode * area * grow * grow * frames / 124;
 }
 function etaScale(items){
   // 이 PC 에서 실제로 걸린 시간으로 맞춘다: GPU·LoRA·사진 수·함께 켜 둔 프로그램에 따라 모델과 달라진다.

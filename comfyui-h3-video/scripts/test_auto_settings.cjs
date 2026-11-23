@@ -183,7 +183,8 @@ const row = (factor, job = {}) => {
   return {state:'done', ...j, generation_seconds:context.etaSeconds({pixels:j.width * j.height, seconds:j.duration, steps:j.steps, speed:j.speed, photos:j.mode === 'REF2VA' ? j.images.length : 1, upscale:j.resolution === 'up15' ? 1.5 : undefined}) * factor};
 };
 // Every extra reference photo slows each step by about 8% at 5 s (measured: 17.97 s with one photo, 21.0 s with three; 209.6 s for the clip).
-near(eta({photos:3}), 209.6, 0.05, '5 s with three reference photos');
+near(eta({photos:3}), 209.6, 0.03, '5 s with three reference photos');
+near(eta({photos:9}), 324, 0.03, '5 s with nine reference photos (one photo plus eight face crops at full size)');
 assert.equal(eta({photos:1}), eta({}), 'one photo is the reference case');
 assert.equal(eta({photos:0}), eta({}));
 assert(eta({seconds:10, photos:3}) / eta({seconds:10}) < eta({photos:3}) / eta({}), 'the photos weigh less in a longer clip');

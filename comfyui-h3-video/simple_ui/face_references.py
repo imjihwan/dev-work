@@ -2,6 +2,7 @@
 import hashlib
 import io
 import math
+import os
 from pathlib import Path
 import threading
 
@@ -108,6 +109,18 @@ def face_direction(raw, model_path):
     return {'side': side, 'offset': round(offset, 3)}
 
 
+def crop_limit():
+    """보조 얼굴 크롭의 긴 변 상한(화소). 환경 변수 SIMPLEUI_FACE_CROP_MAX 로 정하고, 없거나 0 이면 줄이지 않는다(기본).
+
+    참조 사진은 생성 화소 면적까지만 쓰이고(Director 의 ref_image_size=match) 그보다 작은 사진은 그대로 쓰인다. 그래서 크롭을 더 작게
+    줄이면 보조 사진마다 드는 토큰이 줄어 스텝이 빨라진다(실측은 docs/PERFORMANCE.md). 256 보다 작은 값은 256 으로 본다."""
+    try:
+        value = int(os.environ.get('SIMPLEUI_FACE_CROP_MAX', '0').strip() or 0)
+    except ValueError:
+        return 0
+    return 0 if value <= 0 else max(256, value)
+
+
 def crop_reference(raw, model_path):
     face, image = _largest_face(raw, model_path)
     if face is None:
@@ -116,6 +129,10 @@ def crop_reference(raw, model_path):
     box = crop_box(image.size, face)
     if box is None or box == (0, 0, width, height):
         return None
+    crop, limit = image.crop(box), crop_limit()
+    if limit and max(crop.size) > limit:
+        scale = limit / max(crop.size)
+        crop = crop.resize((max(1, round(crop.width * scale)), max(1, round(crop.height * scale))), Image.Resampling.LANCZOS)
     output = io.BytesIO()
-    image.crop(box).save(output, format='PNG')
-    return output.getvalue(), (box[2] - box[0], box[3] - box[1])
+    crop.save(output, format='PNG')
+    return output.getvalue(), crop.size
