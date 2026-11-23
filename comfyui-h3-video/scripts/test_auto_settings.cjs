@@ -1,0 +1,68 @@
+// Advanced settings follow the chosen model unless edited directly; fake state only, never connects to the app.
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const html = fs.readFileSync(process.argv[2] || path.join(__dirname, '../simple_ui/index.html'), 'utf8');
+const script = html.match(/<script>([\s\S]*)<\/script>/)[1];
+const section = (start, end) => script.slice(script.indexOf(start), script.indexOf(end, script.indexOf(start)));
+
+const turbo = {name:'turbo', auto:{turbo:true}, effective:{steps:8, sampler:'euler', scheduler:'simple', shift_video:7, shift_audio:4}};
+const regular = {name:'regular', auto:{turbo:false}, effective:{steps:25, sampler:'res_multistep', scheduler:'simple', shift_video:11, shift_audio:4}};
+const notes = [];
+const S = {model:'turbo', steps:8, sampler:'euler', scheduler:'simple', shift_video:7, shift_audio:4, manual:{}, level:null, loras:{}};
+const context = vm.createContext({S, CAT:{models:[turbo, regular], loras:[]}, note:t => notes.push(t), Object, JSON});
+context.curModel = () => context.CAT.models.find(m => m.name === S.model);
+context.turboLora = () => null;
+vm.runInContext('const PARAMS = ["steps","sampler","scheduler","shift_video","shift_audio"];', context);
+vm.runInContext(section('const PARAM_NAME =', '\n'), context);
+vm.runInContext(section('function speedChoices(', 'const runCount'), context);
+vm.runInContext(section('function autoParams(', '$("resetModel").onclick'), context);
+vm.runInContext(section('function appliedShift(', 'function historySettingsHtml('), context);
+const pick = name => { const level = context.speedLevel(); S.model = name; return context.applyModelDefaults({level}); };
+const params = () => ({steps:S.steps, sampler:S.sampler, scheduler:S.scheduler, shift_video:S.shift_video, shift_audio:S.shift_audio});
+const click = steps => { S.steps = steps; S.level = context.speedChoices().findIndex(([n]) => n === steps); delete S.manual.steps; };
+
+// Untouched advanced settings follow each model's recommended values (the reported turbo 8 → regular case).
+pick('regular');
+assert.deepEqual(params(), regular.effective);
+pick('turbo');
+assert.deepEqual(params(), turbo.effective);
+
+// The quality buttons are a top-level choice: "quality" stays "quality" across models.
+click(8); pick('regular');
+assert.equal(S.steps, 30, 'turbo quality(8) must become regular quality(30)');
+click(20); pick('turbo');
+assert.equal(S.steps, 4, 'regular fast(20) must become turbo fast(4)');
+assert.equal(S.sampler, 'euler');
+
+// A field edited directly stays, with a note; the other fields still follow the model.
+S.sampler = 'dpmpp_2m'; S.manual.sampler = true; notes.length = 0;
+pick('regular');
+assert.equal(S.sampler, 'dpmpp_2m');
+assert.equal(S.shift_video, 11);
+assert(notes.at(-1).includes('샘플러 dpmpp_2m') && notes.at(-1).includes('res_multistep'));
+context.applyModelDefaults({reset:true});
+assert.deepEqual(params(), regular.effective, 'reset returns every field to automatic');
+assert.equal(JSON.stringify(S.manual), "{}");
+
+// Typed steps are manual and are not translated across models.
+S.steps = 27; S.manual.steps = true; S.level = null;
+pick('turbo');
+assert.equal(S.steps, 27);
+context.applyModelDefaults({reset:true});
+
+// Loaded values (preset/history): only values different from the model's recommendation count as manual.
+S.model = 'regular'; Object.assign(S, regular.effective, {steps:30, shift_video:12});
+context.markManualFromValues();
+assert.equal(JSON.stringify(S.manual), JSON.stringify({shift_video:true}));
+assert.equal(S.level, 2, 'a quality-button step count is kept as a level, not as a manual value');
+
+// History made before the shift fix ran at video shift 12 regardless of the recorded value.
+assert.equal(JSON.stringify(context.appliedShift({shift_video:10, shift_audio:3})), JSON.stringify({shift_video:12, shift_audio:3}));
+assert.equal(JSON.stringify(context.appliedShift({shift_video:10, shift_audio:3, shift_applied:true})), JSON.stringify({shift_video:10, shift_audio:3}));
+
+// The page ships automatic defaults and labels the advanced section accordingly.
+assert(script.includes('shift_video:11, shift_audio:4, manual:null, level:null'));
+assert(html.includes('id="advState"') && html.includes('자동 값으로 되돌리기'));
+console.log('auto settings ok');

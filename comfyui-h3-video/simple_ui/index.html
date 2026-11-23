@@ -426,7 +426,7 @@ a{color:var(--acc)}
       </div>
 
       <details class="adv" id="adv">
-        <summary>고급 설정</summary>
+        <summary>고급 설정 <span class="meta" id="advState"></span></summary>
         <div class="adv-grid">
           <div><label>스텝</label><input type="number" id="steps" min="1" max="60" step="1"></div>
           <div><label>샘플러</label><select id="sampler"></select></div>
@@ -437,7 +437,7 @@ a{color:var(--acc)}
         <label style="margin-top:12px"><input type="checkbox" id="trig" checked> LoRA 트리거 단어를 프롬프트에 자동으로 넣기</label>
         <div class="foot">
           <button class="textbtn" id="saveModelDefault">이 값을 이 모델의 기본값으로 저장</button>
-          <button class="textbtn" id="resetModel">모델 기본값으로 되돌리기</button>
+          <button class="textbtn" id="resetModel">자동 값으로 되돌리기</button>
         </div>
         <div id="modelDetail" style="margin-top:8px"></div>
       </details>
@@ -541,8 +541,9 @@ let bulkAllEditing=false;
 let manualPromptInputs=null;
 const FIELDS = ["subject","summary","style","keep","sound","music","aspect","resolution","duration","count"];
 const PARAMS = ["steps","sampler","scheduler","shift_video","shift_audio"];
+const PARAM_NAME = {steps:"스텝", sampler:"샘플러", scheduler:"스케줄러", shift_video:"영상 shift", shift_audio:"소리 shift"};
 let CAT = null;             // /api/catalog 결과
-const S = {mode:"REF2VA", model:"", steps:4, sampler:"euler", scheduler:"simple", shift_video:10, shift_audio:3, loras:{}, trig:true, anchor:true, oneTake:true, faceBoost:false,protectPerson:true};
+const S = {mode:"REF2VA", model:"", steps:4, sampler:"euler", scheduler:"simple", shift_video:11, shift_audio:4, manual:null, level:null, loras:{}, trig:true, anchor:true, oneTake:true, faceBoost:false,protectPerson:true};
 const UI = {modelOpen:false, loraOpen:false, loraQ:"", info:{}};
 
 // ---------- 모드 ----------
@@ -863,11 +864,13 @@ function applyPreset(name){
   if(p.model&&!CAT.models.some(m=>m.name===p.model)){note("이 조합의 모델 파일이 없습니다. 모델을 설치하고 새로고침한 뒤 다시 선택해 주세요.");return;}
   if (p.mode && p.mode !== S.mode) setMode(p.mode);
   if (p.model && CAT.models.some(m => m.name === p.model)) S.model = p.model;
-  for (const k of PARAMS) if (p[k] != null) S[k] = p[k];
   const missing = [];
   S.loras = {};
   for (const x of p.loras || []) { if (CAT.loras.some(l => l.name === x.name)) S.loras[x.name] = x.strength; else missing.push(base(x.name)); }
   if (p.trig != null) S.trig = p.trig;
+  applyModelDefaults({reset:true});
+  for (const k of PARAMS) if (p[k] != null) S[k] = p[k];
+  markManualFromValues();
   drawModelCard(); render();
   note(missing.length ? `폴더에 없는 LoRA 는 빼고 불러왔습니다: ${missing.join(", ")}` : "");
 }
@@ -904,7 +907,7 @@ function drawModelPick(){
     if (bad.length) h += `<div class="grp">이 화면에서 쓸 수 없음</div>` + bad.map(m => `<div class="opt off"><div><div class="nm">${esc(base(m.name))}</div><div class="fname">${esc(m.auto?.note || "")}</div></div></div>`).join("");
     $("modelList").innerHTML = `<div class="list">${h}</div>`;
     $("modelList").querySelectorAll("[data-m]").forEach(o => o.onclick = () => {
-      S.model = o.dataset.m; UI.modelOpen = false; applyModelDefaults(); drawModelCard(); render();
+      const level = speedLevel(); S.model = o.dataset.m; UI.modelOpen = false; applyModelDefaults({level}); drawModelCard(); render();
     });
   }
   const notes = [];
@@ -932,7 +935,7 @@ function drawSpeed(){
   let h = ch.map(([s, t]) => `<button data-s="${s}" class="${s === S.steps ? "on" : ""}">${t}<small>${s}스텝</small></button>`).join("");
   if (!ch.some(([s]) => s === S.steps)) h += `<button class="on" disabled>직접<small>${S.steps}스텝</small></button>`;
   $("speed").innerHTML = h;
-  $("speed").querySelectorAll("[data-s]").forEach(b => b.onclick = () => { S.steps = Number(b.dataset.s); $("steps").value = S.steps; drawSpeed(); drawPresets(); render(); });
+  $("speed").querySelectorAll("[data-s]").forEach(b => b.onclick = () => { S.steps = Number(b.dataset.s); S.level = speedChoices().findIndex(([n]) => n === S.steps); if (S.manual) delete S.manual.steps; $("steps").value = S.steps; drawSpeed(); drawPresets(); drawAdvanced(); render(); });
   $("eta").textContent = `1개당 ${etaText(1)} (이 PC 기준, 대략)`;
 }
 
@@ -975,7 +978,7 @@ function drawLoras(){
     const name = r.dataset.l, rg = r.querySelector("input[type=range]");
     rg.oninput = () => { S.loras[name] = Number(rg.value); r.querySelector(".val").textContent = Number(rg.value).toFixed(2); save(); };
     rg.onchange = () => drawPresets();
-    r.querySelector(".rm").onclick = () => { delete S.loras[name]; drawModelCard(); render(); };
+    r.querySelector(".rm").onclick = () => { const wasTurbo = turboLora(); delete S.loras[name]; if (wasTurbo && !turboLora()) applyModelDefaults(); drawModelCard(); render(); };
     r.querySelector(".info").onclick = () => { UI.info[name] = !UI.info[name]; drawLoras(); };
     r.querySelector(".trigsave")?.addEventListener("click", async () => {
       const trigger = r.querySelector(".trigin").value;
@@ -1010,7 +1013,7 @@ function drawLoras(){
     if (Object.keys(S.loras).length >= 10) return alert("LoRA 는 최대 10개까지입니다.");
     const l = CAT.loras.find(x => x.name === o.dataset.add);
     S.loras[l.name] = l.effective?.strength ?? 1;
-    if (l.auto?.turbo && l.effective?.steps && !curModel()?.auto?.turbo) { S.steps = l.effective.steps; note(`터보 LoRA 에 맞춰 ${S.steps}스텝으로 바꿨습니다.`); }
+    if (l.auto?.turbo && l.effective?.steps && !curModel()?.auto?.turbo) { S.steps = l.effective.steps; S.level = null; if (S.manual) delete S.manual.steps; note(`터보 LoRA 에 맞춰 ${S.steps}스텝으로 바꿨습니다.`); }
     UI.loraOpen = false; drawModelCard(); render();
   });
 }
@@ -1022,28 +1025,57 @@ function drawAdvanced(){
   fill($("scheduler"), CAT.schedulers, S.scheduler);
   $("steps").value = S.steps; $("shift_video").value = S.shift_video; $("shift_audio").value = S.shift_audio;
   $("trig").checked = S.trig !== false;
+  const direct = PARAMS.filter(k => S.manual?.[k]);
+  $("advState").textContent = direct.length ? `— 직접 지정: ${direct.map(k => PARAM_NAME[k]).join(", ")}` : "— 자동(모델 권장값)";
   const m = curModel();
   $("modelDetail").innerHTML = m ? `<div class="fname">모델 파일: ${esc(m.name)}</div>${civBlock(m, "model")}` : "";
 }
 PARAMS.forEach(id => $(id).addEventListener("input", () => {
   S[id] = ["sampler","scheduler"].includes(id) ? $(id).value : Number($(id).value);
-  if (id === "steps") drawSpeed();
+  (S.manual ||= {})[id] = true;
+  if (id === "steps") { S.level = null; drawSpeed(); }
+  $("advState").textContent = `— 직접 지정: ${PARAMS.filter(k => S.manual[k]).map(k => PARAM_NAME[k]).join(", ")}`;
   drawPresets(); save(); drawGoInfo();
 }));
 $("trig").onchange = () => { S.trig = $("trig").checked; drawLoras(); render(); };
-function applyModelDefaults(){
-  const m = curModel(); if (!m) return;
-  const e = m.effective || {};
-  for (const k of PARAMS) if (e[k] != null) S[k] = e[k];
+// 고급 설정은 자동이 기본이다: 직접 고친 칸(S.manual)만 그대로 두고, 나머지는 고른 모델의 권장값을 따른다.
+// 속도·품질 버튼(S.level)은 상위 설정이라 모델을 바꿔도 같은 단계(빠르게/보통/품질)로 옮겨 간다.
+function autoParams(m){
+  const e = {...(m?.effective || {})};
   const tl = turboLora();
-  if (tl && !m.auto?.turbo) S.steps = tl.effective.steps;
+  if (tl && !m?.auto?.turbo) e.steps = tl.effective.steps;
+  return e;
 }
-$("resetModel").onclick = () => { applyModelDefaults(); drawModelCard(); render(); note("모델 기본값으로 되돌렸습니다."); };
+function speedLevel(){
+  if (S.manual?.steps || S.level == null) return null;
+  return speedChoices().findIndex(([n]) => n === S.steps) === S.level ? S.level : null;
+}
+function applyModelDefaults(opts = {}){
+  const m = curModel(); if (!m) return [];
+  if (opts.reset) { S.manual = {}; S.level = null; }
+  const manual = S.manual || (S.manual = {}), e = autoParams(m);
+  for (const k of PARAMS) if (!manual[k] && e[k] != null) S[k] = e[k];
+  const choices = speedChoices();
+  if (!manual.steps && opts.level != null && choices.length === 3) { S.steps = choices[opts.level][0]; S.level = opts.level; }
+  else if (!manual.steps) S.level = null;
+  const kept = PARAMS.filter(k => manual[k] && e[k] != null && e[k] !== S[k]);
+  if (kept.length) note(`직접 지정한 값은 그대로 둡니다: ${kept.map(k => `${PARAM_NAME[k]} ${S[k]}(이 모델 권장 ${e[k]})`).join(", ")}. 고급 설정의 '자동 값으로 되돌리기'로 바꿀 수 있습니다.`);
+  return kept;
+}
+// 불러온 값(조합·이력)은 모델 권장값과 다른 칸만 직접 지정으로 본다. 속도·품질 버튼 단계와 같은 스텝은 단계로 본다.
+function markManualFromValues(){
+  const e = autoParams(curModel());
+  S.manual = Object.fromEntries(PARAMS.filter(k => e[k] != null && S[k] !== e[k]).map(k => [k, true]));
+  const i = speedChoices().findIndex(([n]) => n === S.steps);
+  if (S.manual.steps && i >= 0) { delete S.manual.steps; S.level = i; } else S.level = null;
+}
+$("resetModel").onclick = () => { applyModelDefaults({reset:true}); drawModelCard(); render(); note("자동 값(모델 권장값)으로 되돌렸습니다."); };
 $("saveModelDefault").onclick = async () => {
   const values = Object.fromEntries(PARAMS.map(k => [k, S[k]]));
   const r = await fetch("/api/card/save", {method:"POST", body: JSON.stringify({kind:"model", name:S.model, values})});
   const j = await r.json(); if (!r.ok) return alert(j.error);
   const i = CAT.models.findIndex(m => m.name === S.model); if (i >= 0) CAT.models[i] = j;
+  S.manual = {}; save(); drawAdvanced();
   note(`다음에 ${friendlyModel(j)} 을(를) 고르면 지금 값(${S.steps}스텝 등)이 들어갑니다.`);
 };
 function note(t){ $("mHint").textContent = t || ""; }
@@ -1063,7 +1095,11 @@ async function loadCatalog(manual){
   try {
     const r = await fetch("/api/catalog"); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status);
     CAT = j;
-    if (!S.model || !CAT.models.some(m => m.name === S.model)) { S.model = CAT.default.model; applyModelDefaults(); }
+    if (!S.model || !CAT.models.some(m => m.name === S.model)) { S.model = CAT.default.model; applyModelDefaults({reset:true}); }
+    else if (S.manual == null) { // 자동 모드 이전에 저장된 화면: shift 는 효과가 없던 값이라 자동으로, 나머지는 권장값과 다르면 직접 지정
+      const old = {steps:S.steps, sampler:S.sampler, scheduler:S.scheduler};
+      applyModelDefaults({reset:true}); Object.assign(S, old); markManualFromValues(); save();
+    }
     for (const n of Object.keys(S.loras)) if (!CAT.loras.some(l => l.name === n)) delete S.loras[n];
     drawModelCard(); render(); refreshQueueSelection();
     if (manual === true) note(`폴더를 다시 읽었습니다: 모델 ${modelsShown().length}개, LoRA ${CAT.loras.length}개.`);
@@ -2207,6 +2243,10 @@ function faceSideText(side){
   const why = {left:"", right:"", front:" · 정면이라 기본값", none:" · 얼굴 못 찾아 기본값", unavailable:" · 검출기 없음, 기본값"}[side.side] ?? "";
   return `${name}${why}${side.offset != null ? ` (${side.offset})` : ""}`;
 }
+// 2026-11-23 이전 작업은 화면 shift 가 영상에 반영되지 않아 실제 영상 shift 가 H3 기본값 12 였다.
+function appliedShift(e){
+  return e.shift_applied ? {shift_video:e.shift_video, shift_audio:e.shift_audio} : {shift_video:12, shift_audio:e.shift_audio ?? 3};
+}
 function historySettingsHtml(e){
   const value = v => v == null || v === "" ? "기록 없음" : String(v);
   const toggle = v => v === true ? "켬" : v === false ? "끔" : "기록 없음";
@@ -2216,7 +2256,7 @@ function historySettingsHtml(e){
     ["화질 · 화면비",`${RES_NAME[e.resolution] || value(e.resolution)} · ${value(e.aspect)}`],
     ["영상 길이",e.duration != null ? `${e.duration}초` : "기록 없음"],
     ["스텝",value(e.steps)], ["샘플러",value(e.sampler)], ["스케줄러",value(e.scheduler)],
-    ["영상 shift",value(e.shift_video)], ["소리 shift",value(e.shift_audio)], ["시드",value(e.seed)],
+    ["영상 shift",e.shift_applied || e.shift_video == null ? value(e.shift_video) : `${e.shift_video} (실제 ${appliedShift(e).shift_video}, 수정 전 작업)`], ["소리 shift",value(e.shift_audio)], ["시드",value(e.seed)],
     ["얼굴 방향(자동)",faceSideText(e.face_side)], ["첫 장면 고정",toggle(e.anchor)], ["얼굴인식강화",toggle(e.ui?.faceBoost)], ["원테이크",toggle(e.ui?.oneTake)], ["트리거 자동적용",toggle(e.ui?.trig)]
   ];
   const loras = Array.isArray(e.loras) ? e.loras.length
@@ -2632,9 +2672,11 @@ async function loadFromHist(e){
   $("seed").value = e.seed; $("count").value = 1;
   setMode(e.mode === "REF2VA" ? "REF2VA" : "FL2VA");
   if (CAT.models.some(m => m.name === e.model)) S.model = e.model; else warn.push(`모델 ${base(e.model)} 이 폴더에 없음`);
-  for (const k of PARAMS) if (e[k] != null) S[k] = e[k];
+  const ran = appliedShift(e);
+  for (const k of PARAMS) if ((ran[k] ?? e[k]) != null) S[k] = ran[k] ?? e[k];
   S.loras = {};
   for (const x of e.loras || []) { if (CAT.loras.some(l => l.name === x.name)) S.loras[x.name] = x.strength; else warn.push(`LoRA ${base(x.name)} 없음`); }
+  markManualFromValues();
   if (u.trig != null) S.trig = u.trig;
   if (u.oneTake != null) { S.oneTake = u.oneTake; $("oneTake").checked = u.oneTake; }
   S.faceBoost = !!u.faceBoost; $("faceBoost").checked = S.faceBoost;

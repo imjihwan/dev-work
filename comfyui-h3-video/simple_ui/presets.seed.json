@@ -6,9 +6,7 @@
   "loras": [],
   "trig": true,
   "sampler": "euler",
-  "scheduler": "simple",
-  "shift_video": 10.0,
-  "shift_audio": 3.0
+  "scheduler": "simple"
  },
  "DaSiWa v4 터보 4스텝 (빠름)": {
   "mode": "REF2VA",
@@ -17,9 +15,7 @@
   "loras": [],
   "trig": true,
   "sampler": "euler",
-  "scheduler": "simple",
-  "shift_video": 10.0,
-  "shift_audio": 3.0
+  "scheduler": "simple"
  },
  "DaSiWa v5 일반 25스텝 (동작 비교)": {
   "mode": "REF2VA",
@@ -28,8 +24,6 @@
   "loras": [],
   "trig": true,
   "sampler": "res_multistep",
-  "scheduler": "simple",
-  "shift_video": 10.0,
-  "shift_audio": 3.0
+  "scheduler": "simple"
  }
 }

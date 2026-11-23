@@ -46,6 +46,8 @@ vm.runInContext(section('function storyModelSettings()', 'function selectAppTab(
   const preset=JSON.parse(fs.readFileSync(path.join(__dirname,'../simple_ui/presets.seed.json'),'utf8'))['DaSiWa v5 일반 25스텝 (동작 비교)'];
   const presetState={mode:'REF2VA',model:'synthetic-turbo',steps:8,loras:{existing:.5}},presetBefore=JSON.stringify(presetState),presetNotes=[];
   const presetContext=vm.createContext({CAT:{models:[{name:'synthetic-turbo'}],loras:[],presets:{regular:preset}},S:presetState,PARAMS:['steps','sampler','scheduler','shift_video','shift_audio'],note:text=>presetNotes.push(text),setMode:()=>assert.fail('Missing model must not change the mode'),drawModelCard(){},render(){}});
+  Object.assign(presetContext,{PARAM_NAME:{},speedChoices:()=>[[20,'fast'],[25,'normal'],[30,'quality']],turboLora:()=>null,curModel:()=>presetContext.CAT.models.find(m=>m.name===presetState.model)});
+  vm.runInContext(section('function autoParams(', '$("resetModel").onclick'),presetContext);
   vm.runInContext(section('function applyPreset(', 'async function savePreset('),presetContext);
   presetContext.applyPreset('regular');assert.equal(JSON.stringify(presetState),presetBefore,'Missing regular checkpoint must not apply 25 steps onto the turbo checkpoint');assert(presetNotes.at(-1).includes('모델 파일이 없습니다'));
   presetContext.CAT.models.push({name:preset.model});presetContext.applyPreset('regular');

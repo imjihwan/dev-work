@@ -345,6 +345,35 @@ def _seed(path):
 _seed(CARDS)
 _seed(PRESETS)
 
+# 2026-11-23 전에는 스케줄러가 shift 노드 앞 모델에 연결돼 화면 shift 가 영상에 반영되지 않았다(실제 영상 shift 는 H3 기본값 12).
+# 그때 저장된 10/3 은 예전 일괄 기본값일 뿐 효과가 없던 값이므로, 모델·조합에서 지워 모델별 권장값을 따르게 한다.
+LEGACY_SHIFT = {"shift_video": 10.0, "shift_audio": 3.0}
+
+
+def drop_legacy_shift(values):
+    """예전 기본값 shift 10/3 이 저장돼 있으면 지운다. 바뀌었으면 True."""
+    if not isinstance(values, dict) or any(values.get(k) != v for k, v in LEGACY_SHIFT.items()):
+        return False
+    for k in LEGACY_SHIFT:
+        values.pop(k, None)
+    return True
+
+
+def applied_shift(entry):
+    """이력 항목이 실제로 쓴 shift. 수정 전 항목은 영상 shift 가 H3 기본값 12 로 돌았으므로 그 값을 돌려준다."""
+    if entry.get("shift_applied"):
+        return {"shift_video": entry.get("shift_video"), "shift_audio": entry.get("shift_audio")}
+    return {"shift_video": 12.0, "shift_audio": entry.get("shift_audio", 3.0)}
+
+
+def _migrate_legacy_presets():
+    presets = _load_json(PRESETS, {})
+    if isinstance(presets, dict) and [name for name, preset in presets.items() if drop_legacy_shift(preset)]:
+        _save_json(PRESETS, presets)
+
+
+_migrate_legacy_presets()
+
 # ---------- 작업 이력: 생성할 때의 설정·프롬프트·사진 ↔ 결과 영상 (history.json, 이 PC 에만) ----------
 HIST = os.path.join(HERE, "history.json")
 HLOCK = threading.Lock()
@@ -434,6 +463,8 @@ def hist_result(pid, st):
 CARD_DB = _load_json(CARDS, {"model": {}, "lora": {}})
 CARD_DB.setdefault("model", {})
 CARD_DB.setdefault("lora", {})
+if [name for name, card in CARD_DB["model"].items() if drop_legacy_shift(card.get("user"))]:
+    _save_json(CARDS, CARD_DB)
 FETCH = {}             # (kind, name) -> {"state", "msg", "pct"}  (메모리; 끝난 결과는 CARD_DB 에)
 FETCH_Q = queue.Queue()
 
@@ -649,9 +680,11 @@ def effective(kind, card):
     u = card.get("user") or {}
     if kind == "model":
         turbo = a.get("turbo")
-        e = {"steps": a.get("steps_hint") or (4 if turbo else 20),
+        # DaSiWa 작성자 권장(C-MMH3-33 표): 일반 25스텝·res_multistep·shift 10~12/3~5(예시 11/4),
+        # 터보 4~8스텝·euler·shift 6~8/4~5. 범위 가운데 값을 쓴다.
+        e = {"steps": a.get("steps_hint") or (4 if turbo else 25),
              "sampler": "euler" if turbo else "res_multistep", "scheduler": "simple",
-             "shift_video": 10.0, "shift_audio": 3.0}
+             "shift_video": 7.0 if turbo else 11.0, "shift_audio": 4.0}
         if c.get("steps"):
             e["steps"] = c["steps"]
     else:
@@ -812,7 +845,9 @@ def gallery_regeneration_entry(pid):
             raise ValueError("완료된 개별 영상을 선택해 주세요.")
         if not entry.get("images") or not (entry.get("ui") or {}).get("f") or not entry.get("prompt"):
             raise ValueError("원래 사진 또는 작성 정보가 없어 재생성할 수 없습니다.")
-        return json.loads(json.dumps(entry))
+        copied = json.loads(json.dumps(entry))
+        copied.update(applied_shift(copied))
+        return copied
 
 
 def regenerate_gallery(req):
@@ -1058,6 +1093,9 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
     for k in ("shift_video", "shift_audio"):
         if req.get(k) not in (None, ""):
             p[SHIFT]["inputs"][k] = float(req[k])
+    # 스케줄러가 shift 노드 뒤 모델을 받아야 Shift Video 가 영상 sigma 스케줄에 반영된다
+    # (shift 앞 모델이면 H3 기본값 12 로 고정되고 화면 값은 오디오 환산에만 쓰여 어긋난다).
+    p[SCHED]["inputs"]["model"] = [SHIFT, 0]
     loras = [x for x in (req.get("loras") or []) if x.get("name")]
     if len(loras) > LORA_SLOTS:
         raise ValueError(f"LoRA 는 최대 {LORA_SLOTS}개까지입니다.")
@@ -1185,7 +1223,7 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
         return [{"id": j["id"], "t": now, "seed": j["seed"], "state": "queued", "video": None, "error": None,
                "mode": mode, "model": model, "steps": steps,
                "sampler": p[SAMPLER]["inputs"]["sampler_name"], "scheduler": p[SCHED]["inputs"]["scheduler"],
-               "shift_video": p[SHIFT]["inputs"]["shift_video"], "shift_audio": p[SHIFT]["inputs"]["shift_audio"],
+               "shift_video": p[SHIFT]["inputs"]["shift_video"], "shift_audio": p[SHIFT]["inputs"]["shift_audio"], "shift_applied": True,
                "loras": [{"name": x["name"], "strength": float(x.get("strength", 1))} for x in loras],
                "aspect": j.get("actual_aspect",aspect), "requested_aspect":aspect,"protect_person":protect_person,"framing_fallback":j.get("framing_fallback",False), "resolution": resolution, "duration": duration, "width": j["width"], "height": j["height"],
                "count": count, "anchor": anchor, "prompt": text, "images": j["images"], "face_side": j.get("face_side"),

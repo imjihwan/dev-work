@@ -26,14 +26,14 @@ class RegenerationTests(unittest.TestCase):
         self.addCleanup(self.fixture.doCleanups)
         self.env = self.fixture.env
         tree = ast.parse((SOURCE / "server.py").read_text(encoding="utf-8-sig"))
-        names = {"gallery_regeneration_entry", "regenerate_gallery", "queue_prompt_first", "build_and_queue"}
+        names = {"gallery_regeneration_entry", "applied_shift", "regenerate_gallery", "queue_prompt_first", "build_and_queue"}
         code = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
         exec(compile(ast.Module(body=code, type_ignores=[]), "synthetic-gallery-regeneration", "exec"), self.env)
         self.target = copy.deepcopy(self.fixture.entry)
         self.target.update(id="target", state="done", video={"filename": "synthetic-target.mp4"}, images=["simpleui_0000000001.png"])
         self.source = copy.deepcopy(self.target)
         self.source.update(id="source", seed=999, anchor=False, duration=9, resolution="1080p", aspect="16:9", model="source-model", steps=6,
-                           shift_video=7, shift_audio=4, sampler="heun", scheduler="source-scheduler", loras=[{"name": "source-lora", "strength": 0.3}],
+                           shift_video=7, shift_audio=4, shift_applied=True, sampler="heun", scheduler="source-scheduler", loras=[{"name": "source-lora", "strength": 0.3}],
                            prompt="subject_definitions: A synthetic person from <Picture 1>.\n\ndetailed_description: A synthetic copied movement.")
         self.source["ui"].update(shots=[[0, "A synthetic copied movement."]], trig=False, oneTake=True)
         self.source["ui"]["f"].update(style="Source synthetic camera.", summary="Source synthetic summary.")
@@ -66,6 +66,14 @@ class RegenerationTests(unittest.TestCase):
             self.queue["queue_pending"].append([body["number"], identity, body["prompt"], {}, []])
             return io.BytesIO(json.dumps({"prompt_id": identity}).encode())
         raise AssertionError("Unexpected endpoint")
+
+    def test_source_made_before_the_shift_fix_copies_the_shift_that_actually_ran(self):
+        del self.source["shift_applied"]
+        self.source.update(shift_video=10.0, shift_audio=3.0)
+        self.env["regenerate_gallery"](self.request)
+        added = self.history[-1]
+        self.assertEqual((added["shift_video"], added["shift_audio"]), (12.0, 3.0))
+        self.assertTrue(added["shift_applied"])
 
     def test_copies_source_prompt_and_model_settings_preserving_target_and_queue(self):
         old_history, old_queue = copy.deepcopy(self.history), copy.deepcopy(self.queue)
