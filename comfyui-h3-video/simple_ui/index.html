@@ -1603,17 +1603,33 @@ function applySyncPart(part, value){
 }
 // all=true 면 번호와 상관없이 서버 상태 전체를 받아 맞춘다(수정 모드를 나올 때)
 async function pullSync(all=false){
+  // 전체 받기(수정 모드를 나올 때)는 실제로 받아 적용할 때까지 기억해 둔다. 지금 받을 수 없어도 다음 차례에 전체로 받는다.
+  if (all) SYNC.pullAll = true;
   if (syncPaused() || syncLocalBusy()) return;
-  let j;
+  // 한 번에 하나만 받는다. 사진이 바뀌면 응답에 사진 전체(수 MB)가 실려 느린 연결에서는 1.5초를 넘긴다.
+  // 겹쳐서 받으면 같은 내용을 여러 번 내려받으며 상태 조회·영상 만들기 요청까지 밀린다.
+  if (SYNC.pulling) { SYNC.pullQueued = true; return; }
+  SYNC.pulling = true;
+  const full = !!SYNC.pullAll, sent = {...SYNC.rev};
+  SYNC.pullAll = false;
+  let j = null, applied = false;
   try {
-    const r = await fetch(`/api/ui-state?form=${all ? -1 : SYNC.rev.form}&images=${all ? -1 : SYNC.rev.images}`, {cache:"no-store"});
-    if (!r.ok) return; j = await r.json();
-  } catch { return; }
-  if (syncPaused() || syncLocalBusy()) return;   // 기다리는 사이 이 창에서 고쳤으면 이 창이 이긴다
-  for (const part of SYNC_PARTS) {
-    if (j[part] != null) applySyncPart(part, j[part]);
-    SYNC.rev[part] = j[part + "_rev"] || 0;
+    const r = await fetch(`/api/ui-state?form=${full ? -1 : SYNC.rev.form}&images=${full ? -1 : SYNC.rev.images}`, {cache:"no-store"});
+    if (r.ok) j = await r.json();
+  } catch {}
+  finally { SYNC.pulling = false; }
+  // 기다리는 사이 이 창에서 고쳤으면 이 창이 이긴다
+  if (j && typeof j === "object" && !syncPaused() && !syncLocalBusy()) {
+    applied = true;
+    for (const part of SYNC_PARTS) {
+      // 요청을 보낸 뒤 이 창이 그 부분을 올려 번호가 바뀌었다면 낡은 응답이다: 화면을 예전 내용으로 되돌리지 않는다
+      if (SYNC.rev[part] !== sent[part]) continue;
+      if (j[part] != null) applySyncPart(part, j[part]);
+      SYNC.rev[part] = j[part + "_rev"] || 0;
+    }
   }
+  if (full && !applied) SYNC.pullAll = true;   // 받지 못했거나 적용하지 못한 전체 받기는 다음 차례에 다시
+  if (SYNC.pullQueued) { SYNC.pullQueued = false; pullSync(); }
 }
 async function initSync(){
   let j = null;
@@ -2138,13 +2154,34 @@ function poll(jobs, t0, info, t1){
     if (gen !== pollGen) return;
     const unfinished=jobs.filter(x=>!finished(x));
     const scan=jobs.length>20?unfinished.filter(x=>x.state==="running").concat(unfinished.filter(x=>x.state!=="running")):unfinished;
-    for (const j of scan) {
-      let s; try { s = await (await fetch("/api/status?id=" + j.id)).json(); } catch { s = {state:"unknown"}; }
+    // 추적 중인 작업을 한 번의 요청으로 묻는다. 작업마다 따로 물으면 휴대폰·원격 접속에서 한 바퀴에 몇 초가 걸린다.
+    // 큰 묶음은 등록 순서대로 실행되므로 앞쪽 몇 개만 묻는다.
+    const ask=(jobs.length>20?scan.slice(0,4):scan).map(x=>x.id);
+    let states=null, single=false;
+    if(ask.length){
+      try{
+        // id 도 함께 보낸다: 묶음 조회(ids)를 모르는 예전 서버는 첫 작업 하나의 상태로 답하고, 그러면 아래에서 하나씩 묻는다
+        const r=await fetch("/api/status?id="+encodeURIComponent(ask[0])+"&ids="+ask.map(encodeURIComponent).join(","));
+        const body=await r.json();
+        if(r.ok!==false&&body&&!body.error){   // 오류 응답에 실린 내용으로 작업 상태를 바꾸지 않는다
+          if(body.jobs&&typeof body.jobs==="object")states=body.jobs;
+          else if(typeof body.state==="string")single=true;
+        }
+      }catch{}
+    }
+    if (gen !== pollGen) return;
+    // 응답을 받지 못했으면(화면 서버 재시작·연결 끊김) 이번 바퀴는 건너뛴다. '찾을 수 없음'으로 세지 않는다.
+    for (const j of states||single?scan:[]) {
+      let s=states?states[j.id]:null;
+      if(single){ try { s = await (await fetch("/api/status?id=" + j.id)).json(); } catch { s = null; } }
+      if(!s||typeof s.state!=="string"){ if(single||!(j.id in states))break; continue; }   // 묻지 않은 작업부터는 다음 바퀴에
       if (s.state !== "unknown") { j.miss = 0; Object.assign(j, s); }
       // ComfyUI 가 다시 켜졌거나 다른 곳에서 지운 작업은 기록이 없어 계속 unknown → 몇 번 뒤 끝낸다
       else if (++j.miss >= 5) Object.assign(j, {state: "error", error: "작업을 찾을 수 없음(ComfyUI 재시작·삭제)"});
       // Large photo batches are submitted in order; later pending jobs need no per-tick queue scan.
-      if(jobs.length>20 && !finished(j))break;
+      // 묶음 조회는 물어본 작업(앞쪽 몇 개)의 답을 모두 반영한다: 사라진 작업들의 확인 횟수가 함께 올라가야 한 건씩 10초가 걸리지 않는다.
+      // 하나씩 묻는 예전 방식에서만 실행 중인 작업에서 멈춘다.
+      if(single && jobs.length>20 && !finished(j) && s.state!=="unknown")break;
     }
     if (gen !== pollGen) return;
     const n = jobs.length, done = jobs.filter(x => x.state === "done").length, errs = jobs.filter(x => x.state === "error").length;

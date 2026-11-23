@@ -87,9 +87,59 @@ const folderPhotos=(folder,n)=>photos(n).map((file,index)=>({...file,name:`photo
   await rotating.context.submitFolderRotatingPhotos();assert.equal(rotating.generations.length,50);assert(rotating.get('photoFolderStatus').textContent.includes('응답 미확인 1개'));
   rotating=rotatingSetup({stopUpload:4});await rotating.context.collectPickedFolder(folderPhotos('UploadStop',50));await rotating.context.submitFolderRotatingPhotos();assert.equal(rotating.generations.length,0);assert.equal(rotating.releases[0].ids.length,4);
   rotating=rotatingSetup();await rotating.context.collectPickedFolder([...folderPhotos('One',1),...folderPhotos('Three',3)]);await rotating.context.submitFolderRotatingPhotos();assert.deepEqual(rotating.generations.map(job=>job.reference_ids.length),[1,3,3,3]);
-  env=setup();let statusCalls=0;env.context.fetch=async()=>{statusCalls++;return{json:async()=>statusCalls<3?{state:'done',video:{}}:{state:'running',pct:5}};};
-  vm.runInContext(script.slice(script.indexOf('function poll(jobs,'),script.indexOf('const HIST =')),env.context);
-  env.context.poll(Array.from({length:100},(_,i)=>({id:'queued-'+i,state:'queued'})),Date.now(),null);await new Promise(setImmediate);
-  assert.equal(statusCalls,3,'Large batches must stop polling after reaching the active job');
-  console.log('Photo batch checks passed: 1,001 photos without a count limit, one-file-at-a-time memory use, frozen settings, existing queue/reference preservation, cancellation, no ambiguous retries and bounded status polling.');
+  // 폴링: 추적 중인 작업을 한 번의 요청으로 묻는다. 큰 묶음은 앞쪽 몇 개만 묻고, 실행 중인 작업에서 멈춘다.
+  const pollSource=script.slice(script.indexOf('function poll(jobs,'),script.indexOf('const HIST ='));
+  const idsOf=url=>decodeURIComponent(url.split('ids=')[1]).split(',');
+  // 가짜 타이머: 다음 바퀴를 직접 돌린다
+  const polling=fetch=>{
+    const made=setup();let next=null;made.context.setTimeout=callback=>{next=callback;return 1;};made.context.fetch=fetch;
+    vm.runInContext(pollSource,made.context);
+    const settle=async()=>{for(let i=0;i<50&&!next;i++)await new Promise(resolve=>setImmediate(resolve));};
+    return{start:async jobs=>{made.context.poll(jobs,Date.now(),null);await settle();},
+      round:async()=>{const run=next;next=null;assert(run,'Polling must keep going');await run();await settle();}};
+  };
+  let asked=[];
+  let loop=polling(async url=>{asked.push(url);return{ok:true,json:async()=>({jobs:Object.fromEntries(idsOf(url).map((id,i)=>[id,i<2?{state:'done',video:{}}:i===2?{state:'running',pct:5}:{state:'queued',position:i-2}]))})};});
+  let big=Array.from({length:100},(_,i)=>({id:'queued-'+i,state:'queued'}));
+  await loop.start(big);
+  assert.equal(asked.length,1,'One status request per tick, however many jobs are tracked');
+  assert(asked[0].startsWith('/api/status?id=queued-0&ids='),'The first job is also sent as id so a server without batch status can still answer');
+  assert(idsOf(asked[0]).length<=4,'Large batches ask only for the head of the queue');
+  assert.deepEqual(big.slice(0,5).map(job=>[job.state,job.position]),[['done',undefined],['done',undefined],['running',undefined],['queued',1],['queued',undefined]],'Every answer that was asked for is applied; later jobs wait');
+  // 스무 개 이하는 전부 한 번에 묻는다
+  asked=[];
+  loop=polling(async url=>{asked.push(url);return{ok:true,json:async()=>({jobs:Object.fromEntries(idsOf(url).map(id=>[id,{state:'queued',position:3}]))})};});
+  const few=Array.from({length:20},(_,i)=>({id:'few-'+i,state:'queued'}));
+  await loop.start(few);
+  assert.equal(asked.length,1);assert.equal(idsOf(asked[0]).length,20);assert(few.every(job=>job.position===3));
+  // 응답을 받지 못한 바퀴(화면 서버 재시작·연결 끊김·오류 응답)는 '찾을 수 없음'으로 세지 않는다
+  for(const broken of [async()=>{throw new TypeError('Failed to fetch');},async()=>({ok:false,json:async()=>({error:'영상 서버 재시작 중입니다.'})}),async()=>({ok:true,json:async()=>{throw new SyntaxError('not json');}}),
+      async()=>({ok:false,status:503,json:async()=>({error:'busy',jobs:{a:{state:'unknown'},b:{state:'unknown'}}})}),async()=>({ok:false,status:500,json:async()=>({state:'unknown'})})]){
+    let calls=0;loop=polling(async url=>{calls++;return broken(url);});
+    const tracked=[{id:'a',state:'running',pct:40},{id:'b',state:'queued'}];
+    await loop.start(tracked);
+    for(let round=0;round<7;round++)await loop.round();
+    assert.equal(calls,8);
+    assert.deepEqual(tracked.map(job=>[job.state,job.miss,job.error,job.pct]),[['running',0,undefined,40],['queued',0,undefined,undefined]],'A failed request must not end or alter tracked jobs');
+  }
+  // 서버가 모른다고 답한 작업만 다섯 번 뒤에 끝낸다. 큰 묶음에서도 함께 물은 작업들이 같이 정리된다.
+  loop=polling(async url=>({ok:true,json:async()=>({jobs:Object.fromEntries(idsOf(url).map(id=>[id,{state:'unknown'}]))})}));
+  big=Array.from({length:30},(_,i)=>({id:'gone-'+i,state:'queued'}));
+  await loop.start(big);
+  for(let round=0;round<3;round++)await loop.round();
+  assert(big.every(job=>job.state==='queued'),'Four misses are not enough');
+  await loop.round();
+  assert.deepEqual(big.slice(0,5).map(job=>job.state),['error','error','error','error','queued'],'Jobs asked together are retired together');
+  assert(big[0].error.includes('작업을 찾을 수 없음'));
+  // 사이에 살아 있는 작업이 끼어 있어도, 함께 물은 사라진 작업들은 같이 정리된다
+  loop=polling(async url=>({ok:true,json:async()=>({jobs:Object.fromEntries(idsOf(url).map((id,i)=>[id,i===1?{state:'queued',position:1}:{state:'unknown'}]))})}));
+  big=Array.from({length:30},(_,i)=>({id:'mixed-'+i,state:'queued'}));
+  await loop.start(big);
+  for(let round=0;round<4;round++)await loop.round();
+  assert.deepEqual(big.slice(0,5).map(job=>job.state),['error','queued','error','error','queued']);
+  // 묶음 조회를 모르는 서버(작업 하나의 상태만 답함)에는 예전처럼 하나씩 묻는다
+  let statusCalls=0;loop=polling(async()=>{statusCalls++;return{json:async()=>statusCalls<4?{state:'done',video:{}}:{state:'running',pct:5}};});
+  await loop.start(Array.from({length:100},(_,i)=>({id:'queued-'+i,state:'queued'})));
+  assert.equal(statusCalls,4,'Legacy fallback still stops at the active job');
+  console.log('Photo batch checks passed: 1,001 photos without a count limit, one-file-at-a-time memory use, frozen settings, existing queue/reference preservation, cancellation, no ambiguous retries, one status request per tick and failed requests never retiring a job.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

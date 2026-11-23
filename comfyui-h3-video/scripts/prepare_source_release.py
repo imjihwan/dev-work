@@ -22,7 +22,7 @@ DOC_FILES = (
     "ARCHITECTURE.md", "TESTING.md", "SOURCE_RELEASE.md", "HANDOFF.md", "FACE_REFERENCES.md", "LOCAL_TRANSLATION.md",
 )
 SCRIPT_FILES = (
-    "test_get_models.py", "test_state_files.py", "test_server_http.py", "run_tests.py",
+    "test_get_models.py", "test_state_files.py", "test_server_http.py", "run_tests.py", "dev_sandbox.py", "test_queue_snapshot.py",
     "install_queue_pause.py", "test_queue_pause.py", "test_queue_pause.cjs",
     "setup.ps1", "start_comfyui.bat", "get_models.py", "download-ranges.py",
     "install_prompt_helper.py", "install_grok_cli.py", "install_face_detector.py", "install_person_detector.py", "test_person_framing.py", "install_local_translator.py", "test_face_references.py", "prepare_ui_restart.py", "prepare_source_release.py", "restart_backend.py", "test_backend_restart.py",

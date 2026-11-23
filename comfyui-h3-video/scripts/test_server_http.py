@@ -77,6 +77,7 @@ class ServerHttpTests(unittest.TestCase):
                     "HERE": str(here), "INDEX": str(here / "index.html"),
                     "print": lambda *args, **kwargs: self.logs.append(" ".join(str(arg) for arg in args)),
                     "status": lambda pid: self.status_result(pid), "build_and_queue": build,
+                    "status_many": lambda ids: {"jobs": {pid: self.status_result(pid) for pid in ids}},
                     "comfy": lambda path, data=None, headers=None: self.upstream(path, data, headers)}
         exec(compile(ast.Module(body=[helper, handler], type_ignores=[]), "<synthetic-server>", "exec"), self.env)
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self.env["H"])
@@ -403,6 +404,46 @@ class ServerHttpTests(unittest.TestCase):
         self.assertEqual(response.getheader("Content-Range"), "bytes 0-4/15")
         self.assertEqual(seen, [{"Range": "bytes=0-4"}])
         self.assertFalse(response.will_close)
+
+    def test_pages_and_text_answers_are_compressed_only_for_clients_that_accept_it(self):
+        import gzip
+        page = pathlib.Path(self.env["INDEX"])
+        page.write_text("<html>" + "합성 화면 " * 4000 + "</html>", encoding="utf-8")
+        plain, raw = self.call("GET", "/")
+        self.assertIsNone(plain.getheader("Content-Encoding"))
+        self.assertEqual(raw, page.read_bytes())
+        packed, data = self.call("GET", "/", headers={"Accept-Encoding": "gzip, deflate, br"})
+        self.assertEqual(packed.getheader("Content-Encoding"), "gzip")
+        self.assertEqual(packed.getheader("Cache-Control"), "no-store")
+        self.assertEqual(gzip.decompress(data), raw)
+        self.assertLess(len(data), len(raw) // 10)
+        for refusing in ("gzip;q=0, identity", "*;q=1, gzip;q=0", "identity", "gzip;q=zero", "*;q=0, gzip;q="):
+            with self.subTest(accept=refusing):
+                refused, data = self.call("GET", "/", headers={"Accept-Encoding": refusing})
+                self.assertIsNone(refused.getheader("Content-Encoding"))
+                self.assertEqual(data, raw)
+        anything, data = self.call("GET", "/", headers={"Accept-Encoding": "*"})
+        self.assertEqual(anything.getheader("Content-Encoding"), "gzip")
+        # 파일이 바뀌면 압축본도 새로 만든다(화면을 고친 뒤 새로고침하면 바로 반영)
+        page.write_text("<html>" + "바뀐 화면 " * 5000 + "</html>", encoding="utf-8")
+        _, data = self.call("GET", "/", headers={"Accept-Encoding": "gzip"})
+        self.assertEqual(gzip.decompress(data), page.read_bytes())
+        # 글 위주의 JSON 은 압축, 아주 작은 응답은 그대로
+        self.status_result = lambda pid: {"state": "queued", "id": pid, "note": "합성 설명 " * 400}
+        big, data = self.call("GET", "/api/status?id=a", headers={"Accept-Encoding": "gzip"})
+        self.assertEqual(big.getheader("Content-Encoding"), "gzip")
+        self.assertEqual(json.loads(gzip.decompress(data))["id"], "a")
+        self.status_result = lambda pid: {"state": "queued", "id": pid}
+        small, data = self.call("GET", "/api/status?id=a", headers={"Accept-Encoding": "gzip"})
+        self.assertIsNone(small.getheader("Content-Encoding"))
+        self.assertEqual(json.loads(data)["id"], "a")
+
+    def test_several_jobs_are_answered_by_one_status_request(self):
+        response, data = self.call("GET", "/api/status?ids=" + urllib.parse.quote("a,b b,c"))
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(data), {"jobs": {pid: {"state": "queued", "id": pid} for pid in ("a", "b b", "c")}})
+        single, data = self.call("GET", "/api/status?id=a")       # 하나씩 묻는 예전 방식도 그대로
+        self.assertEqual(json.loads(data), {"state": "queued", "id": "a"})
 
     def test_connection_is_reused_after_a_complete_response(self):
         connection = self.connection()

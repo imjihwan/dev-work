@@ -177,7 +177,77 @@ def canvas(aspect, resolution, first_size):
 
 def comfy(path, data=None, headers=None, timeout=60):
     req = urllib.request.Request(COMFY + path, data, headers or {})
-    return urllib.request.urlopen(req, timeout=timeout)
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    finally:
+        if data is not None and path in ("/prompt", "/queue", "/interrupt"):
+            # 이 서버가 대기열을 바꿨다(등록·삭제·중지): 공유 스냅샷을 버려 바로 다음 조회가 새로 받게 한다.
+            # 지금 받는 중인 스냅샷(바꾸기 전 내용일 수 있다)이 뒤늦게 저장되지 않도록 세대 번호도 올린다.
+            with QUEUE_EPOCH_LOCK:
+                QUEUE_CACHE["value"] = None
+                QUEUE_CACHE["epoch"] += 1
+
+
+# ComfyUI 의 /queue 는 대기 작업의 그래프 전체를 싣는다(작업 하나에 수십 KB, 수백 건이면 수 MB).
+# 화면은 작업마다 2초 간격으로 상태를 묻고 창·기기마다 따로 묻기 때문에, 조회마다 새로 받으면 초당 수 MB 를
+# ComfyUI 가 직렬화하고 이 서버가 해석하게 된다(영상을 만드는 프로세스의 CPU 를 쓴다).
+# 표시용 조회(상태·이력·갤러리 진행률)는 순번과 ID 만 있으면 되므로 그래프를 싣지 않는 /api/jobs 로 받고,
+# 1초 안에서는 같은 스냅샷을 나눠 쓴다. 대기열을 고치는 경로는 지금처럼 그때그때 /queue 를 새로 받는다.
+QUEUE_CACHE = {"at": 0.0, "value": None, "epoch": 0, "jobs_api_retry_at": 0.0, "failed_at": -1.0, "failure": None}
+QUEUE_CACHE_LOCK = threading.Lock()    # 받아 오는 동안 쥔다: 동시에 온 조회는 한 번만 받아 나눠 쓴다
+QUEUE_EPOCH_LOCK = threading.Lock()    # 짧게만 쥔다: 무효화와 '세대가 그대로면 저장'을 한 덩어리로
+
+
+def _fetch_queue_ids():
+    """대기열의 순번·ID 만 담은 스냅샷: {"queue_running": [[순번, ID]], "queue_pending": [[순번, ID], …]}."""
+    if time.monotonic() >= QUEUE_CACHE["jobs_api_retry_at"]:
+        try:
+            with comfy("/api/jobs?status=in_progress,pending", timeout=20) as response:
+                payload = json.load(response)
+            jobs = payload["jobs"]
+            # 모양이 다르거나 일부만 온 응답을 '빈 대기열'로 읽으면 대기 중인 작업이 사라진 것처럼 보인다
+            if not isinstance(jobs, list) or (payload.get("pagination") or {}).get("has_more"):
+                raise ValueError("unexpected job list")
+            state = {"queue_running": [], "queue_pending": []}
+            for job in jobs:
+                if not isinstance(job["id"], str) or job["status"] not in ("in_progress", "pending"):
+                    raise ValueError("unexpected job entry")
+                state["queue_running" if job["status"] == "in_progress" else "queue_pending"].append([job.get("priority") or 0, job["id"]])
+            return state
+        except urllib.error.HTTPError as exc:
+            # 없는 판(404·405)이면 오래, 그 밖의 오류면 잠깐 /queue 로 받는다
+            QUEUE_CACHE["jobs_api_retry_at"] = time.monotonic() + (300 if exc.code in (404, 405) else 30)
+        except (KeyError, TypeError, ValueError, AttributeError):       # 응답 모양이 다르다
+            QUEUE_CACHE["jobs_api_retry_at"] = time.monotonic() + 300
+    with comfy("/queue", timeout=20) as response:
+        full = json.load(response)
+    return {key: [[item[0], item[1]] for item in full.get(key, [])] for key in ("queue_running", "queue_pending")}
+
+
+def queue_snapshot(max_age=1.0):
+    """표시용 대기열 스냅샷(순번·ID 만). max_age 초 안의 것이 있으면 그대로 쓰고, 동시에 온 요청은 한 번만 받아 나눠 쓴다.
+
+    돌려준 값은 여러 요청이 함께 보므로 읽기만 한다. 그래프가 필요한 곳(수정·일괄 적용)은 쓰지 않는다.
+    받아 오기에 실패하면, 그 요청이 끝나기를 기다리던 조회들도 같은 실패를 바로 돌려받는다
+    (ComfyUI 가 응답하지 않을 때 기다리던 조회가 차례로 다시 시간 초과를 기다리지 않게).
+    """
+    asked = time.monotonic()
+    with QUEUE_CACHE_LOCK:
+        value = QUEUE_CACHE["value"]
+        if value is not None and time.monotonic() - QUEUE_CACHE["at"] <= max_age:
+            return value
+        if QUEUE_CACHE["failed_at"] >= asked:
+            raise QUEUE_CACHE["failure"]
+        epoch = QUEUE_CACHE["epoch"]
+        try:
+            value = _fetch_queue_ids()
+        except Exception as exc:
+            QUEUE_CACHE.update(failed_at=time.monotonic(), failure=exc)
+            raise
+        with QUEUE_EPOCH_LOCK:
+            if QUEUE_CACHE["epoch"] == epoch:   # 받는 동안 이 서버가 대기열을 바꿨다면 저장하지 않는다
+                QUEUE_CACHE.update(at=time.monotonic(), value=value)
+        return value
 
 
 def comfy_rejection(exc):
@@ -1641,11 +1711,15 @@ def _status(pid, q=None):
             if pid in PROGRESS:
                 PROGRESS[pid]["pct"] = 0.0
         return held
-    # 이미 받은 대기열 스냅샷이 있으면 그걸로 먼저 판정(대기·실행 중인 작업은 history 에 아직 없다)
-    if q is not None:
-        found = _queue_state(pid, q)
-        if found:
-            return found
+    # 대기열 스냅샷으로 먼저 판정한다(대기·실행 중인 작업은 history 에 아직 없다). 스냅샷은 1초 동안 여러 조회가
+    # 나눠 쓰므로, 화면이 작업마다·창마다 물어도 ComfyUI 의 전체 대기열은 초당 한 번만 받는다.
+    # 대기열에 없을 때만 history 를 묻는다: 작업은 대기열에서 빠지는 순간 history 에 적히므로 그 사이의 빈틈이 없다.
+    if q is None:
+        snapshot = globals().get("queue_snapshot")
+        q = snapshot() if snapshot else json.load(comfy("/queue"))
+    found = _queue_state(pid, q)
+    if found:
+        return found
     h = json.load(comfy(f"/history/{urllib.parse.quote(pid)}"))
     if pid in h:
         e = h[pid]
@@ -1659,9 +1733,26 @@ def _status(pid, q=None):
             elif m[0] == "execution_interrupted":
                 msg = "중지됨(이 화면의 중지 버튼이나 ComfyUI 화면에서 멈춤)"
         return {"state": "error", "error": msg or st.get("status_str", "error"), **execution_timing(e)}
-    if q is None:
-        q = json.load(comfy("/queue"))
-    return _queue_state(pid, q) or {"state": "unknown"}
+    # 대기열에도 이력에도 없다. 판정에 쓴 스냅샷은 최대 1초 묵은 것일 수 있으므로(다른 곳에서 방금 등록한 작업),
+    # '찾을 수 없음'으로 답하기 전에 새 스냅샷으로 한 번 더 본다. 사라진 작업이 많아도 0.2초에 한 번만 받는다.
+    snapshot = globals().get("queue_snapshot")
+    return (snapshot and _queue_state(pid, snapshot(max_age=0.2))) or {"state": "unknown"}
+
+
+def status_many(ids):
+    """여러 작업의 상태를 한 번에 돌려준다(화면이 추적 중인 작업 수만큼 요청을 보내지 않게).
+
+    대기열 스냅샷 하나로 대기·실행 중인 작업을 판정하고, 대기열에 없는 작업만 history 를 한 번씩 묻는다.
+    """
+    ids = list(dict.fromkeys(pid for pid in ids if isinstance(pid, str) and 0 < len(pid) <= 100))
+    if not ids or len(ids) > 200:
+        raise ValueError("상태를 확인할 작업을 1~200개로 지정해 주세요.")
+    q = None if backend_restart_hold() else queue_snapshot()
+    jobs = {}
+    for pid in ids:
+        jobs[pid] = _status(pid, q)
+        hist_result(pid, jobs[pid])
+    return {"jobs": jobs}
 
 
 def hist_list(offset, limit, identity=None):
@@ -1677,7 +1768,8 @@ def hist_list(offset, limit, identity=None):
         if e.get("state") in ("queued", "running"):
             try:
                 if q is None:
-                    q = json.load(comfy("/queue"))
+                    snapshot = globals().get("queue_snapshot")
+                    q = snapshot() if snapshot else json.load(comfy("/queue"))
                 st = _status(e["id"], q)
             except Exception:  # noqa: BLE001 — ComfyUI 꺼짐: 지금 상태만 모름
                 continue
@@ -1698,7 +1790,8 @@ def gallery_progress():
         now = time.monotonic()
         if GALLERY_PROGRESS_CACHE["value"] is not None and now - GALLERY_PROGRESS_CACHE["at"] < 2:
             return GALLERY_PROGRESS_CACHE["value"]
-        state = json.load(comfy("/queue", timeout=8))
+        snapshot = globals().get("queue_snapshot")
+        state = snapshot() if snapshot else json.load(comfy("/queue", timeout=8))
         running, pending = state.get("queue_running", []), state.get("queue_pending", [])
         active = {item[1] for item in running + pending}
         with HLOCK:
@@ -1985,11 +2078,58 @@ class H(BaseHTTPRequestHandler):
 
     def _json(self, obj, code=200):
         b = json.dumps(obj, ensure_ascii=False).encode()
+        # 글 위주의 응답(이력·모델 목록·갤러리 목록)은 압축해 보낸다. 휴대폰·원격 접속에서 차이가 크다.
+        # 아주 작은 응답은 이득이 없고, 사진이 실린 큰 응답은 잘 줄지 않으면서 CPU 만 쓰므로 그대로 보낸다.
+        packed = 1024 <= len(b) <= 1024 * 1024 and self._accepts_gzip()
+        if packed:
+            import gzip
+            b = gzip.compress(b, 5)
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        if packed:
+            self.send_header("Content-Encoding", "gzip")
+            self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(b)))
         self.end_headers()
         self.wfile.write(b)
+
+    def _accepts_gzip(self):
+        """요청이 gzip 응답을 받겠다고 했는지(Accept-Encoding). q=0 은 거절이고, gzip 을 직접 적은 쪽이 * 보다 우선한다."""
+        wanted = {}
+        for token in str((getattr(self, "headers", None) or {}).get("Accept-Encoding") or "").lower().split(","):
+            name, _, params = token.partition(";")
+            try:
+                wanted[name.strip()] = float(params.partition("q=")[2].strip()) if "q=" in params else 1.0
+            except ValueError:   # 값이 비었거나 숫자가 아니면 거절로 본다
+                wanted[name.strip()] = 0.0
+        return wanted.get("gzip", wanted.get("*", 0.0)) > 0
+
+    _packed_pages = {}   # 화면 파일의 압축본: 경로 → ((수정 시각, 크기), gzip 바이트). 파일이 바뀔 때만 다시 압축한다
+
+    def _page(self, source, content_type):
+        """화면 파일(HTML·JS)을 보낸다. 받는 쪽이 gzip 을 받으면 압축본을 보낸다(일반 화면을 여는 데 약 300KB → 90KB)."""
+        packed = self._accepts_gzip()
+        info = os.stat(source)
+        key = (info.st_mtime_ns, info.st_size)
+        cached = self._packed_pages.get(source) if packed else None
+        if cached and cached[0] == key:
+            body = cached[1]
+        else:
+            with open(source, "rb") as page:
+                body = page.read()
+            if packed:
+                import gzip
+                body = gzip.compress(body, 6)
+                self._packed_pages[source] = (key, body)
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
+        if packed:
+            self.send_header("Content-Encoding", "gzip")
+        self.send_header("Vary", "Accept-Encoding")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def parse_request(self):
         """요청 줄·헤더를 읽은 직후, 본문을 읽기 전에 받지 않을 POST 를 거른다."""
@@ -2154,22 +2294,13 @@ class H(BaseHTTPRequestHandler):
             q = dict(urllib.parse.parse_qsl(u.query))
             if u.path in ("/","/story","/gallery"):
                 source=INDEX if u.path=="/" else os.path.join(HERE,"story.html" if u.path=="/story" else "gallery.html")
-                with open(source,"rb") as page: b=page.read()
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("Content-Length", str(len(b)))
-                self.end_headers()
-                self.wfile.write(b)
+                self._page(source, "text/html; charset=utf-8")
             elif u.path == "/bulk-progress.js":
-                with open(os.path.join(HERE,"bulk-progress.js"),"rb") as script:b=script.read()
-                self.send_response(200);self.send_header("Content-Type","text/javascript; charset=utf-8");self.send_header("Cache-Control","no-store");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
+                self._page(os.path.join(HERE,"bulk-progress.js"), "text/javascript; charset=utf-8")
             elif u.path == "/queue-pause.js":
-                with open(os.path.join(HERE,"queue-pause.js"),"rb") as script:b=script.read()
-                self.send_response(200);self.send_header("Content-Type","text/javascript; charset=utf-8");self.send_header("Cache-Control","no-store");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
+                self._page(os.path.join(HERE,"queue-pause.js"), "text/javascript; charset=utf-8")
             elif u.path == "/production-assistant.js":
-                with open(os.path.join(HERE,"production_assistant.js"),"rb") as script:b=script.read()
-                self.send_response(200);self.send_header("Content-Type","text/javascript; charset=utf-8");self.send_header("Cache-Control","no-store");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
+                self._page(os.path.join(HERE,"production_assistant.js"), "text/javascript; charset=utf-8")
             elif u.path == "/api/production-assistant/conversation":
                 self._json(PRODUCTION_ASSISTANT.conversation(revision=q.get("revision"),session=q.get("session")))
             elif u.path == "/api/production-assistant/status":
@@ -2184,7 +2315,7 @@ class H(BaseHTTPRequestHandler):
                 self._json({"ok": True, "sequence_face_crop": True, "face_detector_ready": face_detector_ready(),
                             "production_assistant":True,"shared_production_chat":True,"backend_restart_guard": True, "backend_restarting": bool(backend_restart_hold())})
             elif u.path == "/api/status":
-                self._json(status(q["id"]))
+                self._json(status_many(q["ids"].split(",")) if "ids" in q else status(q["id"]))
             elif u.path == "/api/history":
                 self._json(hist_list(int(q.get("offset") or 0), min(100, int(q.get("limit") or 20)),q.get("id")))
             elif u.path == "/api/queue/bulk-context":

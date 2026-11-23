@@ -182,5 +182,58 @@ function makeWindow(initial){
   E.run('restoreBeforeEdit()');finishRead();await cancelled;
   assert.equal(E.editingJobId,null);assert.equal(E.$('summary').value,'pre-edit screen');
 
-  console.log('UI sync passed: shared state, stale-field merge, delayed-response input preservation, serialized writes and edit-load ownership/cancellation.');
+  // 한 번에 하나만 받는다: 느린 응답(사진이 실린 수 MB) 중에 온 요청은 겹쳐 보내지 않고, 끝난 뒤 한 번만 다시 받는다
+  const G=makeWindow({summary:'g',anchor:true,images:[]});await G.run('initSync()');
+  let gets=0,activeGets=0,maxGets=0,releaseGet;const getUrls=[];
+  G.fetch=async(url,options)=>{
+    if(options?.method==='POST'){const out=serverPost(JSON.parse(options.body));return {ok:out.status===200,status:out.status,json:async()=>out.body};}
+    gets++;activeGets++;maxGets=Math.max(maxGets,activeGets);getUrls.push(url);
+    const body=serverGet(url);
+    if(gets===1)await new Promise(ok=>releaseGet=ok);
+    activeGets--;return {ok:true,json:async()=>body};
+  };
+  const firstPull=G.run('pullSync()');G.run('pullSync()');G.run('pullSync()');G.run('pullSync(true)');await wait(10);
+  assert.equal(gets,1,'Pulls must not overlap');
+  releaseGet();await firstPull;await wait(20);
+  assert.equal(gets,2,'Requests made meanwhile collapse into one follow-up');assert.equal(maxGets,1);
+  assert(getUrls[1].includes('form=-1')&&getUrls[1].includes('images=-1'),'A queued full pull stays a full pull');
+  await G.run('pullSync()');assert.equal(gets,3,'Later pulls work normally');
+
+  // 전체 받기(수정 모드를 나올 때)는 받을 수 있을 때까지 기억한다: 응답이 올 때 이 창이 바빠도 사라지지 않는다
+  const K=makeWindow({summary:'k',anchor:true,images:[]});await K.run('initSync()');
+  const kUrls=[];let releaseK,kHeld=false;
+  K.fetch=async(url,options)=>{
+    if(options?.method==='POST'){const out=serverPost(JSON.parse(options.body));return {ok:out.status===200,status:out.status,json:async()=>out.body};}
+    kUrls.push(url);const body=serverGet(url);
+    if(!kHeld){kHeld=true;await new Promise(ok=>releaseK=ok);}
+    return {ok:true,json:async()=>body};
+  };
+  const kFirst=K.run('pullSync()');await wait(5);
+  K.run('pullSync(true)');K.run('SYNC.dirty.images=true');     // 받는 중에 전체 받기 요청, 응답이 올 때는 이 창이 바쁨
+  releaseK();await kFirst;await wait(10);
+  assert.equal(kUrls.length,1,'A busy window does not start the follow-up yet');
+  K.run('SYNC.dirty.images=false');await K.run('pullSync()');
+  assert(kUrls[1].includes('form=-1')&&kUrls[1].includes('images=-1'),'The remembered full refresh runs once the window is free');
+  await K.run('pullSync()');assert(!kUrls[2].includes('form=-1'),'and it runs only once');
+
+  // 낡은 응답: 요청을 보낸 뒤 이 창이 올린 내용을, 늦게 도착한 예전 내용으로 되돌리지 않는다
+  const H=makeWindow({summary:'h',anchor:true,images:[]});await H.run('initSync()');
+  A.$('summary').value='remote before H edits';A.run('save()');await wait(450);
+  let releaseStale,stalled=false;
+  H.fetch=async(url,options)=>{
+    if(options?.method==='POST'){const out=serverPost(JSON.parse(options.body));return {ok:out.status===200,status:out.status,json:async()=>out.body};}
+    const body=serverGet(url);                         // 응답 내용은 이 창이 올리기 전 시점의 것
+    if(!stalled){stalled=true;await new Promise(ok=>releaseStale=ok);}
+    return {ok:true,json:async()=>body};
+  };
+  const stalePull=H.run('pullSync()');await wait(10);assert(stalled);
+  H.$('duration').value='12';H.run('save()');await wait(1300);     // 충돌 → 최신 위에 이 창의 길이만 얹어 다시 올림
+  assert.equal(server.form.f.duration,'12');assert.equal(server.form.f.summary,'remote before H edits');
+  const pushedRev=H.run('SYNC.rev.form');assert.equal(pushedRev,server.form_rev);
+  releaseStale();await stalePull;await wait(20);
+  assert.equal(H.$('duration').value,'12','A late answer must not revert an edit this window already pushed');
+  assert.equal(H.run('SYNC.rev.form'),pushedRev,'A late answer must not move the revision backwards');
+  assert.equal(H.$('summary').value,'remote before H edits');
+
+  console.log('UI sync passed: shared state, stale-field merge, delayed-response input preservation, serialized writes, single in-flight pulls, stale-answer rejection and edit-load ownership/cancellation.');
 })().catch(error => { console.error(error); process.exit(1); });
