@@ -436,6 +436,9 @@ a{color:var(--acc)}
           <div><label>소리 shift</label><input type="number" id="shift_audio" step="0.5" min="0"></div>
         </div>
         <div class="hint" id="samplingNote" role="status"></div>
+        <label for="speedMode" style="margin-top:12px">속도 우선 <small>— 결과가 달라지는 가속(선택)</small></label>
+        <select id="speedMode"></select>
+        <div class="hint" id="speedHint" role="status"></div>
         <label style="margin-top:12px"><input type="checkbox" id="trig" checked> LoRA 트리거 단어를 프롬프트에 자동으로 넣기</label>
         <div class="foot">
           <button class="textbtn" id="saveModelDefault">이 값을 이 모델의 기본값으로 저장</button>
@@ -545,7 +548,7 @@ const FIELDS = ["subject","summary","style","keep","sound","music","aspect","res
 const PARAMS = ["steps","sampler","scheduler","shift_video","shift_audio"];
 const PARAM_NAME = {steps:"스텝", sampler:"샘플러", scheduler:"스케줄러", shift_video:"영상 shift", shift_audio:"소리 shift"};
 let CAT = null;             // /api/catalog 결과
-const S = {mode:"REF2VA", model:"", steps:4, sampler:"euler", scheduler:"simple", shift_video:11, shift_audio:4, manual:null, level:null, loras:{}, trig:true, anchor:true, oneTake:true, faceBoost:false,protectPerson:true};
+const S = {mode:"REF2VA", model:"", steps:4, sampler:"euler", scheduler:"simple", shift_video:11, shift_audio:4, manual:null, level:null, loras:{}, trig:true, anchor:true, oneTake:true, faceBoost:false,protectPerson:true, speed:""};
 const UI = {modelOpen:false, loraOpen:false, loraQ:"", info:{}};
 
 // ---------- 모드 ----------
@@ -704,7 +707,7 @@ function lengthNote(seconds){
   if (frames < 124) out.push("5초보다 짧은 영상은 H3 가 학습한 길이(약 5~15초) 밖이라 움직임·소리가 불안정할 수 있습니다.");
   return out.join(" ");
 }
-const ONE_TAKE_KEEP ="Use one uninterrupted camera take with continuous real-time action from the first frame to the last. Follow only the camera movement explicitly specified in the camera instructions. Any requested framing adjustment happens through visible, continuous camera movement within this same take. The camera settling into position does not begin a new shot. Preserve continuous subject motion and background geometry throughout, with no scene changes or new locations. Preserve the same environment as <Picture 1>, allowing its perspective and occlusion to follow the specified camera movement. No cuts, jump cuts, dissolves, fades or viewpoint resets.";
+const ONE_TAKE_KEEP = "Use one uninterrupted camera take with continuous real-time action from the first frame to the last. Follow only the camera movement explicitly specified in the camera instructions. Any requested framing adjustment happens through visible, continuous camera movement within this same take. The camera settling into position does not begin a new shot. Preserve continuous subject motion and background geometry throughout, with no scene changes or new locations. Preserve the same environment as <Picture 1>, allowing its perspective and occlusion to follow the specified camera movement. No cuts, jump cuts, dissolves, fades or viewpoint resets.";
 const FACE_REFERENCE_RETENTION="<Subject 1>: preserve one consistent facial identity throughout the shot. Keep the same underlying facial proportions, eye spacing, eyelid shape, nose, lips, jawline and natural asymmetries during blinking, speech and the expressions requested by the scene. Expression changes affect facial motion without changing the person, age or facial structure. Use <Picture 1> to resolve conflicting appearance details in the supplementary references.";
 function faceReferenceDefinition(count){
   const other=Array.from({length:count-1},(_,index)=>`<Picture ${index+2}>`),labels=other.join(", ");
@@ -945,7 +948,7 @@ function etaText(n){
   // 이 PC(5060 Ti) 실측: 768 기준 5초 영상 스텝당 약 26초 + 준비·디코딩 약 35초. 대략값.
   const res = {draft:0.55, auto:1, "720p":1.6, "1080p":4}[$("resolution").value] || 1;
   const dur = actualFrames($("duration").value) / 124;      // 실제로 만들어지는 프레임 수 기준(5초 = 124프레임)
-  const sec = (35 + S.steps * 26 * res * dur) * (n || 1);
+  const sec = (35 + S.steps * 26 * res * dur * speedTime(S.speed)) * (n || 1);
   return `예상 약 ${Math.max(1, Math.round(sec / 60))}분`;
 }
 function drawSpeed(){
@@ -1043,13 +1046,35 @@ function drawAdvanced(){
   const listed = (list, val) => val && !list.includes(val) ? [...list, val] : list;
   fill($("sampler"), listed(CAT.samplers, S.sampler), S.sampler);
   fill($("scheduler"), listed(CAT.schedulers, S.scheduler), S.scheduler);
-  drawSamplingNote();
+  drawSamplingNote(); drawSpeedMode();
   $("steps").value = S.steps; $("shift_video").value = S.shift_video; $("shift_audio").value = S.shift_audio;
   $("trig").checked = S.trig !== false;
   const direct = PARAMS.filter(k => S.manual?.[k]);
   $("advState").textContent = direct.length ? `— 직접 지정: ${direct.map(k => PARAM_NAME[k]).join(", ")}` : "— 자동(모델 권장값)";
   const m = curModel();
   $("modelDetail").innerHTML = m ? `<div class="fname">모델 파일: ${esc(m.name)}</div>${civBlock(m, "model")}` : "";
+}
+// 속도 우선(선택): 결과 영상이 기본과 달라지는 가속. 서버가 이 ComfyUI 에 필요한 노드가 있는 방식만 알려 준다(capabilities.speed_modes).
+// 시간 배수는 이 PC 실측(5초 768×960 8스텝, 기본 159초 대비): 희소 어텐션 121초, 희소 어텐션+스텝 캐시 93초.
+const SPEED_MODES = {
+  sparse: {label:"빠르게 — 희소 어텐션", short:"빠르게(희소 어텐션)", time:0.76,
+    hint:"어텐션에서 중요한 부분만 정확히 계산합니다. 같은 시드라도 기본과 다른 영상이 나옵니다(이 PC 실측: 한 편 159초 → 121초, 길거나 큰 영상일수록 더 줄어듭니다)."},
+  sparse_cache: {label:"더 빠르게 — 희소 어텐션 + 스텝 캐시", short:"더 빠르게(희소 어텐션+스텝 캐시)", time:0.58,
+    hint:"변화가 작은 스텝은 계산을 건너뛰고 앞 스텝 결과를 다시 씁니다. 이 방식에서는 희소 어텐션이 문구·참조 사진·소리 부분을 따로 보호하지 못해, '빠르게'보다 참조와의 닮음·소리·세부가 더 달라질 수 있습니다. 시안용으로 권합니다(이 PC 실측: 한 편 159초 → 93초)."},
+};
+const speedModes = () => (CAT?.capabilities?.speed_modes || []).filter(mode => SPEED_MODES[mode]);
+const speedTime = mode => SPEED_MODES[mode]?.time || 1;
+function drawSpeedMode(){
+  const select = $("speedMode"); if (!select) return;
+  const modes = speedModes();
+  // 저장해 둔 방식이 이 ComfyUI 에 없으면 지우지 않고 보여 준다(등록할 때 서버가 이유를 알려 준다)
+  const shown = S.speed && !modes.includes(S.speed) && SPEED_MODES[S.speed] ? [...modes, S.speed] : modes;
+  select.innerHTML = `<option value="">기본 — 결과 그대로</option>` + shown.map(mode => `<option value="${esc(mode)}">${esc(SPEED_MODES[mode].label)}</option>`).join("");
+  select.value = SPEED_MODES[S.speed] ? S.speed : "";
+  select.disabled = !shown.length;
+  $("speedHint").textContent = !shown.length ? "이 ComfyUI 에는 속도 우선에 필요한 노드가 없습니다."
+    : S.speed && !modes.includes(S.speed) ? "고른 방식에 필요한 노드가 이 ComfyUI 에 없습니다. 기본으로 바꿔 주세요."
+    : SPEED_MODES[S.speed]?.hint || "기본은 결과를 바꾸지 않는 최적화만 씁니다.";
 }
 // 고른 샘플러·스케줄러가 H3 에 맞지 않으면 이유를 알려 준다(목록은 ComfyUI 의 모든 모델 공용이다)
 function samplingNotes(sampler, scheduler, notes){
@@ -1072,6 +1097,7 @@ PARAMS.forEach(id => $(id).addEventListener("input", () => {
   drawPresets(); save(); drawGoInfo();
 }));
 $("trig").onchange = () => { S.trig = $("trig").checked; drawLoras(); render(); };
+$("speedMode").onchange = () => { S.speed = $("speedMode").value; drawSpeedMode(); drawSpeed(); drawGoInfo(); save(); };
 // 고급 설정은 자동이 기본이다: 직접 고친 칸(S.manual)만 그대로 두고, 나머지는 고른 모델의 권장값을 따른다.
 // 속도·품질 버튼(S.level)은 상위 설정이라 모델을 바꿔도 같은 단계(빠르게/보통/품질)로 옮겨 간다.
 function autoParams(m){
@@ -1759,7 +1785,8 @@ $("settingsList").onclick = async ev => {
     if (!r.ok) throw new Error(stored.error || "설정을 불러오지 못했습니다.");
     const snapshot = stored.data;
     setQueueEdit(null);
-    applySnapshot(snapshot);
+    // 예전에 저장한 설정 묶음에는 속도 우선이 없다 → 화면에 남아 있던 선택을 물려받지 않고 기본으로(묶음에 값이 있으면 그 값)
+    applySnapshot({...snapshot, model:{speed:"", ...snapshot.model}});
     $("settingsList").hidden = true;
     setStatus(`‘${button.dataset.setting}’ 설정을 불러왔습니다.`,"ok");
   } catch (error) { setStatus(error.message,"err"); }
@@ -1771,7 +1798,7 @@ function drawGoInfo(){
   updateSequenceButton();
   if (!CAT) return;
   const m = curModel(), n = Object.keys(S.loras).length, c = runCount();
-  $("goInfo").textContent = `${m ? friendlyModel(m) : base(S.model)} · ${S.steps}스텝${n ? ` · LoRA ${n}개` : ""}${isRef() && S.anchor ? " · 사진 1 첫 장면 고정" : ""}${isRef() && S.faceBoost ? " · 얼굴인식강화" : ""}${c > 1 ? ` · ${c}번 반복` : ""} · ${etaText(c)}`;
+  $("goInfo").textContent = `${m ? friendlyModel(m) : base(S.model)} · ${S.steps}스텝${n ? ` · LoRA ${n}개` : ""}${isRef() && S.anchor ? " · 사진 1 첫 장면 고정" : ""}${isRef() && S.faceBoost ? " · 얼굴인식강화" : ""}${SPEED_MODES[S.speed] ? ` · ${SPEED_MODES[S.speed].short}` : ""}${c > 1 ? ` · ${c}번 반복` : ""} · ${etaText(c)}`;
   const seed = $("seed").value.trim();
   $("countHint").textContent = c > 1
     ? (seed && /^\d+$/.test(seed) ? `시드 ${seed}, ${BigInt(seed) + 1n}, … 처럼 1씩 늘려 ${c}개를 만듭니다(같은 시드를 다시 넣으면 같은 결과).` : `시드를 매번 랜덤으로 바꿔 ${c}개를 만듭니다. 마음에 든 결과의 시드는 결과 목록에 표시됩니다.`)
@@ -1861,7 +1888,7 @@ async function submitJobs(sequence=false, priority=false){
       prompt_by_count: bulkIds.length && isRef() ? Object.fromEntries(Array.from({length:9},(_,i)=>[i+1,withFaceReferenceRules($("final").value,i+1)])) : undefined,
       edit_ids:allPending ? [] : bulkIds, all_pending:allPending, bulk_fields:bulkFields, photo_sequence:sequence,
       duration: $("duration").value, seed: $("seed").value, mode: sendMode(), model: S.model,
-      steps: S.steps, sampler: S.sampler, scheduler: S.scheduler, shift_video: S.shift_video, shift_audio: S.shift_audio,
+      steps: S.steps, sampler: S.sampler, scheduler: S.scheduler, shift_video: S.shift_video, shift_audio: S.shift_audio, speed: S.speed || "",
       loras: Object.entries(S.loras).map(([name,strength]) => ({name, strength})), count: sequence ? images.length : runCount(), anchor: isRef() && !!S.anchor, face_boost: faceBoost,
       ui: {f:snapshot.f, shots:snapshot.shots, actionMode:snapshot.actionMode, final:snapshot.final, trig:S.trig, oneTake:S.oneTake !== false, faceBoost:!!S.faceBoost} })});
     const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status);
@@ -1929,7 +1956,7 @@ async function submitIndividualPhotos(selectedFiles){
     if(!prompt.trim())throw new Error("2번 내용을 작성해 주세요.");
     const loras=Object.entries(m.loras).map(([name,strength])=>({name,strength}));
     const request={protect_person:m.protectPerson!==false,prompt,mode:"REF2VA",aspect:snapshot.f.aspect,resolution:snapshot.f.resolution,duration:snapshot.f.duration,seed:snapshot.seed,
-      model:m.model,...Object.fromEntries(PARAMS.map(key=>[key,m[key]])),loras,count:1,anchor:!!m.anchor,photo_sequence:false,
+      model:m.model,...Object.fromEntries(PARAMS.map(key=>[key,m[key]])),speed:m.speed||"",loras,count:1,anchor:!!m.anchor,photo_sequence:false,
       ui:{f:{...snapshot.f,count:1},shots:snapshot.shots,actionMode:snapshot.actionMode,final:snapshot.final,trig:m.trig,oneTake:m.oneTake!==false}};
     for(let index=0;index<files.length && !photoBatchStop;index++){
       $("photoBatchStatus").textContent=`사진별 추가 중 ${index+1}/${files.length} · ${added.length}개 등록${failed?`, ${failed}개 실패`:""}`;
@@ -2077,7 +2104,7 @@ async function submitFolderRotatingPhotos(){
     if([...prompts.values()].some(prompt=>!prompt.trim()))throw Error("2번 내용을 작성해 주세요.");
     const baseSeed=String(snapshot.seed??"").trim(),seed=baseSeed?BigInt(baseSeed):null;
     const request={protect_person:m.protectPerson!==false,mode:"REF2VA",aspect:snapshot.f.aspect,resolution:snapshot.f.resolution,duration:snapshot.f.duration,
-      model:m.model,...Object.fromEntries(PARAMS.map(key=>[key,m[key]])),loras,count:1,anchor:!!m.anchor,photo_sequence:false,
+      model:m.model,...Object.fromEntries(PARAMS.map(key=>[key,m[key]])),speed:m.speed||"",loras,count:1,anchor:!!m.anchor,photo_sequence:false,
       ui:{f:{...snapshot.f,count:1},shots:snapshot.shots,actionMode:snapshot.actionMode,final:snapshot.final,trig:m.trig,oneTake:m.oneTake!==false,faceBoost:!!m.faceBoost}};
     let offset=0;
     for(let groupIndex=0;groupIndex<groups.length&&!photoBatchStop;groupIndex++){
@@ -2328,7 +2355,8 @@ function historySettingsHtml(e){
     ["영상 길이",e.duration != null ? `${e.duration}초` : "기록 없음"],
     ["스텝",value(e.steps)], ["샘플러",value(e.sampler)], ["스케줄러",value(e.scheduler)],
     ["영상 shift",e.shift_applied || e.shift_video == null ? value(e.shift_video) : `${e.shift_video} (실제 ${appliedShift(e).shift_video}, 수정 전 작업)`], ["소리 shift",value(e.shift_audio)], ["시드",value(e.seed)],
-    ["얼굴 방향(자동)",faceSideText(e.face_side)], ["첫 장면 고정",toggle(e.anchor)], ["얼굴인식강화",toggle(e.ui?.faceBoost)], ["원테이크",toggle(e.ui?.oneTake)], ["트리거 자동적용",toggle(e.ui?.trig)]
+    ["얼굴 방향(자동)",faceSideText(e.face_side)], ["첫 장면 고정",toggle(e.anchor)], ["얼굴인식강화",toggle(e.ui?.faceBoost)], ["원테이크",toggle(e.ui?.oneTake)], ["트리거 자동적용",toggle(e.ui?.trig)],
+    ["속도 우선",(typeof SPEED_MODES !== "undefined" && SPEED_MODES[e.speed]?.short) || "기본"]
   ];
   const loras = Array.isArray(e.loras) ? e.loras.length
     ? `<ul>${e.loras.map(l => `<li><span>${esc(value(l.name))}</span><b>강도 ${esc(value(l.strength))}</b></li>`).join("")}</ul>`
@@ -2629,7 +2657,7 @@ async function applyCurrentBulk(all=false){
   const body={protect_person:model.protectPerson!==false,apply_current:true,all_pending:all,edit_ids:ids,bulk_fields:["content","model","video","anchor"],
     images:[],prompt,aspect:snapshot.f.aspect,resolution:snapshot.f.resolution,duration:snapshot.f.duration,
     model:model.model,steps:model.steps,sampler:model.sampler,scheduler:model.scheduler,
-    shift_video:model.shift_video,shift_audio:model.shift_audio,
+    shift_video:model.shift_video,shift_audio:model.shift_audio,speed:model.speed||"",
     loras:Object.entries(model.loras||{}).map(([name,strength])=>({name,strength})),anchor:isRef()&&!!model.anchor,
     prompt_by_count:isRef()?Object.fromEntries(Array.from({length:9},(_,i)=>[i+1,withFaceReferenceRules(prompt,i+1)])):undefined,
     ui:{f:snapshot.f,shots:snapshot.shots,actionMode:snapshot.actionMode,final:snapshot.final,trig:model.trig,oneTake:model.oneTake!==false}};
@@ -2752,6 +2780,7 @@ async function loadFromHist(e){
   if (u.oneTake != null) { S.oneTake = u.oneTake; $("oneTake").checked = u.oneTake; }
   S.faceBoost = !!u.faceBoost; $("faceBoost").checked = S.faceBoost;
   S.anchor = !!e.anchor;S.protectPerson=e.protect_person!==false; $("anchor").checked = S.anchor;
+  S.speed = SPEED_MODES[e.speed] ? e.speed : "";          // 그때 고른 속도 우선 방식(예전 이력에는 없다)
   images.length = 0; images.push(...got);
   manualFinal = false; $("resetFinal").hidden = true; $("finalHint").textContent = "위 칸을 고치면 자동으로 다시 만들어집니다.";
   drawThumbs(); drawModelCard();
@@ -2822,7 +2851,7 @@ function productionGenerationBinding(){
   if(!images.length)throw new Error("사진을 먼저 선택해 주세요.");
   refreshSubmissionPrompt();
   const snapshot=captureSettings();
-  return {protect_person:S.protectPerson!==false,images:[...images],prompt:$("final").value,aspect:$("aspect").value,resolution:$("resolution").value,duration:$("duration").value,seed:$("seed").value,mode:sendMode(),model:S.model,steps:S.steps,sampler:S.sampler,scheduler:S.scheduler,shift_video:S.shift_video,shift_audio:S.shift_audio,loras:Object.entries(S.loras).map(([name,strength])=>({name,strength})),count:runCount(),anchor:isRef()&&!!S.anchor,face_boost:isRef()&&!!S.faceBoost&&images.length>1,ui:{f:snapshot.f,shots:snapshot.shots,actionMode:snapshot.actionMode,final:snapshot.final,trig:S.trig,oneTake:S.oneTake!==false,faceBoost:!!S.faceBoost}};
+  return {protect_person:S.protectPerson!==false,images:[...images],prompt:$("final").value,aspect:$("aspect").value,resolution:$("resolution").value,duration:$("duration").value,seed:$("seed").value,mode:sendMode(),model:S.model,steps:S.steps,sampler:S.sampler,scheduler:S.scheduler,shift_video:S.shift_video,shift_audio:S.shift_audio,speed:S.speed||"",loras:Object.entries(S.loras).map(([name,strength])=>({name,strength})),count:runCount(),anchor:isRef()&&!!S.anchor,face_boost:isRef()&&!!S.faceBoost&&images.length>1,ui:{f:snapshot.f,shots:snapshot.shots,actionMode:snapshot.actionMode,final:snapshot.final,trig:S.trig,oneTake:S.oneTake!==false,faceBoost:!!S.faceBoost}};
 }
 window.H3ProductionBridge={
   beforeSnapshot(){refreshSubmissionPrompt();},

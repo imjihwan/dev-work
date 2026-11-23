@@ -65,8 +65,10 @@ SCHED, SAMPLER, SHIFT, LORA = "1512:2590", "1512:2598", "1512:2692", "2678"
 # '사진 1 첫 장면 고정' 틀 = 기본 틀 + 노드 2개(LoadImage → 네이티브 MiniMaxH3AddGuide frame 0), 연결 1곳 변경
 GUIDE, GUIDER, VIDEO_VAE = "1512:2701", "1512:2592", "1512:2584"
 ANCHOR_IMG, ANCHOR = "9001", "9002"
-# 결과를 바꾸지 않는 속도 노드: shift 노드와 미리보기 노드 사이에 끼운다(add_speed_nodes)
-PREVIEW, CHUNK_FF = "2737", "9003"
+# 속도 노드: shift 노드와 미리보기 노드 사이에 끼운다(add_speed_nodes). 9003 은 결과가 같은 노드(기본), 9004·9005 는 고른 작업에만
+PREVIEW, CHUNK_FF, SPARSE, STEP_CACHE = "2737", "9003", "9004", "9005"
+# '속도 우선' 선택(요청의 speed). 결과 영상이 기본과 달라지는 가속이라 고른 작업에만 넣는다.
+SPEED_MODES = {"sparse": ("BlockSparseAttention",), "sparse_cache": ("BlockSparseAttention", "MiniMaxH3Cache")}
 LORA_SLOTS = 10
 MULT = 32
 # draft = 초안(약 0.4MP, 공식 문서의 빠른 시험용 권장). H3 최소 짧은 변 384 는 어떤 화면비든 넘음
@@ -995,7 +997,8 @@ def catalog():
            "schedulers": object_options("BasicScheduler", "scheduler"),
            "sampling_notes": H3_SAMPLING_NOTES,
            "presets": _load_json(PRESETS, {}), "default": model_defaults(),
-           "capabilities": {"queue_edit": True, "bulk_edit": True, "bulk_edit_all": True, "photo_sequence": True, "photo_reference_pool": True, "saved_settings": True, "restart_running": True, "priority_queue": True}}
+           "capabilities": {"queue_edit": True, "bulk_edit": True, "bulk_edit_all": True, "photo_sequence": True, "photo_reference_pool": True, "saved_settings": True, "restart_running": True, "priority_queue": True,
+                            "speed_modes": speed_modes_available()}}
     # 작은 LoRA 는 처음 보면 Civitai 정보를 자동으로 가져온다(큰 본체 모델은 버튼으로)
     for c in out["loras"]:
         if "civitai" not in c and c["fetch"]["state"] == "idle" and (c["auto"].get("size_gb") or 99) < 4:
@@ -1139,6 +1142,7 @@ def regenerate_gallery(req):
         values = dict(target, count=1, edit_id=None, photo_sequence=False, prompt=source["prompt"])
         for key in ("model", "steps", "sampler", "scheduler", "shift_video", "shift_audio", "loras"):
             values[key] = source[key]
+        values["speed"] = source.get("speed") or ""          # 속도 우선 옵션도 모델 설정의 일부로 가져온다(예전 이력에는 없다)
         ui = json.loads(json.dumps(target["ui"]))
         source_ui = source["ui"]
         for key in ("subject", "summary", "style", "keep", "sound", "music"):
@@ -1393,10 +1397,16 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
     # 스케줄러가 shift 노드 뒤 모델을 받아야 Shift Video 가 영상 sigma 스케줄에 반영된다
     # (shift 앞 모델이면 H3 기본값 12 로 고정되고 화면 값은 오디오 환산에만 쓰여 어긋난다).
     p[SCHED]["inputs"]["model"] = [SHIFT, 0]
-    # 결과가 같은 속도 노드(청크 피드포워드). 이 함수만 떼어 쓰는 곳(시험 등)에서는 없을 수 있다.
+    # 속도 노드: 결과가 같은 청크 피드포워드는 항상, 결과가 달라지는 가속은 요청의 speed 로 고른 작업에만.
+    # 이 함수만 떼어 쓰는 곳(시험 등)에서는 add_speed_nodes 가 없을 수 있다.
+    speed_mode = req.get("speed") or ""
+    if not isinstance(speed_mode, str) or speed_mode not in ("", "sparse", "sparse_cache"):
+        raise ValueError("속도 우선 옵션을 확인해 주세요.")
     speed = globals().get("add_speed_nodes")
     if speed:
-        speed(p, lambda cls: cached(("node", cls), lambda: node_available(cls)))
+        speed(p, lambda cls: cached(("node", cls), lambda: node_available(cls)), speed_mode)
+    elif speed_mode:
+        raise ValueError("이 서버는 '속도 우선' 옵션을 지원하지 않습니다.")
     loras = [x for x in (req.get("loras") or []) if x.get("name")]
     if len(loras) > LORA_SLOTS:
         raise ValueError(f"LoRA 는 최대 {LORA_SLOTS}개까지입니다.")
@@ -1517,6 +1527,7 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
                "mode": mode, "model": model, "steps": steps,
                "sampler": p[SAMPLER]["inputs"]["sampler_name"], "scheduler": p[SCHED]["inputs"]["scheduler"],
                "shift_video": p[SHIFT]["inputs"]["shift_video"], "shift_audio": p[SHIFT]["inputs"]["shift_audio"], "shift_applied": True,
+               "speed": speed_mode,
                "loras": [{"name": x["name"], "strength": float(x.get("strength", 1))} for x in loras],
                "aspect": j.get("actual_aspect",aspect), "requested_aspect":aspect,"protect_person":protect_person,"framing_fallback":j.get("framing_fallback",False), "resolution": resolution, "duration": duration, "width": j["width"], "height": j["height"],
                "count": count, "anchor": anchor, "prompt": text, "images": j["images"], "face_side": j.get("face_side"),
@@ -1712,7 +1723,7 @@ def bulk_edit_queue(req):
                     for key in ("shots", "actionMode", "final", "oneTake"):
                         if key in incoming: ui[key] = incoming[key]
                 if "model" in fields:
-                    for key in ("model", "steps", "sampler", "scheduler", "shift_video", "shift_audio", "loras"):
+                    for key in ("model", "steps", "sampler", "scheduler", "shift_video", "shift_audio", "loras", "speed"):
                         if key in req: values[key] = req[key]
                     if "trig" in incoming: ui["trig"] = incoming["trig"]
                 if "anchor" in fields:
@@ -1768,26 +1779,68 @@ def node_available(cls):
     return found
 
 
-def add_speed_nodes(p, available=node_available):
-    """결과 영상을 바꾸지 않으면서 빨라지는 노드를 그래프에 끼운다(값이 아니라 노드가 늘어나는 변경 — AGENTS.md 의 예외 목록 참고).
+def add_speed_nodes(p, available=node_available, mode=""):
+    """속도 노드를 shift 노드와 미리보기 노드 사이에 차례로 끼운다(값이 아니라 노드가 늘어나는 변경 — AGENTS.md 의 예외 목록 참고).
 
-    MiniMaxChunkFeedForward(KJNodes): H3 블록의 피드포워드를 토큰 묶음으로 나눠 계산한다. 토큰 행은 서로 독립이고 int8 활성 양자화도
-    행 단위라 결과가 같다(노드 설명과 같고, 같은 시드로 실측해 프레임이 완전히 같음을 확인). 순간 메모리가 줄어 16GB 카드에서
-    가중치가 VRAM 에 더 머물고, 5초 768x960 에서 스텝당 19.12초 → 17.85초(-6.6%)였다(docs/PERFORMANCE.md).
-    끄려면 환경 변수 SIMPLEUI_CHUNK_FF=0. 노드가 없는 ComfyUI 나 예상과 다른 틀이면 아무것도 하지 않는다."""
-    if os.environ.get("SIMPLEUI_CHUNK_FF", "1").strip().lower() in ("0", "off", "false", "no"):
-        return False
+    1) 항상(결과가 같다): MiniMaxChunkFeedForward(KJNodes). H3 블록의 피드포워드를 토큰 묶음으로 나눠 계산한다. 토큰 행은 서로
+       독립이고 int8 활성 양자화도 행 단위라 결과가 같다(같은 시드로 실측해 프레임이 완전히 같음을 확인). 순간 메모리가 줄어 16GB
+       카드에서 가중치가 VRAM 에 더 머물고, 5초 768x960 에서 스텝당 19.12초 → 17.85초(-6.6%)였다(docs/PERFORMANCE.md).
+       끄려면 환경 변수 SIMPLEUI_CHUNK_FF=0. 노드가 없는 ComfyUI 나 예상과 다른 틀이면 넣지 않는다(생성을 막지 않는다).
+    2) mode 가 "sparse"·"sparse_cache" 일 때만(결과가 기본과 달라진다 — 사용자가 고른 작업에만):
+       BlockSparseAttention(ComfyUI 코어, sol-attn): 어텐션을 점수가 높은 블록만 정확히 계산한다. 스텝의 앞 20% 는 그대로 둔다.
+       MiniMaxH3Cache(DaSiWa): 변화가 작은 스텝은 블록 계산을 건너뛰고 앞 스텝의 결과를 다시 쓴다. 이 노드는 H3 의 계산 함수(_forward)를
+       자기 사본으로 바꿔 끼우는데, 그 사본은 코어가 희소 어텐션에 넘겨주는 토큰 배치 정보(minimax_h3_layout)와 블록별 어텐션 지정을
+       전달하지 않는다. 그래서 캐시를 함께 쓰면 9004 의 sink_conditioning(문구·참조·소리 행을 정확히 계산)은 효과가 없고
+       희소 어텐션은 일반 경로로만 돈다. 노드 순서를 바꿔도 같다(시안용이라고 안내하는 이유).
+       고른 방식의 노드가 이 ComfyUI 에 없으면 조용히 빼지 않고 오류로 알린다.
+    반환: 끼운 노드 종류 목록."""
     preview = p.get(PREVIEW)
-    if not preview or preview["inputs"].get("model") != [SHIFT, 0] or CHUNK_FF in p:
-        return False
-    try:
-        if not available("MiniMaxChunkFeedForward"):
-            return False
-    except (OSError, ValueError, KeyError):
-        return False                         # 확인하지 못했으면 틀 그대로 보낸다(생성을 막지 않는다)
-    p[CHUNK_FF] = {"class_type": "MiniMaxChunkFeedForward", "inputs": {"model": [SHIFT, 0], "chunks": 4, "seq_threshold": 4096}}
-    preview["inputs"]["model"] = [CHUNK_FF, 0]
-    return True
+    if not preview or preview["inputs"].get("model") != [SHIFT, 0] or any(key in p for key in (CHUNK_FF, SPARSE, STEP_CACHE)):
+        if mode:
+            raise ValueError("템플릿 구조가 예상과 달라 '속도 우선' 옵션을 쓸 수 없습니다(ARCHITECTURE §2 확인).")
+        return []
+    wanted = SPEED_MODES.get(mode, ()) if mode else ()
+    if mode and not wanted:
+        raise ValueError("속도 우선 옵션을 확인해 주세요.")
+    for cls in wanted:
+        if not available(cls):
+            raise ValueError(f"이 ComfyUI 에 {cls} 노드가 없어 고른 '속도 우선' 옵션을 쓸 수 없습니다. 기본으로 바꿔 주세요.")
+    added, source = [], [SHIFT, 0]
+    chunked = os.environ.get("SIMPLEUI_CHUNK_FF", "1").strip().lower() not in ("0", "off", "false", "no")
+    if chunked:
+        try:
+            chunked = available("MiniMaxChunkFeedForward")
+        except (OSError, ValueError, KeyError):
+            chunked = False                  # 확인하지 못했으면 이 노드 없이 보낸다(생성을 막지 않는다)
+    if chunked:
+        p[CHUNK_FF] = {"class_type": "MiniMaxChunkFeedForward", "inputs": {"model": source, "chunks": 4, "seq_threshold": 4096}}
+        source = [CHUNK_FF, 0]
+        added.append("MiniMaxChunkFeedForward")
+    if "BlockSparseAttention" in wanted:
+        p[SPARSE] = {"class_type": "BlockSparseAttention", "inputs": {
+            "model": source, "selection": "sol-attn", "selection.tau": 1.3, "start_percent": 0.2, "end_percent": 1.0, "dense_blocks": "",
+            "min_tokens": 12288, "extra_tokens": 256, "sink_conditioning": "exact_kv_and_rows", "verbose": False}}
+        source = [SPARSE, 0]
+        added.append("BlockSparseAttention")
+    if "MiniMaxH3Cache" in wanted:
+        p[STEP_CACHE] = {"class_type": "MiniMaxH3Cache", "inputs": {"model": source, "reuse_threshold": 0.05, "start_percent": 0.15,
+                                                                     "end_percent": 0.9, "max_steps": 2, "device": "auto", "verbose": False}}
+        source = [STEP_CACHE, 0]
+        added.append("MiniMaxH3Cache")
+    preview["inputs"]["model"] = source
+    return added
+
+
+def speed_modes_available():
+    """이 ComfyUI 에서 고를 수 있는 '속도 우선' 방식(필요한 노드가 모두 있는 것만). 확인에 실패하면 없는 것으로 본다."""
+    modes = []
+    for mode, classes in SPEED_MODES.items():
+        try:
+            if all(node_available(cls) for cls in classes):
+                modes.append(mode)
+        except (OSError, ValueError, KeyError):
+            pass
+    return modes
 
 
 def video_of(entry):

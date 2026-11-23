@@ -92,6 +92,35 @@ assert.equal(context.doubleTurboNote(turbo, null), '');
 assert.equal(context.doubleTurboNote(undefined, undefined), '');
 assert(script.includes('doubleTurboNote(m, turboLora())'));
 
+// "Speed first" is opt-in: the dropdown offers only the modes this ComfyUI supports, keeps a saved-but-unavailable mode visible, and every request carries it.
+const speedBox = {innerHTML:'', value:'', disabled:false}, speedHint = {textContent:''};
+context.$ = id => ({speedMode:speedBox, speedHint})[id];
+context.esc = text => String(text);
+vm.runInContext(section('const SPEED_MODES =', '// 고른 샘플러·스케줄러가'), context);
+context.CAT.capabilities = {speed_modes:['sparse', 'sparse_cache', 'future-mode']};
+S.speed = '';
+context.drawSpeedMode();
+assert.equal((speedBox.innerHTML.match(/<option/g) || []).length, 3, 'default + the two known modes; unknown server modes are ignored');
+assert.equal(speedBox.disabled, false); assert.equal(speedBox.value, '');
+assert.match(speedHint.textContent, /결과를 바꾸지 않는/);
+S.speed = 'sparse'; context.drawSpeedMode();
+assert.equal(speedBox.value, 'sparse'); assert.match(speedHint.textContent, /다른 영상이 나옵니다/);
+assert.equal(vm.runInContext('speedTime("sparse") < 1 && speedTime("sparse_cache") < speedTime("sparse") && speedTime("") === 1 && speedTime(undefined) === 1', context), true);
+context.CAT.capabilities = {speed_modes:[]};
+S.speed = 'sparse_cache'; context.drawSpeedMode();
+assert.equal(speedBox.value, 'sparse_cache', 'a saved mode stays visible on a ComfyUI that lacks the nodes');
+assert.match(speedBox.innerHTML, /<option value="sparse_cache">/, 'the saved mode is rendered as an option');
+assert.match(speedHint.textContent, /노드가 이 ComfyUI 에 없습니다/);
+S.speed = ''; context.drawSpeedMode();
+assert.equal(speedBox.disabled, true); assert.match(speedHint.textContent, /필요한 노드가 없습니다/);
+context.CAT.capabilities = undefined; context.drawSpeedMode();
+assert.equal(speedBox.disabled, true, 'an older server without the capability must not break the page');
+assert.equal((html.match(/id="speed"/g) || []).length, 1, 'the speed buttons keep their id; the dropdown is speedMode');
+for (const piece of ['speed: S.speed || ""', 'speed:m.speed||""', 'speed:model.speed||""', 'speed:S.speed||""', 'S.speed = SPEED_MODES[e.speed] ? e.speed : ""'])
+  assert(script.includes(piece), piece);
+assert.equal(script.split('speed:m.speed||""').length - 1, 2, 'both batch request builders send it');
+assert(script.includes('applySnapshot({...snapshot, model:{speed:"", ...snapshot.model}})'), 'a bundle saved before this option loads with the default, not with the choice left on screen');
+
 // The page ships automatic defaults and labels the advanced section accordingly.
 assert(script.includes('shift_video:11, shift_audio:4, manual:null, level:null'));
 assert(html.includes('id="advState"') && html.includes('자동 값으로 되돌리기'));

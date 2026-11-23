@@ -404,20 +404,22 @@ def audio_levels(path):
         with av.open(str(path)) as container:
             if not container.streams.audio:
                 return {}
-            resampler = av.AudioResampler(format="flt", layout="mono", rate=48000)
+            # 채널을 합치지 않는다(모노로 섞으면 좌우가 더해져 최대치가 실제보다 크게 나온다). 채널 순서대로 이어 붙인 표본.
+            resampler = av.AudioResampler(format="flt", layout="stereo", rate=48000)
             for frame in container.decode(container.streams.audio[0]):
                 for out in resampler.resample(frame):
-                    chunks.append(out.to_ndarray().ravel())
+                    chunks.append(out.to_ndarray().reshape(-1, 2))
     except Exception:  # noqa: BLE001 - 소리 지표는 참고용
         return {}
     if not chunks:
         return {}
-    wave = np.concatenate(chunks).astype("float64")
+    wave = np.concatenate(chunks).astype("float64")              # (표본, 2)
     rms = math.sqrt(float((wave ** 2).mean())) or 1e-9
     window = 4800
     quiet = [math.sqrt(float((wave[i:i + window] ** 2).mean())) < 0.003 for i in range(0, max(len(wave) - window, 1), window)]
     return {"audio_seconds": round(len(wave) / 48000, 2), "audio_rms_db": round(20 * math.log10(rms), 1),
-            "audio_peak_db": round(20 * math.log10(max(float(abs(wave).max()), 1e-9)), 1), "audio_quiet_share": round(sum(quiet) / len(quiet), 2)}
+            "audio_peak_db": round(20 * math.log10(max(float(abs(wave).max()), 1e-9)), 1), "audio_quiet_share": round(sum(quiet) / len(quiet), 2),
+            "audio_clipped_share": round(float((abs(wave) >= 0.98).mean()), 5)}
 
 
 def video_metrics(path):

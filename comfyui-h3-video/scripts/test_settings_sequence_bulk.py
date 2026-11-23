@@ -43,7 +43,7 @@ class FeatureTests(unittest.TestCase):
                     "object_options":lambda cls, field:["test-model.safetensors","other-model.safetensors"] if cls=="UNETLoader" else [],
                     "comfy":self.comfy, "upload":self.upload, "replace_queued_prompt":self.replace,
                     "node_available":lambda cls:cls in self.nodes}
-        self.nodes={"MiniMaxChunkFeedForward"}      # 이 가짜 ComfyUI 에 설치된 것으로 치는 선택 노드
+        self.nodes={"MiniMaxChunkFeedForward","BlockSparseAttention","MiniMaxH3Cache"}      # 이 가짜 ComfyUI 에 설치된 것으로 치는 선택 노드
         self.crop_calls=[]
         def crop(raw, model):
             self.crop_calls.append(raw)
@@ -315,6 +315,33 @@ class FeatureTests(unittest.TestCase):
         fallback=self.env["build_and_queue"](request,prepare_only=True)["prompt"]
         self.assertEqual(fallback[env["SCHED"]]["inputs"]["steps"],template[env["SCHED"]]["inputs"]["steps"])
         self.assertEqual(fallback[env["SHIFT"]]["inputs"]["shift_video"],template[env["SHIFT"]]["inputs"]["shift_video"])
+
+    def test_speed_option_chains_the_chosen_nodes_and_is_recorded_with_the_job(self):
+        # 결과가 달라지는 가속은 고른 작업에만: shift → 청크 FF → 희소 어텐션 → 스텝 캐시 → 미리보기 순으로 모델 경로에 끼운다
+        env=self.env;chunk,sparse,cache,preview,shift=env["CHUNK_FF"],env["SPARSE"],env["STEP_CACHE"],env["PREVIEW"],env["SHIFT"]
+        plain=env["build_and_queue"](self.request(count=1),prepare_only=True)["prompt"]
+        self.assertEqual((sparse in plain,cache in plain),(False,False))
+        graph=env["build_and_queue"](self.request(count=1,speed="sparse"),prepare_only=True)["prompt"]
+        self.assertEqual(graph[sparse]["class_type"],"BlockSparseAttention")
+        self.assertEqual((graph[sparse]["inputs"]["model"],graph[preview]["inputs"]["model"]),([chunk,0],[sparse,0]))
+        self.assertEqual((graph[sparse]["inputs"]["selection"],graph[sparse]["inputs"]["selection.tau"],graph[sparse]["inputs"]["start_percent"]),("sol-attn",1.3,0.2))
+        self.assertNotIn(cache,graph)
+        both=env["build_and_queue"](self.request(count=1,speed="sparse_cache"),prepare_only=True)["prompt"]
+        self.assertEqual((both[cache]["class_type"],both[cache]["inputs"]["model"],both[preview]["inputs"]["model"]),("MiniMaxH3Cache",[sparse,0],[cache,0]))
+        self.assertEqual(both[env["SCHED"]]["inputs"]["model"],[shift,0])
+        env["build_and_queue"](self.request(count=1,speed="sparse"))
+        self.assertEqual(env["HIST_DB"][-1]["speed"],"sparse")
+        env["build_and_queue"](self.request(count=1))
+        self.assertEqual(env["HIST_DB"][-1]["speed"],"")
+
+    def test_speed_option_is_refused_clearly_when_unknown_or_its_node_is_missing(self):
+        with self.assertRaisesRegex(ValueError,"속도 우선"):
+            self.env["build_and_queue"](self.request(count=1,speed="warp"))
+        self.nodes.discard("MiniMaxH3Cache")
+        with self.assertRaisesRegex(ValueError,"MiniMaxH3Cache 노드가 없어"):
+            self.env["build_and_queue"](self.request(count=1,speed="sparse_cache"))
+        self.assertEqual(self.sent,[])
+        self.assertIn(self.env["SPARSE"],self.env["build_and_queue"](self.request(count=1,speed="sparse"),prepare_only=True)["prompt"])
 
     def test_sampler_that_breaks_without_cfg_is_refused_before_anything_is_uploaded(self):
         # *_cfg_pp 는 네거티브 예측이 있어야 하는데 H3 는 CFG 없이 돈다 → 몇 분 뒤 깨진 영상이 나온다
