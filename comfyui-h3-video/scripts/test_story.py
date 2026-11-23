@@ -3,6 +3,7 @@ import copy
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import shutil
@@ -224,6 +225,75 @@ class StoryTests(unittest.TestCase):
                 self.assertAlmostEqual(float(video.duration)/av.time_base,20,delta=.15)
                 self.assertEqual((video.streams.video[0].width,video.streams.video[0].height),(192,96))
                 self.assertEqual(len(video.streams.audio),1)
+
+    def synthetic_clips(self,codecs=('libx264',)*4):
+        """움직이는 시험 무늬 5초짜리 네 편(편마다 무늬가 달라 어느 편의 프레임인지 구분된다)."""
+        paths=[]
+        for i,codec in enumerate(codecs):
+            path=self.base/f'pattern-{i}.mp4'
+            extra=['-preset','ultrafast','-threads','1'] if codec=='libx264' else ['-q:v','5']
+            command=[shutil.which('ffmpeg'),'-hide_banner','-loglevel','error','-nostdin','-y',
+                '-f','lavfi','-i',f'testsrc2=s=192x96:r=24:d=5,hue=h={i*80}','-f','lavfi','-i','anullsrc=r=32000:cl=stereo',
+                '-t','5','-pix_fmt','yuv420p','-c:v',codec,*extra,'-c:a','aac',str(path)]
+            self.assertEqual(subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode,0,'Synthetic fixture encode failed')
+            paths.append(path)
+        return paths
+
+    @staticmethod
+    def video_facts(path):
+        import av
+        with av.open(str(path)) as container:
+            stream=container.streams.video[0]
+            frames=[frame.to_ndarray(format='gray').copy() for frame in container.decode(stream)]
+            return {'codec':stream.codec_context.codec.canonical_name,'profile':stream.codec_context.profile,
+                'seconds':float(container.duration)/av.time_base,'frames':frames}
+
+    @unittest.skipUnless(shutil.which('ffmpeg'),'FFmpeg unavailable')
+    def test_merge_copies_the_video_track_when_all_clips_share_one_format(self):
+        # 다시 인코딩하면 화질이 한 번 더 깎인다(실측 -3.8dB). 같은 형식의 네 편은 프레임이 한 화소도 달라지지 않아야 한다.
+        paths=self.synthetic_clips()
+        sources=[self.video_facts(path) for path in paths]
+        merged=self.video_facts(merge_clips(paths,self.base/'copied.mp4',threading.Event()))
+        self.assertAlmostEqual(merged['seconds'],20,delta=.15)
+        self.assertEqual((merged['codec'],merged['profile']),(sources[0]['codec'],sources[0]['profile']))
+        self.assertEqual(len(merged['frames']),480)
+        for index,source in enumerate(sources):
+            for offset in (0,60,119):
+                self.assertTrue((merged['frames'][index*120+offset]==source['frames'][offset]).all(),f'{index + 1}편 {offset}번째 프레임이 달라졌습니다')
+
+    @unittest.skipUnless(shutil.which('ffmpeg'),'FFmpeg unavailable')
+    def test_merge_reencodes_when_formats_differ_when_asked_or_when_the_copy_does_not_verify(self):
+        import story
+        plain=self.synthetic_clips()
+        copied=self.video_facts(merge_clips(plain,self.base/'plain.mp4',threading.Event()))
+        with patch.dict(os.environ,{'SIMPLEUI_STORY_MERGE':'reencode'}):
+            forced=self.video_facts(merge_clips(plain,self.base/'forced.mp4',threading.Event()))
+        self.assertEqual(forced['codec'],'h264')
+        self.assertNotEqual(forced['profile'],copied['profile'],'다시 인코딩을 요청했는데 영상 트랙을 그대로 복사했습니다')
+        # 다시 인코딩한 쪽은 편마다 소리가 영상보다 조금 길어 끝의 한두 프레임이 20초 밖으로 밀릴 수 있다
+        self.assertAlmostEqual(len(forced['frames']),480,delta=3)
+        # 그대로 붙인 파일이 검증을 통과하지 못하면(여기서는 프레임 수 확인을 일부러 틀리게 한다) 다시 인코딩한 파일이 나온다
+        with patch.object(story,'decoded_frames',return_value=0):
+            repaired=self.video_facts(merge_clips(plain,self.base/'repaired.mp4',threading.Event()))
+        self.assertEqual((repaired['codec'],repaired['profile']),('h264',forced['profile']))
+        self.assertAlmostEqual(len(repaired['frames']),480,delta=3)
+        # 한 편이라도 코덱이 다르면 그대로 붙일 수 없다
+        import wave
+        music=self.base/'pattern-music.wav'
+        with wave.open(str(music),'wb') as audio:
+            audio.setnchannels(2);audio.setsampwidth(2);audio.setframerate(32000);audio.writeframes(b'\0'*(32000*4))
+        uneven=self.synthetic_clips(('libx264','libx264','mpeg4','libx264'))
+        originals=[self.video_facts(path) for path in uneven]
+        for bgm in (None,music):
+            mixed=self.video_facts(merge_clips(uneven,self.base/('mixed-music.mp4' if bgm else 'mixed.mp4'),threading.Event(),bgm))
+            self.assertEqual(mixed['codec'],'h264')
+            self.assertAlmostEqual(len(mixed['frames']),480,delta=3)
+            self.assertAlmostEqual(mixed['seconds'],20,delta=.15)
+            # 코덱이 다른 세 번째 편도 빠지지 않고 제자리에 들어간다(목록 입력으로 풀면 이 5초가 통째로 사라진다)
+            for index,source in enumerate(originals):
+                difference=abs(mixed['frames'][index*120+60].astype(int)-source['frames'][60].astype(int)).mean()
+                self.assertLess(difference,12,f'{index + 1}편 자리에 다른 화면이 들어갔습니다')
+        self.assertEqual(sorted(path.name for path in self.base.glob('*.part'))+sorted(path.name for path in self.base.glob('*.concat')),[])
 
 
     def test_brief_file_lock_neither_fails_a_stage_nor_loses_its_result(self):

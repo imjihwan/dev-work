@@ -49,20 +49,61 @@ def media_path(root, descriptor):
     return path
 
 
+# 네 편의 영상 형식이 같으면 영상 트랙은 다시 인코딩하지 않고 그대로 이어 붙인다(화질 손실 없음).
+# 실측(docs/PERFORMANCE.md '이어 만들기 병합 화질'): 조각 47.1dB → 예전 방식(libx264 veryfast crf 18) 43.4dB, 그대로 복사 47.1dB.
+COPY_CODECS={"av1","h264","hevc","vp9"}
+
+
+def clip_format(path):
+    """(크기·FPS), (코덱·화소 형식·프로파일), 프레임 수. 앞의 둘이 네 편 모두 같아야 다시 인코딩하지 않고 붙일 수 있다."""
+    with av.open(str(path)) as container:
+        video=next(iter(container.streams.video),None)
+        audio=next(iter(container.streams.audio),None)
+        if video is None or audio is None: raise ValueError("각 편에 영상·소리 트랙이 모두 필요합니다.")
+        context=video.codec_context
+        codec=getattr(context.codec,"canonical_name","") or context.name
+        return (video.width,video.height,video.average_rate),(codec,context.pix_fmt,context.profile),int(video.frames or 0)
+
+
+def decoded_frames(path):
+    """병합한 영상을 처음부터 끝까지 풀어 본다. 이어 붙인 자리가 깨졌으면 재생기 대신 여기서 드러난다."""
+    with av.open(str(path)) as container:
+        stream=container.streams.video[0]
+        stream.thread_type="AUTO"
+        return sum(1 for _ in container.decode(stream))
+
+
+def run_ffmpeg(command,cancel):
+    process=subprocess.Popen(command,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
+        creationflags=(subprocess.CREATE_NO_WINDOW|subprocess.BELOW_NORMAL_PRIORITY_CLASS) if os.name=="nt" else 0)
+    try:
+        while process.poll() is None:
+            if cancel.wait(.25):
+                process.terminate()
+                raise ValueError("병합을 취소했습니다.")
+        return process.returncode
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try: process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill();process.wait()
+
+
 def merge_clips(paths, destination, cancel, bgm=None):
-    """Normalize timestamps/audio and join exactly the four accepted clips on CPU."""
+    """Join exactly the four accepted clips on CPU; audio is always normalized.
+
+    The video track is copied as it is when all four clips share one format, so the final keeps the
+    clips' quality (and codec). Otherwise, or when the copied file does not verify, it is re-encoded.
+    SIMPLEUI_STORY_MERGE=reencode always re-encodes to H.264."""
     ffmpeg=shutil.which("ffmpeg")
     if not ffmpeg: raise ValueError("영상 병합에 필요한 FFmpeg를 찾지 못했습니다.")
     if len(paths)!=CLIP_COUNT: raise ValueError("네 편이 모두 확정되어야 합니다.")
-    shape=None
+    shape=None;formats=set();frames=[]
     for path in paths:
-        with av.open(str(path)) as container:
-            video=next(iter(container.streams.video),None)
-            audio=next(iter(container.streams.audio),None)
-            if video is None or audio is None: raise ValueError("각 편에 영상·소리 트랙이 모두 필요합니다.")
-            current=(video.width,video.height,video.average_rate)
-            if shape is not None and current!=shape: raise ValueError("네 편의 영상 크기와 FPS가 서로 다릅니다.")
-            shape=current
+        current,form,count=clip_format(path)
+        if shape is not None and current!=shape: raise ValueError("네 편의 영상 크기와 FPS가 서로 다릅니다.")
+        shape=current;formats.add(form);frames.append(count)
     final=Path(destination)
     final.parent.mkdir(parents=True,exist_ok=True)
     # 병합 중·실패한 파일이 갤러리(output/story 의 .mp4)에 보이지 않게 임시 이름으로 쓴 뒤 검증하고 옮긴다
@@ -70,39 +111,51 @@ def merge_clips(paths, destination, cancel, bgm=None):
     manifest=final.with_suffix(".concat")
     # Generated absolute paths are quoted for FFmpeg's concat syntax, never a shell.
     manifest.write_text("".join("file '"+str(Path(path).resolve()).replace("\\","/").replace("'","'\\''")+"'\n" for path in paths),encoding="utf-8")
-    command=[ffmpeg,"-hide_banner","-loglevel","error","-nostdin","-y","-f","concat","-safe","0","-i",str(manifest)]
+    seconds=CLIP_COUNT*CLIP_SECONDS
+    head=[ffmpeg,"-hide_banner","-loglevel","error","-nostdin","-y"]
+    music="volume=0.2,afade=t=out:st=19:d=1[m];{voice}[m]amix=inputs=2:duration=first:normalize=0[a]"
+    tail=["-t",str(seconds),"-c:a","aac","-ar","48000","-b:a","192k","-movflags","+faststart","-f","mp4",str(destination)]
+    # (1) 그대로 붙이기: 목록 하나를 입력으로 받아 영상 패킷을 복사한다. 소리만 다시 인코딩한다.
+    copy=head+["-f","concat","-safe","0","-i",str(manifest)]
+    # Simple audio filters cannot be combined with a mapped complex audio graph.
+    if bgm: copy += ["-stream_loop","-1","-i",str(bgm),"-filter_complex","[1:a]"+music.format(voice="[0:a]"),"-map","0:v:0","-map","[a]"]
+    else: copy += ["-map","0:v:0","-map","0:a:0","-af","aresample=async=1:first_pts=0"]
+    copy += ["-c:v","copy"]+tail
+    # (2) 다시 인코딩: 편마다 따로 풀어서 잇는다. 목록 입력은 디코더가 하나라 코덱이 다른 편의 프레임을 통째로 잃는다.
+    encode=list(head)
+    for path in paths: encode += ["-i",str(path)]
+    graph="".join(f"[{i}:v:0][{i}:a:0]" for i in range(CLIP_COUNT))+f"concat=n={CLIP_COUNT}:v=1:a=1[v]"
     if bgm:
-        command += ["-stream_loop","-1","-i",str(bgm),"-filter_complex",
-            "[1:a]volume=0.2,afade=t=out:st=19:d=1[m];[0:a][m]amix=inputs=2:duration=first:normalize=0[a]","-map","0:v:0","-map","[a]"]
-    else: command += ["-map","0:v:0","-map","0:a:0"]
-    command += ["-t",str(CLIP_COUNT*CLIP_SECONDS),"-vf","setpts=PTS-STARTPTS","-c:v","libx264","-preset","veryfast",
-        "-crf","18","-threads","2","-c:a","aac","-ar","48000","-b:a","192k","-af","aresample=async=1:first_pts=0",
-        "-movflags","+faststart","-f","mp4",str(destination)]
-    if bgm:
-        # Simple audio filters cannot be combined with a mapped complex audio graph.
-        at=command.index("-af");del command[at:at+2]
-    process=None
+        encode += ["-stream_loop","-1","-i",str(bgm)]
+        graph += f"[voice];[{CLIP_COUNT}:a]"+music.format(voice="[voice]")
+    else: graph += "[a]"
+    encode += ["-filter_complex",graph,"-map","[v]","-map","[a]","-c:v","libx264","-preset","medium","-crf","16","-threads","2"]+tail
+    attempts=[]
+    if (len(formats)==1 and next(iter(formats))[0] in COPY_CODECS and all(frames)
+            and os.environ.get("SIMPLEUI_STORY_MERGE","").strip().lower()!="reencode"):
+        attempts.append(("copy",copy))
+    attempts.append(("encode",encode))
+    expected=min(sum(frames),round(seconds*float(shape[2])))
     try:
-        process=subprocess.Popen(command,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
-            creationflags=(subprocess.CREATE_NO_WINDOW|subprocess.BELOW_NORMAL_PRIORITY_CLASS) if os.name=="nt" else 0)
-        while process.poll() is None:
-            if cancel.wait(.25):
-                process.terminate()
-                raise ValueError("병합을 취소했습니다.")
-        if process.returncode: raise ValueError("영상 병합에 실패했습니다. 각 편의 영상은 유지됩니다.")
-        with av.open(str(destination)) as result:
-            seconds=float(result.duration or 0)/av.time_base
-            if not 19.8<=seconds<=20.2: raise ValueError("병합 길이를 확인하지 못했습니다. 각 편의 영상은 유지됩니다.")
-        replace_file(destination,final)
+        for kind,command in attempts:
+            last=kind=="encode"
+            if run_ffmpeg(command,cancel):
+                if last: raise ValueError("영상 병합에 실패했습니다. 각 편의 영상은 유지됩니다.")
+                continue
+            try:
+                with av.open(str(destination)) as result:
+                    length=float(result.duration or 0)/av.time_base
+                # 그대로 붙인 영상은 프레임 수까지 확인한다(코덱 설정이 미묘하게 다른 조각이 섞이면 여기서 걸러진다)
+                intact=last or abs(decoded_frames(destination)-expected)<=3
+            except (av.error.FFmpegError,OSError,ValueError,IndexError):
+                length,intact=0,False
+            if 19.8<=length<=20.2 and intact:
+                replace_file(destination,final)
+                return final
+            if last: raise ValueError("병합 길이를 확인하지 못했습니다. 각 편의 영상은 유지됩니다.")
     finally:
-        if process and process.poll() is None:
-            process.terminate()
-            try: process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill();process.wait()
         manifest.unlink(missing_ok=True)
         destination.unlink(missing_ok=True)
-    return final
 
 
 class StoryProjects:
