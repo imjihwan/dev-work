@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 120" width="440" height="240">
+<rect width="220" height="120" fill="#e8ecf1"/>
+          <rect fill="#8798ab" x="24" y="24" width="14" height="90"/><polygon fill="#8798ab" points="38,26 52,40 38,54"/>
+          <rect fill="#8798ab" x="182" y="24" width="14" height="90"/><polygon fill="#8798ab" points="182,26 168,40 182,54"/>
+          <rect fill="#e08a3c" x="42" y="56" width="136" height="14"/>
+          <path fill="none" stroke="#1b5fcf" stroke-width="2" d="M20 40h-12m6-5l-6 5l6 5M200 40h12m-6-5l6 5l-6 5"/><path fill="none" stroke="#1b5fcf" stroke-width="2" d="M110 22v26m-6-8l6 8l6-8"/>
+          <text fill="#17202b" font-size="11" font-family="-apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif" x="60" y="94">누르면 후크가 벌어졌다 걸림</text>
+</svg>
