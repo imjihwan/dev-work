@@ -1937,6 +1937,23 @@ def production_prompt_graph(graph,text):
     return graph
 
 
+def production_face_side(text,entry):
+    """대기 그래프에 넣을 글의 {{face_side}} 를 등록할 때와 같은 규칙으로 left/right 로 바꾼다(모델에 자리표시가 그대로 들어가지 않게).
+    그 작업을 등록할 때 재 둔 방향이 이력에 있으면 그 값, 없으면 사진 1을 다시 재고, 그것도 안 되면 right(등록 때의 기본값).
+    반환: (그래프에 넣을 글, 이력에 적을 방향 또는 None). 이력의 글은 자리표시를 그대로 둔다(등록 때와 같다)."""
+    token="{{face_side}}"
+    if token not in text:return text,None
+    side=(entry or {}).get("face_side")
+    if not isinstance(side,dict) or side.get("used") not in ("left","right"):
+        side={"side":"unavailable","offset":None,"used":"right"}
+        images=(entry or {}).get("images") or []
+        measure,fetch=globals().get("judge_face_side"),globals().get("input_bytes")
+        if images and measure and fetch:
+            try:side=measure(fetch(images[0]))
+            except (urllib.error.URLError,OSError,ValueError,TypeError):pass
+    return text.replace(token,side["used"]),side
+
+
 def production_repair_prompt_state(dry_run=True):
     """Align previously saved edits only; expose counts, never work text or IDs."""
     if type(dry_run) is not bool:raise ValueError("검사 옵션을 확인해 주세요.")
@@ -2012,9 +2029,11 @@ def production_write_api(path,args,snapshot):
                             raise ValueError("조회 후 문구가 바뀌었습니다. 다시 조회해 주세요.")
                         updated=full if "prompt" in args else original
                         for edit in edits or []:updated=replacement(updated,edit["before"],edit["after"])
-                        graph=production_prompt_graph(row[2],updated)
                         entry=json.loads(json.dumps(entries[pid]))
+                        resolved,side=production_face_side(updated,entry)
+                        graph=production_prompt_graph(row[2],resolved)
                         entry.update(prompt=updated,edited_at=time.time())
+                        if side:entry["face_side"]=side
                         if not isinstance(entry.get("ui"),dict):entry["ui"]={}
                         entry["ui"]["final"]=updated
                         staged.append({"id":pid,"before":row[2],"prompt":graph,"entry":entry})
@@ -2034,12 +2053,16 @@ def production_write_api(path,args,snapshot):
         updated=full if "prompt" in args else original
         for edit in edits or []:
             updated=replacement(updated,edit["before"],edit["after"])
-        graph=production_prompt_graph(row[2],updated)
+        with HLOCK:saved=next((json.loads(json.dumps(entry)) for entry in HIST_DB if entry["id"]==pid),None)
+        resolved,side=production_face_side(updated,saved)
+        graph=production_prompt_graph(row[2],resolved)
         result=replace_queued_prompt(pid,graph,expected_graph=row[2])
         with HLOCK:
             for entry in HIST_DB:
                 if entry["id"]==pid:
-                    entry["prompt"]=updated;entry.setdefault("ui",{})["final"]=updated;entry["edited_at"]=time.time();break
+                    entry["prompt"]=updated;entry.setdefault("ui",{})["final"]=updated;entry["edited_at"]=time.time()
+                    if side:entry["face_side"]=side
+                    break
             _save_json(HIST,HIST_DB)
         return {"ok":True,"id":pid,"prompt_verified":bool(result.get("prompt_verified"))}
     if path=="/api/cancel":

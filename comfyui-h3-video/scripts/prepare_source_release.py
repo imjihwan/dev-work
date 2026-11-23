@@ -24,6 +24,7 @@ DOC_FILES = (
 )
 SCRIPT_FILES = (
     "test_get_models.py", "test_state_files.py", "test_server_http.py", "run_tests.py", "dev_sandbox.py", "test_queue_snapshot.py",
+    "bench_generation.py", "test_bench_generation.py",
     "test_setup_manifest.py", "test_auto_settings.cjs", "test_face_direction.py", "test_sigma_shift_wiring.py", "test_ui_state.py", "test_ui_sync.cjs",
     "install_queue_pause.py", "test_queue_pause.py", "test_queue_pause.cjs",
     "setup.ps1", "start_comfyui.bat", "get_models.py", "download-ranges.py",

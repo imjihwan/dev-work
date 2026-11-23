@@ -464,6 +464,32 @@ class NativeBridgeTests(unittest.TestCase):
         graph=self.replace.call_args.args[1];self.assert_mirrors(graph,graph['director']['inputs']['prompt'])
         self.assertEqual(graph['director']['inputs']['external_prompt_overwrite'],graph['director']['inputs']['prompt'])
 
+    def test_face_side_placeholder_never_reaches_the_queued_graph(self):
+        # 도우미가 최종 프롬프트를 통째로 바꿀 때 {{face_side}} 는 등록 때와 같은 규칙으로 방향 낱말이 된다. 이력의 글은 자리표시를 그대로 둔다.
+        self.with_builder();text='summary: The person looks to the {{face_side}} side of the frame.'
+        def apply(pid,graph,expected_graph):
+            self.raw['queue_pending'][0][2]=graph;return {'prompt_verified':True}
+        self.replace.side_effect=apply
+        cases=[({'used':'left','side':'left','offset':-0.3},{},'left'),          # 등록 때 재 둔 방향
+               (None,{},'right'),                                               # 잴 방법이 없으면 등록 때의 기본값
+               (None,{'judge_face_side':lambda raw:{'side':'left','offset':-0.2,'used':'left'},'input_bytes':lambda name:b'synthetic'},'left'),
+               (None,{'judge_face_side':lambda raw:{'side':'left','offset':-0.2,'used':'left'},'input_bytes':MagicMock(side_effect=OSError('offline'))},'right')]
+        for saved,tools,expected in cases:
+            for bulk in (False,True):
+                with self.subTest(saved=saved,tools=sorted(tools),bulk=bulk):
+                    for name in ('judge_face_side','input_bytes'):self.env.pop(name,None)
+                    self.env.update(tools);self.db[0].pop('face_side',None)
+                    if saved:self.db[0]['face_side']=dict(saved)
+                    snapshot=self.env['production_queue_snapshot']()
+                    snapshot['prompt_hashes']={'b':hashlib.sha256(self.raw['queue_pending'][0][2]['director']['inputs']['prompt'].encode()).hexdigest()}
+                    args={'all_pending':True,'prompt':text} if bulk else {'id':'b','prompt':text}
+                    self.env['production_write_api']('/api/production-assistant/patch-queue',args,snapshot)
+                    graph=self.raw['queue_pending'][0][2];resolved=text.replace('{{face_side}}',expected)
+                    self.assert_mirrors(graph,resolved);self.assertNotIn('{{',json.dumps(graph))
+                    self.assertEqual(self.db[0]['prompt'],text);self.assertEqual(self.db[0]['ui']['final'],text)
+                    self.assertEqual(self.db[0]['face_side']['used'],expected)
+        self.assertEqual(self.env['production_face_side']('no placeholder here',None),('no placeholder here',None))
+
     def test_invalid_builder_or_connected_override_never_submits_or_changes_original(self):
         for bad in ({'builder_state':'bad json'},{'builder_state':'[]'},{'timeline_data':'[]'},{'external_prompt_overwrite':['linked',0]}):
             graph=json.loads(json.dumps(self.graph));graph['director']['inputs'].update(bad);before=json.loads(json.dumps(graph))
