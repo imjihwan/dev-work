@@ -15,6 +15,7 @@ import time
 import urllib.error
 import urllib.parse
 import uuid
+import zlib
 
 import av
 from PIL import Image, ImageOps
@@ -55,22 +56,29 @@ COPY_CODECS={"av1","h264","hevc","vp9"}
 
 
 def clip_format(path):
-    """(크기·FPS), (코덱·화소 형식·프로파일), 프레임 수. 앞의 둘이 네 편 모두 같아야 다시 인코딩하지 않고 붙일 수 있다."""
+    """(크기·FPS), (영상 코덱·화소 형식·프로파일 + 소리 코덱·표본율·채널 수), 프레임 수.
+
+    앞의 둘이 네 편 모두 같아야 다시 인코딩하지 않고 붙일 수 있다. 목록 입력은 영상도 소리도 디코더가 하나라,
+    소리 형식이 다른 편이 섞이면 그 편의 소리가 깨진다."""
     with av.open(str(path)) as container:
         video=next(iter(container.streams.video),None)
         audio=next(iter(container.streams.audio),None)
         if video is None or audio is None: raise ValueError("각 편에 영상·소리 트랙이 모두 필요합니다.")
-        context=video.codec_context
+        context=video.codec_context;sound=audio.codec_context
         codec=getattr(context.codec,"canonical_name","") or context.name
-        return (video.width,video.height,video.average_rate),(codec,context.pix_fmt,context.profile),int(video.frames or 0)
+        return ((video.width,video.height,video.average_rate),
+            (codec,context.pix_fmt,context.profile,sound.name,sound.sample_rate,sound.channels),int(video.frames or 0))
 
 
-def decoded_frames(path):
-    """병합한 영상을 처음부터 끝까지 풀어 본다. 이어 붙인 자리가 깨졌으면 재생기 대신 여기서 드러난다."""
+def frame_checksums(path):
+    """영상을 처음부터 끝까지 풀어 프레임마다 밝기 화소의 체크섬을 낸다.
+
+    그대로 이어 붙인 파일은 각 편과 프레임이 한 화소도 달라지면 안 된다. 프레임 수만 세면, 코덱 설정이 다른 편이 섞여
+    한 편 전체가 깨진 화면으로 풀리는 파일도 통과한다(프레임은 나오기 때문)."""
     with av.open(str(path)) as container:
         stream=container.streams.video[0]
         stream.thread_type="AUTO"
-        return sum(1 for _ in container.decode(stream))
+        return [zlib.crc32(frame.to_ndarray(format="gray").tobytes()) for frame in container.decode(stream)]
 
 
 def run_ffmpeg(command,cancel):
@@ -118,7 +126,8 @@ def merge_clips(paths, destination, cancel, bgm=None):
     # (1) 그대로 붙이기: 목록 하나를 입력으로 받아 영상 패킷을 복사한다. 소리만 다시 인코딩한다.
     copy=head+["-f","concat","-safe","0","-i",str(manifest)]
     # Simple audio filters cannot be combined with a mapped complex audio graph.
-    if bgm: copy += ["-stream_loop","-1","-i",str(bgm),"-filter_complex","[1:a]"+music.format(voice="[0:a]"),"-map","0:v:0","-map","[a]"]
+    # 편의 소리가 영상보다 짧으면 그만큼 비는데, 맞춰 주지 않으면 뒤 편의 소리가 점점 앞당겨진다(배경음악이 없을 때의 -af 와 같은 처리)
+    if bgm: copy += ["-stream_loop","-1","-i",str(bgm),"-filter_complex","[0:a]aresample=async=1:first_pts=0[voice];[1:a]"+music.format(voice="[voice]"),"-map","0:v:0","-map","[a]"]
     else: copy += ["-map","0:v:0","-map","0:a:0","-af","aresample=async=1:first_pts=0"]
     copy += ["-c:v","copy"]+tail
     # (2) 다시 인코딩: 편마다 따로 풀어서 잇는다. 목록 입력은 디코더가 하나라 코덱이 다른 편의 프레임을 통째로 잃는다.
@@ -145,10 +154,15 @@ def merge_clips(paths, destination, cancel, bgm=None):
             try:
                 with av.open(str(destination)) as result:
                     length=float(result.duration or 0)/av.time_base
-                # 그대로 붙인 영상은 프레임 수까지 확인한다(코덱 설정이 미묘하게 다른 조각이 섞이면 여기서 걸러진다)
-                intact=last or abs(decoded_frames(destination)-expected)<=3
+                intact=last
+                if not last:
+                    # 그대로 붙인 영상은 모든 프레임이 각 편의 프레임과 같은지 확인한다(끝의 한두 프레임은 20초에서 잘릴 수 있다)
+                    joined=frame_checksums(destination)
+                    intact=abs(len(joined)-expected)<=3 and joined==[value for path in paths for value in frame_checksums(path)][:len(joined)]
             except (av.error.FFmpegError,OSError,ValueError,IndexError):
                 length,intact=0,False
+            # 검증하는 동안 누른 중지도 반영한다(임시 파일은 아래에서 지운다)
+            if cancel.is_set(): raise ValueError("병합을 취소했습니다.")
             if 19.8<=length<=20.2 and intact:
                 replace_file(destination,final)
                 return final
@@ -360,7 +374,12 @@ class StoryProjects:
                 destination=self.output/"story"/project_id/(uuid.uuid4().hex+".mp4")
                 path=self.merge([Path(run["video_path"]) for run in project["renders"]],destination,cancel,project.get("bgm_path"))
                 with self.lock:
-                    project=self._read(project_id);project["merged"]={"state":"done","video_path":str(path)}
+                    project=self._read(project_id)
+                    if project["active"].get("cancelled"):
+                        # 병합이 끝나는 순간에 누른 중지: 방금 만든 파일을 남기지 않는다(각 편의 영상은 그대로다)
+                        Path(path).unlink(missing_ok=True)
+                        raise ValueError("작업을 중지했습니다.")
+                    project["merged"]={"state":"done","video_path":str(path)}
                     project["active"]=None;self._write(project)
                 return
             index=operation["index"]

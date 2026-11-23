@@ -282,11 +282,22 @@ class StoryTests(unittest.TestCase):
         self.assertNotEqual(forced['profile'],copied['profile'],'다시 인코딩을 요청했는데 영상 트랙을 그대로 복사했습니다')
         # 다시 인코딩한 쪽은 편마다 소리가 영상보다 조금 길어 끝의 한두 프레임이 20초 밖으로 밀릴 수 있다
         self.assertAlmostEqual(len(forced['frames']),480,delta=3)
-        # 그대로 붙인 파일이 검증을 통과하지 못하면(여기서는 프레임 수 확인을 일부러 틀리게 한다) 다시 인코딩한 파일이 나온다
-        with patch.object(story,'decoded_frames',return_value=0):
+        # 그대로 붙인 파일이 검증을 통과하지 못하면(여기서는 프레임 확인을 일부러 틀리게 한다) 다시 인코딩한 파일이 나온다
+        with patch.object(story,'frame_checksums',return_value=[]):
             repaired=self.video_facts(merge_clips(plain,self.base/'repaired.mp4',threading.Event()))
         self.assertEqual((repaired['codec'],repaired['profile']),('h264',forced['profile']))
         self.assertAlmostEqual(len(repaired['frames']),480,delta=3)
+        # 프레임 수는 맞는데 내용이 다른 파일(한 편이 깨진 화면으로 풀리는 경우)도 통과하지 못한다
+        real=story.frame_checksums
+        with patch.object(story,'frame_checksums',side_effect=lambda path:[1]*480 if str(path).endswith('.part') else real(path)):
+            garbled=self.video_facts(merge_clips(plain,self.base/'garbled.mp4',threading.Event()))
+        self.assertEqual((garbled['codec'],garbled['profile']),('h264',forced['profile']))
+        # 소리 형식이 다른 편이 섞이면 그대로 붙이지 않는다(목록 입력은 소리 디코더도 하나라 그 편의 소리가 깨진다)
+        other=self.base/'pattern-1-44k.mp4'
+        self.assertEqual(subprocess.run([shutil.which('ffmpeg'),'-hide_banner','-loglevel','error','-nostdin','-y','-i',str(plain[1]),'-c:v','copy','-c:a','aac','-ar','44100',str(other)],
+            stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode,0)
+        uneven_sound=self.video_facts(merge_clips([plain[0],other,plain[2],plain[3]],self.base/'sound.mp4',threading.Event()))
+        self.assertEqual((uneven_sound['codec'],uneven_sound['profile']),('h264',forced['profile']))
         # 한 편이라도 코덱이 다르면 그대로 붙일 수 없다
         import wave
         music=self.base/'pattern-music.wav'
@@ -304,6 +315,65 @@ class StoryTests(unittest.TestCase):
                 difference=abs(mixed['frames'][index*120+60].astype(int)-source['frames'][60].astype(int)).mean()
                 self.assertLess(difference,12,f'{index + 1}편 자리에 다른 화면이 들어갔습니다')
         self.assertEqual(sorted(path.name for path in self.base.glob('*.part'))+sorted(path.name for path in self.base.glob('*.concat')),[])
+
+    @unittest.skipUnless(shutil.which('ffmpeg'),'FFmpeg unavailable')
+    def test_copied_merge_with_one_clip_from_other_encoder_settings_is_not_accepted_as_it_is(self):
+        # 같은 코덱·프로파일·화소 형식이라도 인코더 설정이 다르면 첫 편의 설정으로 풀려 그 편 전체가 깨진 화면이 된다(프레임 수는 그대로).
+        encoders=subprocess.run([shutil.which('ffmpeg'),'-hide_banner','-encoders'],capture_output=True,text=True,encoding='utf-8',errors='replace').stdout
+        if ' libx265 ' not in encoders: self.skipTest('libx265 unavailable')
+        paths=[]
+        for i in range(4):
+            path=self.base/f'hevc-{i}.mp4'
+            options='log-level=error'+(':signhide=0' if i==1 else '')
+            command=[shutil.which('ffmpeg'),'-hide_banner','-loglevel','error','-nostdin','-y',
+                '-f','lavfi','-i',f'testsrc2=s=192x96:r=24:d=5,hue=h={i*80}','-f','lavfi','-i','anullsrc=r=32000:cl=stereo',
+                '-t','5','-pix_fmt','yuv420p','-c:v','libx265','-preset','fast','-x265-params',options,'-c:a','aac',str(path)]
+            self.assertEqual(subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode,0,'Synthetic fixture encode failed')
+            paths.append(path)
+        sources=[self.video_facts(path) for path in paths]
+        merged=self.video_facts(merge_clips(paths,self.base/'hevc.mp4',threading.Event()))
+        self.assertEqual(merged['codec'],'h264','깨진 채로 풀리는 복사본이 그대로 통과했습니다(프레임 수만 맞는 경우)')
+        self.assertAlmostEqual(len(merged['frames']),480,delta=3)
+        for index,source in enumerate(sources):
+            for offset in (0,60,115):
+                difference=abs(merged['frames'][index*120+offset].astype(int)-source['frames'][offset].astype(int)).mean()
+                self.assertLess(difference,12,f'{index + 1}편 {offset}번째 프레임이 깨졌습니다')
+
+    @unittest.skipUnless(shutil.which('ffmpeg'),'FFmpeg unavailable')
+    def test_merge_details_music_alignment_and_stop_during_the_check(self):
+        import story
+        import wave
+        plain=self.synthetic_clips()
+        music=self.base/'align-music.wav'
+        with wave.open(str(music),'wb') as audio:
+            audio.setnchannels(2);audio.setsampwidth(2);audio.setframerate(32000);audio.writeframes(b'\0'*(32000*4))
+        commands=[];run=story.run_ffmpeg
+        with patch.object(story,'run_ffmpeg',side_effect=lambda command,cancel:(commands.append(command),run(command,cancel))[1]):
+            merge_clips(plain,self.base/'aligned.mp4',threading.Event(),music)
+        self.assertEqual(len(commands),1,'같은 형식의 네 편은 그대로 붙이는 한 번으로 끝난다')
+        graph=commands[0][commands[0].index('-filter_complex')+1]
+        # 편의 소리가 영상보다 짧을 때 빈 곳을 채워야 뒤 편의 소리가 앞당겨지지 않는다(배경음악이 없을 때와 같은 처리)
+        self.assertIn('[0:a]aresample=async=1:first_pts=0[voice]',graph);self.assertIn('[voice][m]amix',graph)
+        # 검증하는 동안 누른 중지: 결과 파일을 남기지 않고 취소로 끝난다
+        cancel=threading.Event();real=story.frame_checksums
+        with patch.object(story,'frame_checksums',side_effect=lambda path:(cancel.set(),real(path))[1]):
+            with self.assertRaisesRegex(ValueError,'병합을 취소했습니다'):
+                merge_clips(plain,self.base/'stopped.mp4',cancel)
+        self.assertFalse((self.base/'stopped.mp4').exists())
+        self.assertEqual(sorted(path.name for path in self.base.glob('*.part'))+sorted(path.name for path in self.base.glob('*.concat')),[])
+
+    def test_stop_pressed_as_the_merge_finishes_is_not_overwritten_by_done(self):
+        for index in range(CLIP_COUNT):self.render(index)
+        made=[]
+        def merge(paths,destination,cancel,bgm):
+            destination.parent.mkdir(parents=True,exist_ok=True);destination.write_bytes(b'synthetic-merge');made.append(destination)
+            self.store.cancel(self.pid)      # 병합이 끝나는 순간에 누른 중지
+            return destination
+        self.store.merge=merge
+        self.store.start_merge(self.pid);result=self.wait()
+        self.assertIsNone(result['merged']);self.assertEqual(result.get('merge_error'),'작업을 중지했습니다.')
+        self.assertIsNone(result['active']);self.assertFalse(made[0].exists(),'중지한 병합의 결과 파일이 남았습니다')
+        self.assertTrue(all(run['state']=='done' and run['has_video'] for run in result['renders']),'각 편의 영상은 그대로다')
 
 
     def test_brief_file_lock_neither_fails_a_stage_nor_loses_its_result(self):
