@@ -27,6 +27,70 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
+class GalleryStateFileTests(unittest.TestCase):
+    """즐겨찾기·휴지통 상태 파일: 읽지 못한 것을 빈 상태로 보고 덮어쓰지 않는다. 합성 파일만 쓴다."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.base = Path(self.temp.name)
+        self.output, self.home = self.base / "output", self.base / "gallery_data"
+        path = self.output / "video/2026-11-15/synthetic.mp4"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"synthetic-not-a-user-video")
+        os.utime(path, (time.time() - 20, time.time() - 20))
+        self.identity = MODULE.VideoGallery(self.output, self.home).list()["items"][0]["id"]
+
+    def favorite(self, gallery=None):
+        gallery = gallery or MODULE.VideoGallery(self.output, self.home)
+        return gallery.update({"ids": [self.identity], "action": "favorite", "value": True})
+
+    def test_locked_state_file_fails_the_request_instead_of_wiping_saved_flags(self):
+        self.favorite()
+        state, saved = self.home / "state.json", (self.home / "state.json").read_bytes()
+        gallery, real = MODULE.VideoGallery(self.output, self.home), Path.read_text
+
+        def locked(path, *args, **kwargs):
+            if path == state:
+                raise PermissionError(13, "synthetic lock")
+            return real(path, *args, **kwargs)
+        with patch.object(Path, "read_text", locked), patch.object(MODULE.time, "sleep"):
+            with self.assertRaises(OSError):
+                gallery.list()
+            with self.assertRaises(OSError):
+                gallery.update({"ids": [self.identity], "action": "trash"})
+        self.assertEqual(state.read_bytes(), saved)
+        self.assertTrue(gallery.list(mode="favorites")["items"][0]["favorite"])   # 잠금이 풀리면 그대로 읽는다
+
+    def test_corrupt_state_file_is_kept_aside_once_and_the_gallery_keeps_working(self):
+        self.favorite()
+        state = self.home / "state.json"
+        state.write_bytes(b'{"damaged": ')
+        gallery = MODULE.VideoGallery(self.output, self.home)
+        self.assertEqual(gallery.list()["counts"], {"all": 1, "favorites": 0, "trash": 0})
+        kept = [path for path in self.home.iterdir() if ".corrupt-" in path.name]
+        self.assertEqual([path.read_bytes() for path in kept], [b'{"damaged": '])
+        self.favorite(gallery)
+        self.assertEqual(len([path for path in self.home.iterdir() if ".corrupt-" in path.name]), 1)
+        self.assertTrue(MODULE.VideoGallery(self.output, self.home).list()["items"][0]["favorite"])
+
+    def test_briefly_refused_replace_is_retried_and_a_lost_save_is_not_shown_as_saved(self):
+        real, denied = os.replace, [PermissionError(13, "synthetic scanner")] * 3
+
+        def flaky(source, target):
+            if denied:
+                raise denied.pop()
+            return real(source, target)
+        with patch.object(MODULE.os, "replace", flaky), patch.object(MODULE.time, "sleep"):
+            self.favorite()
+        self.assertEqual(denied, [])
+        gallery = MODULE.VideoGallery(self.output, self.home)
+        with patch.object(MODULE.os, "replace", side_effect=PermissionError(13, "synthetic scanner")), patch.object(MODULE.time, "sleep"):
+            with self.assertRaises(OSError):
+                gallery.update({"ids": [self.identity], "action": "trash"})
+        listed = gallery.list()["items"][0]
+        self.assertEqual((listed["favorite"], listed["trashed"]), (True, False))   # 저장 못 한 휴지통 표시는 보이지 않는다
+
+
 class GalleryTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

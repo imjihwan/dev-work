@@ -1,6 +1,7 @@
 """Owned CPU translation process, bounded memory cache, no external text requests or prompt files."""
 from collections import OrderedDict
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -122,7 +123,8 @@ class LocalTranslator:
                 try:
                     with urllib.request.urlopen(self.base + "/health", timeout=1) as response:
                         if response.status == 200: break
-                except urllib.error.URLError:
+                except (OSError, http.client.HTTPException):
+                    # 연결 거부(URLError)뿐 아니라 응답을 기다리다 난 시간 초과·끊김도 '아직 준비 안 됨'이다
                     pass
                 time.sleep(.25)
             else: raise RuntimeError("Translation model startup timed out")

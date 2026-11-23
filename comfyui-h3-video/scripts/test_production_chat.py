@@ -1,4 +1,5 @@
 """Fake conversations and temporary paths only. Never reads live transcripts."""
+import http.client
 import importlib.util
 import json
 import os
@@ -181,6 +182,48 @@ class IntegrationTests(StoreTests):
         manager._run(validate_input(body),started['id'],helper.cancel_event);pid=helper.job['production']['plan_id']
         state=self.chat.snapshot();self.chat.clear(state['revision'])
         with self.assertRaises(ValueError):manager.claim({'plan_id':pid,'index':0})
+
+
+    def test_briefly_locked_transcript_is_retried_and_a_lost_save_never_blocks_later_turns(self):
+        real=os.replace;denied=[PermissionError(13,'synthetic scanner')]*3
+        def flaky(source,target):
+            if denied:raise denied.pop()
+            return real(source,target)
+        with patch('production_chat.os.replace',flaky),patch('production_chat.time.sleep'):
+            started=self.chat.begin(0,'synthetic','Question')
+        self.assertEqual(denied,[]);self.assertEqual(ProductionChat(self.path).snapshot()['messages'][0]['text'],'Question')
+        # The lock outlasts every retry while the answer is stored: the answer is lost, the turn is not left open.
+        with patch('production_chat.os.replace',side_effect=PermissionError(13,'synthetic scanner')),patch('production_chat.time.sleep'):
+            with self.assertRaises(OSError):self.chat.complete('synthetic','Answer')
+        self.assertIsNone(self.chat.snapshot()['active'])
+        self.chat.begin(started['revision'],'synthetic-next','Next question')
+        self.chat.complete('synthetic-next','Next answer')
+        self.assertEqual([row['text'] for row in self.chat.snapshot()['messages']][-2:],['Next question','Next answer'])
+        self.assertEqual([path.name for path in self.path.parent.iterdir()],[self.path.name])   # no temporary files left
+
+    def test_shared_progress_or_receipt_write_failure_does_not_fail_the_request_or_strand_a_step(self):
+        manager,helper=self.manager();manager.write_api=MagicMock()
+        change={'kind':'set','target':'main:1','before':'Original','value':'Revised','label':'합성 문구 수정','path':'','args':'{}'}
+        helper.grok.complete.return_value={'reply':'합성 변경안입니다.','intent':'propose','reads':[],'actions':[change]}
+        body={'message':'다듬어줘','controls':[{'ref':'main:1','id':'style','value':'Original','type':'textarea'}],'chat_revision':0}
+        with patch('production_assistant.threading.Thread') as worker:first=manager.start(body)
+        with patch.object(self.chat,'progress',side_effect=PermissionError(13,'synthetic scanner')):
+            manager._run(worker.call_args.kwargs['args'][0],first['id'],helper.cancel_event)
+        self.assertEqual(helper.job['state'],'done');plan=helper.job['production']['plan_id']
+        with patch.object(self.chat,'plan_state',side_effect=PermissionError(13,'synthetic scanner')):
+            self.assertEqual(manager.claim({'plan_id':plan,'index':0})['action']['value'],'Revised')
+            self.assertEqual(manager.finish({'plan_id':plan,'index':0,'ok':True})['state'],'done')
+
+    def test_unexpected_failure_still_ends_the_job_instead_of_leaving_the_helper_busy(self):
+        manager,helper=self.manager()
+        for failure in (OverflowError('synthetic'),AttributeError('synthetic'),http.client.IncompleteRead(b'')):
+            with self.subTest(failure=type(failure).__name__):
+                helper.job=None;helper.grok.complete.side_effect=failure
+                body={'message':'합성 질문','controls':[],'chat_revision':self.chat.snapshot()['revision']}
+                with patch('production_assistant.threading.Thread') as worker:started=manager.start(body)
+                manager._run(worker.call_args.kwargs['args'][0],started['id'],helper.cancel_event)
+                self.assertEqual(helper.job['state'],'error');self.assertNotIn('synthetic',helper.job['error'])
+                self.assertIsNone(self.chat.snapshot()['active'])
 
 
 if __name__=='__main__':unittest.main()

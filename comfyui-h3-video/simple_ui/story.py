@@ -21,6 +21,23 @@ from PIL import Image, ImageOps
 from story_workflow import CLIP_COUNT, CLIP_SECONDS, DIRECTOR, compose_prompt, continuation_graph
 
 
+def replace_file(source, target):
+    """Atomic replace that survives a short Windows lock on either file.
+
+    A scanner, indexer or another reader briefly holding the file makes os.replace
+    fail with PermissionError. Without the retry a finished clip or merge is reported
+    as failed, or the worker stops tracking a job that is still running.
+    """
+    for attempt in range(8):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == 7:
+                raise
+            time.sleep(.02 * (attempt + 1))
+
+
 def media_path(root, descriptor):
     if not isinstance(descriptor,dict) or descriptor.get("type")!="output":
         raise ValueError("이 프로젝트의 영상 출력을 확인하지 못했습니다.")
@@ -76,7 +93,7 @@ def merge_clips(paths, destination, cancel, bgm=None):
         with av.open(str(destination)) as result:
             seconds=float(result.duration or 0)/av.time_base
             if not 19.8<=seconds<=20.2: raise ValueError("병합 길이를 확인하지 못했습니다. 각 편의 영상은 유지됩니다.")
-        os.replace(destination,final)
+        replace_file(destination,final)
     finally:
         if process and process.poll() is None:
             process.terminate()
@@ -105,14 +122,19 @@ class StoryProjects:
         return self.home/project_id/"project.json"
 
     def _read(self,project_id):
-        with self._path(project_id).open(encoding="utf-8") as handle: return json.load(handle)
+        try:
+            with self._path(project_id).open(encoding="utf-8") as handle: return json.load(handle)
+        except FileNotFoundError:
+            # 지워졌거나 다른 PC 의 프로젝트 번호: 서버 경로가 담긴 원문 오류 대신 알린다
+            raise ValueError("프로젝트를 찾을 수 없습니다.") from None
 
     def _write(self,project):
         path=self._path(project["id"])
         path.parent.mkdir(parents=True,exist_ok=True)
         temp=path.with_suffix(".tmp")
-        temp.write_text(json.dumps(project,ensure_ascii=False),encoding="utf-8")
-        os.replace(temp,path)
+        with temp.open("w",encoding="utf-8") as handle:
+            handle.write(json.dumps(project,ensure_ascii=False));handle.flush();os.fsync(handle.fileno())
+        replace_file(temp,path)
 
     def _public(self,project):
         result=copy.deepcopy(project)
@@ -340,7 +362,8 @@ class StoryProjects:
                 with self.lock:
                     project=self._read(project_id)
                     project["renders"][index].update(state=state["state"],pct=state.get("pct",0),position=state.get("position"),label=state.get("label",""))
-                    self._write(project)
+                    try: self._write(project)
+                    except OSError: pass  # 진행 표시만 한 번 건너뛴다. 생성 작업은 계속 돌고 있으므로 실패로 끝내지 않는다
                 cancel.wait(2)
             raise ValueError("작업을 중지했습니다.")
         except (OSError,ValueError,KeyError,TypeError) as error:

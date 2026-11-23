@@ -1,5 +1,6 @@
 """Text-only prompt drafts using an on-demand, low-priority CPU process."""
 import ctypes
+import http.client
 import json
 import math
 import os
@@ -800,7 +801,8 @@ class PromptHelper:
                     try:
                         with urllib.request.urlopen(base + "/health", timeout=1) as response:
                             ready = response.status == 200
-                    except urllib.error.URLError:
+                    except (OSError, http.client.HTTPException):
+                        # 연결 거부(URLError)뿐 아니라 응답을 기다리다 난 시간 초과·끊김도 '아직 준비 안 됨'이다
                         pass
                     if ready: break
                     time.sleep(.5)
@@ -896,7 +898,7 @@ class PromptHelper:
                 if notes:
                     draft["review"]["issues"]=unrequested_issues(notes)+draft["review"]["issues"]
                     if draft["review"]["status"] in ("ok","unavailable"): draft["review"]["status"]="caution"
-            except (OSError,ValueError,KeyError,IndexError,TypeError):
+            except Exception:  # noqa: BLE001 — 검토는 덧붙이는 단계다. 시간 초과(RuntimeError)를 포함해 어떤 실패도 완성된 초안을 버리지 않는다
                 if reason or self.cancel_event.is_set(): raise RuntimeError("검토를 중지했습니다.")
                 draft["review"]={"status":"unavailable","summary":"동작·시간 검토를 완료하지 못했습니다. 현재 내용 검토 버튼으로 다시 요청해 주세요.","issues":unrequested_issues(notes)}
             if reason or self.cancel_event.is_set(): raise RuntimeError("검토를 중지했습니다.")
@@ -906,6 +908,9 @@ class PromptHelper:
         except (OSError, ValueError, KeyError, IndexError, TypeError, RuntimeError) as exc:
             message = reason[0] if reason else str(exc) if isinstance(exc, (ValueError, RuntimeError)) else "프롬프트 도우미가 응답하지 못했습니다. 다시 시도해 주세요."
             final = {"state": "cancelled" if self.cancel_event.is_set() else "error", "error": message}
+        except Exception:  # noqa: BLE001 — 예상 밖 예외에도 작업 상태를 끝낸다. 그대로 두면 '작성 중'으로 남아 다음 요청·번역이 서버를 다시 켤 때까지 막힌다
+            final = {"state": "cancelled" if self.cancel_event.is_set() else "error",
+                     "error": reason[0] if reason else "프롬프트 도우미가 응답하지 못했습니다. 다시 시도해 주세요."}
         finally:
             stop_monitor.set()
             if process and process.poll() is None:

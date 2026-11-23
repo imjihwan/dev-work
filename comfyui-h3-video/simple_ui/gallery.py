@@ -10,6 +10,18 @@ import threading
 import time
 import uuid
 
+def replace_file(source, target):
+    """os.replace 를 Windows 의 짧은 파일 잠금(백신·색인·읽는 중인 다른 요청)에 견디게 한다."""
+    for attempt in range(8):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == 7:
+                raise
+            time.sleep(0.02 * (attempt + 1))
+
+
 class VideoGallery:
     def __init__(self, output, home, thumbnailer=None):
         self.output = Path(output).resolve()
@@ -22,17 +34,44 @@ class VideoGallery:
         self.thumbnailer = thumbnailer
 
     def _load_state(self):
-        if self.state is None:
+        """즐겨찾기·휴지통·원본 사진 연결을 읽는다(잠금 안에서 부른다).
+
+        파일이 없을 때만 빈 상태로 시작한다. 읽지 못한 것을 빈 상태로 두면 다음 저장이 즐겨찾기·휴지통 표시를
+        통째로 지운다. 잠깐 잠긴 파일은 다시 읽고, 끝내 못 읽으면 이번 요청만 실패시킨다(다음 요청이 다시 읽는다).
+        내용이 깨진 파일은 '.corrupt-<시각>.bak' 으로 옮겨 보관한 뒤 빈 상태로 시작한다.
+        """
+        if self.state is not None:
+            return
+        path = self.home / "state.json"
+        for attempt in range(4):
             try:
-                self.state = json.loads((self.home / "state.json").read_text(encoding="utf-8"))
-            except (OSError, ValueError):
+                state = json.loads(path.read_text(encoding="utf-8-sig"))
+                if not isinstance(state, dict):
+                    raise ValueError("unexpected top-level type")
+                self.state = state
+                return
+            except FileNotFoundError:
                 self.state = {}
+                return
+            except (ValueError, RecursionError):
+                backup = path.with_name(f"state.json.corrupt-{time.strftime('%Y%m%d-%H%M%S')}-{time.time_ns() % 10**9:09d}.bak")
+                os.rename(path, backup)
+                print(f"갤러리 상태 파일이 깨져 있어 {backup.name} 으로 보관하고 빈 상태로 시작합니다.", flush=True)
+                self.state = {}
+                return
+            except OSError:
+                if attempt == 3:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
 
     def _save_state(self):
         self.home.mkdir(parents=True, exist_ok=True)
         temporary = self.home / "state.json.tmp"
-        temporary.write_text(json.dumps(self.state, ensure_ascii=False), encoding="utf-8")
-        os.replace(temporary, self.home / "state.json")
+        with temporary.open("w", encoding="utf-8") as handle:
+            handle.write(json.dumps(self.state, ensure_ascii=False))
+            handle.flush()
+            os.fsync(handle.fileno())
+        replace_file(temporary, self.home / "state.json")
 
     def _path(self, relative):
         relative = Path(relative)
@@ -191,7 +230,12 @@ class VideoGallery:
                     flags["trashed_at"] = time.time()
                 else:
                     flags.pop("trashed_at", None)
-            self._save_state()
+            try:
+                self._save_state()
+            except OSError:
+                # 저장하지 못한 변경이 메모리에만 남아 '반영된 것처럼' 보이지 않게, 다음 요청이 파일에서 다시 읽게 한다
+                self.state = None
+                raise
         return {"ok": True, "ids": list(dict.fromkeys(ids))}
 
     def thumbnail(self, identity, version):
@@ -220,7 +264,12 @@ class VideoGallery:
             temporary = path.with_name(f"{path.stem}.{uuid.uuid4().hex}.tmp")
             try:
                 temporary.write_bytes(data)
-                os.replace(temporary, path)
+                replace_file(temporary, path)
+            except OSError:
+                pass  # 캐시를 못 남겼을 뿐이다. 만든 썸네일은 그대로 돌려주고 다음 요청이 다시 만든다
             finally:
-                temporary.unlink(missing_ok=True)
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass  # 임시 파일까지 잠겨 있어도 이미 만든 썸네일은 돌려준다
         return data

@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 import uuid
 import urllib.error
 
@@ -223,6 +224,43 @@ class StoryTests(unittest.TestCase):
                 self.assertAlmostEqual(float(video.duration)/av.time_base,20,delta=.15)
                 self.assertEqual((video.streams.video[0].width,video.streams.video[0].height),(192,96))
                 self.assertEqual(len(video.streams.audio),1)
+
+
+    def test_brief_file_lock_neither_fails_a_stage_nor_loses_its_result(self):
+        import story
+        real=story.os.replace;calls={'n':0}
+        def flaky(source,target):
+            calls['n']+=1
+            if calls['n']%3==0:raise PermissionError(13,'synthetic scanner')   # every third replace is refused once
+            return real(source,target)
+        with patch.object(story.os,'replace',flaky):
+            for i in range(2):self.render(i)
+        self.assertGreater(calls['n'],6)
+        self.assertEqual([r['state'] for r in self.store.get(self.pid)['renders'][:2]],['done','done'])
+
+    def test_progress_write_failure_while_running_does_not_end_the_stage(self):
+        self.mode='running';self.store.start(self.pid,0)
+        deadline=time.monotonic()+3
+        while not self.checkpoints and time.monotonic()<deadline:time.sleep(.01)
+        owned=next(iter(self.checkpoints));original=self.store._write;failed=[]
+        def write(project):
+            if project.get('active') and project['renders'][0].get('state')=='running' and not failed:
+                failed.append(True);raise PermissionError(13,'synthetic scanner')
+            return original(project)
+        self.store._write=write
+        deadline=time.monotonic()+5
+        while not failed and time.monotonic()<deadline:time.sleep(.01)
+        self.assertTrue(failed)
+        self.assertIn(self.pid,self.store.workers)          # still following the job
+        video=self.output/'story'/self.pid/(owned+'.mp4')
+        self.states[owned]={'state':'done','video':{'type':'output','filename':video.name,'subfolder':str(video.parent.relative_to(self.output))}}
+        deadline=time.monotonic()+6
+        while self.pid in self.store.workers and time.monotonic()<deadline:time.sleep(.02)
+        self.assertEqual(self.store.get(self.pid)['renders'][0]['state'],'done')
+
+    def test_unknown_project_is_reported_without_a_server_path(self):
+        with self.assertRaises(ValueError) as caught:self.store.get('f'*32)
+        self.assertEqual(str(caught.exception),'프로젝트를 찾을 수 없습니다.')
 
 
 if __name__=='__main__':unittest.main()

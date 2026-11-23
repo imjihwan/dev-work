@@ -89,7 +89,13 @@ class ProductionChat:
         try:
             with os.fdopen(fd,"w",encoding="utf-8") as handle:
                 json.dump(data,handle,ensure_ascii=False,separators=(",",":"));handle.flush();os.fsync(handle.fileno())
-            os.replace(temporary,self.path)
+            # Windows: a scanner or a maintenance script briefly holding the file makes
+            # the replace fail with PermissionError. Retry shortly instead of failing the turn.
+            for attempt in range(8):
+                try:os.replace(temporary,self.path);break
+                except PermissionError:
+                    if attempt==7:raise
+                    time.sleep(.02*(attempt+1))
         finally:
             if os.path.exists(temporary):os.unlink(temporary)
         self.state=data
@@ -167,7 +173,14 @@ class ProductionChat:
             if not self.state["active"] or self.state["active"]["id"]!=identity:return None
             data=copy.deepcopy(self.state);entry={"id":uuid.uuid4().hex,"role":"assistant","text":text[:8000]}
             if plan:entry["plan"]=plan
-            data["messages"].append(entry);data["active"]=None;self._save(data)
+            data["messages"].append(entry);data["active"]=None
+            try:self._save(data)
+            except Exception:
+                # The turn is over even if the answer could not be stored (file lock,
+                # or text that cannot be encoded). Leaving it active in memory would
+                # block every later request and "new chat" until the server is restarted.
+                self.state["active"]=None;self.live_progress={}
+                raise
             self.live_progress={}
             return {"revision":self.state["revision"],"message_id":entry["id"]}
 

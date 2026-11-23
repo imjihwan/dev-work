@@ -496,7 +496,10 @@ class ProductionAssistant:
                     self.helper.job.update(phase=phase,round=round_number,elapsed_s=round(time.monotonic()-started,1))
                     if phase=="model":
                         for key in ("cli_stage","cli_signals","cli_idle_s","cli_elapsed_s","cli_limit_s"):self.helper.job.pop(key,None)
-            if self.chat is not None and job_id in self.shared_jobs:self.chat.progress(job_id,phase,round_number)
+            if self.chat is not None and job_id in self.shared_jobs:
+                # The shared phase label is cosmetic; a failed write must not abort the request.
+                try:self.chat.progress(job_id,phase,round_number)
+                except (OSError,ValueError):pass
         def cli_progress(info):
             info=clean_progress(info)
             with self.helper.lock:
@@ -564,6 +567,10 @@ class ProductionAssistant:
             final={"state":"done","elapsed_s":round(time.monotonic()-started,1),"production":{"plan_id":plan_id,**plan,"auto_eligible":plan["intent"]=="execute"}}
         except (OSError,ValueError,RuntimeError,KeyError,TypeError) as exc:
             final={"state":"cancelled" if cancel.is_set() else "error","error":"제작 도우미 요청을 취소했습니다." if cancel.is_set() else str(exc) if isinstance(exc,(ValueError,RuntimeError)) else "제작 도우미가 요청을 완료하지 못했습니다. 대상·입력·Grok 로그인 상태를 확인해 주세요."}
+        except Exception:
+            # Any other failure must still end the job; otherwise the shared helper slot
+            # stays "generating" and blocks every helper and translation until a restart.
+            final={"state":"cancelled" if cancel.is_set() else "error","error":"제작 도우미 요청을 취소했습니다." if cancel.is_set() else "제작 도우미가 요청을 완료하지 못했습니다. 대상·입력·Grok 로그인 상태를 확인해 주세요."}
         finally:
             if self.chat is not None and job_id in self.shared_jobs:
                 try:
@@ -599,7 +606,10 @@ class ProductionAssistant:
         if "unknown" in states:state="중단 · 상태 확인";text="일부 실행의 완료 여부를 확인하지 못했습니다. 앱 상태를 확인하고 자동 재시도하지 마세요."
         elif states and all(state=="done" for state in states):state="앱에 전달됨";text=f"{len(states)}개 변경·실행 요청을 앱에 전달했습니다. 완료 여부는 앱 상태에서 확인하세요."
         else:state="실행 중";text=None
-        self.chat.plan_state(record["chat_message_id"],state,text)
+        # The transcript label is a record, not the control flow: a failed write must not
+        # leave a step stuck as claimed or turn an executed write into an error answer.
+        try:self.chat.plan_state(record["chat_message_id"],state,text)
+        except (OSError,ValueError):pass
 
     def finish(self,body):
         with self.lock:
