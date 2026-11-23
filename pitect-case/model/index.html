@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PI-TECT 모델 생성기</title>
+<style>
+  :root { --bg:#f6f7f9; --fg:#1c2330; --mute:#5d6878; --line:#d5dae2; --card:#fff; --accent:#1f6feb; --ok:#1a7f4b; --bad:#c62f2f; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#12161c; --fg:#e6eaf0; --mute:#9aa5b5; --line:#2c3440; --card:#1a2029; --accent:#6aa5ff; --ok:#56c98a; --bad:#ff7b7b; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.55 -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
+  main { max-width:980px; margin:0 auto; padding:28px 16px 60px; display:grid; gap:20px; }
+  h1 { font-size:22px; margin:0; } h2 { font-size:15px; margin:0 0 10px; }
+  p { margin:0; color:var(--mute); }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:10px 16px; }
+  label { display:grid; gap:3px; font-size:12.5px; color:var(--mute); }
+  input { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
+  button { font:inherit; font-weight:600; padding:8px 14px; border-radius:7px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--accent); }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); font-size:13px; }
+  th { color:var(--mute); font-weight:600; }
+  .ok { color:var(--ok); font-weight:600; } .bad { color:var(--bad); font-weight:600; }
+  a { color:var(--accent); }
+  .scroll { overflow-x:auto; }
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <h1>PI-TECT 모델 생성기</h1>
+    <p>실측값을 넣고 생성하면 버전 A(나사형), B(슬라이드형), C(스냅락형)의 STL이 만들어집니다. 단위는 mm입니다.</p>
+  </div>
+  <section>
+    <h2>실측값과 여유</h2>
+    <div class="grid" id="form"></div>
+    <div class="row" style="margin-top:14px">
+      <button id="run">모델 생성</button>
+      <button id="saveAll" class="ghost" hidden>models 폴더에 모두 저장</button>
+      <span id="status"></span>
+    </div>
+  </section>
+  <section>
+    <h2>부품</h2>
+    <div class="scroll"><table id="parts"><thead><tr><th>파일</th><th>부품</th><th>크기 (mm)</th><th>부피 (cm³)</th><th>출력 방향</th><th>메시</th></tr></thead><tbody></tbody></table></div>
+  </section>
+  <section>
+    <h2>검증</h2>
+    <div class="scroll"><table id="checks"><thead><tr><th>항목</th><th>값</th><th>판정</th><th>설명</th></tr></thead><tbody></tbody></table></div>
+  </section>
+</main>
+<script type="module">
+import Module from 'https://cdn.jsdelivr.net/npm/manifold-3d@3.0.1/manifold.js';
+import { DEFAULTS, build, toSTL } from './pitect.js';
+
+const FIELDS = [
+  ['usbOver', 'USB 포트 끝면 → PCB 끝 (포트 끝면~가까운 구멍 거리 - 23.5)'],
+  ['piEnvW', '라파이 폭 (포트 돌출 포함)'], ['piTop', '라파이 최고 높이 (PCB 밑면부터)'],
+  ['nutAF', '너트 대변'], ['nutT', '너트 두께'], ['nutFloor', '너트 아래 살 두께'],
+  ['camL', '웹캠 길이'], ['camD', '웹캠 깊이'], ['camH', '웹캠 높이'],
+  ['bbL', '빵판 길이'], ['bbW', '빵판 폭'], ['bbH', '빵판 두께'],
+  ['jumper', '빵판 위 점퍼선 공간'], ['piClear', '라파이 위 여유'],
+  ['ledHole', 'LED 구멍 지름 (A·C)'], ['fit', '끼움 여유 (슬라이드·스냅)'],
+];
+const $ = (s) => document.querySelector(s);
+const form = $('#form');
+for (const [k, label] of FIELDS) {
+  const l = document.createElement('label');
+  l.textContent = label;
+  const i = document.createElement('input');
+  i.type = 'number'; i.step = '0.05'; i.id = 'p_' + k; i.value = DEFAULTS[k];
+  l.appendChild(i); form.appendChild(l);
+}
+const b64 = (buf) => { const u = new Uint8Array(buf); let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
+const local = location.protocol.startsWith('http') && /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+let wasm = null, last = null;
+
+async function run() {
+  $('#status').textContent = '계산 중...'; $('#run').disabled = true;
+  await new Promise((r) => setTimeout(r, 30));
+  try {
+    if (!wasm) { wasm = await Module({ locateFile: () => 'https://cdn.jsdelivr.net/npm/manifold-3d@3.0.1/manifold.wasm' }); wasm.setup(); window.PITECT_WASM = wasm; }
+    const P = {};
+    for (const [k] of FIELDS) P[k] = parseFloat($('#p_' + k).value);
+    const t0 = performance.now();
+    const res = build(wasm, P);
+    const pt = $('#parts tbody'); pt.textContent = '';
+    for (const p of res.parts) {
+      p.stl = toSTL(p.mesh, p.id);
+      const tr = document.createElement('tr');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([p.stl], { type: 'model/stl' })); a.download = p.id + '.stl'; a.textContent = p.id + '.stl';
+      const cells = [a, p.label, p.size.join(' x '), p.volume, p.note, p.ok ? '정상' : '오류'];
+      cells.forEach((c, i) => { const td = document.createElement('td'); if (c instanceof Node) td.appendChild(c); else td.textContent = c; if (i === 5) td.className = p.ok ? 'ok' : 'bad'; tr.appendChild(td); });
+      pt.appendChild(tr);
+    }
+    const ct = $('#checks tbody'); ct.textContent = '';
+    for (const c of res.checks) {
+      const tr = document.createElement('tr');
+      [c.name, c.value, c.ok ? '통과' : '실패', c.detail].forEach((v, i) => { const td = document.createElement('td'); td.textContent = v; if (i === 2) td.className = c.ok ? 'ok' : 'bad'; tr.appendChild(td); });
+      ct.appendChild(tr);
+    }
+    last = res;
+    const fails = res.checks.filter((c) => !c.ok).length;
+    $('#status').textContent = `완료 (${Math.round(performance.now() - t0)} ms). 부품 ${res.parts.length}개, 검증 실패 ${fails}건`;
+    $('#saveAll').hidden = !local;
+    return res;
+  } catch (e) {
+    $('#status').textContent = '오류: ' + (e && e.message ? e.message : e);
+    throw e;
+  } finally { $('#run').disabled = false; }
+}
+
+async function saveAll() {
+  if (!last) return;
+  for (const p of last.parts) await fetch('/save/' + p.id + '.stl', { method: 'POST', body: p.stl });
+  const preview = { info: last.info, checks: last.checks, parts: last.parts.map((p) => ({ id: p.id, ver: p.ver, label: p.label, note: p.note, color: p.color, size: p.size, volume: p.volume, tris: p.tris, asm: p.asm, pos: b64(p.mesh.pos.buffer), idx: b64(p.mesh.idx.buffer) })) };
+  await fetch('/save/preview.json', { method: 'POST', body: JSON.stringify(preview) });
+  $('#status').textContent += ' · models 폴더에 저장했습니다';
+}
+
+$('#run').addEventListener('click', run);
+$('#saveAll').addEventListener('click', saveAll);
+window.PITECT = { run, saveAll, get last() { return last; } };
+if (new URLSearchParams(location.search).has('auto')) {
+  run().then(() => (local ? saveAll() : null)).then(() => { window.PITECT_DONE = true; }).catch((e) => { window.PITECT_ERR = String(e && e.stack ? e.stack : e); });
+}
+</script>
+</body>
+</html>
