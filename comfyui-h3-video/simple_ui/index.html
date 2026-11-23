@@ -923,10 +923,17 @@ function drawModelPick(){
   }
   const notes = [];
   if (m && !fitsMode(m)) notes.push(`이 모델은 ${m.auto.modes.map(modeKo).join("·")} 용이라 지금 방식(${modeKo(needMode())})에서는 결과가 이상할 수 있습니다.`);
+  const doubled = doubleTurboNote(m, turboLora());
+  if (doubled) notes.push(doubled);
   $("modelNote").innerHTML = notes.map(t => `<div class="note">${esc(t)}</div>`).join("");
 }
 $("modelPick").onclick = () => { UI.modelOpen = !UI.modelOpen; drawModelPick(); };
 
+// 터보 모델에는 가속(증류)이 이미 들어 있다. 터보 LoRA 를 또 얹으면 가속이 이중으로 걸려 색이 과해지거나 결과가 깨진다
+// (DaSiWa 작성자: "turbo baked in", Pika H3 Flex 문서: 가속 LoRA 를 겹치지 말 것).
+function doubleTurboNote(model, lora){
+  return model?.auto?.turbo && lora ? `터보 모델에 터보 LoRA(${base(lora.name)})를 함께 고르셨습니다. 이 모델에는 가속이 이미 들어 있어, 겹치면 색이 과해지거나 결과가 깨질 수 있습니다. 터보 LoRA 는 일반(터보 아님) 모델에만 쓰세요.` : "";
+}
 function speedChoices(){
   const m = curModel(), tl = turboLora();
   if (m?.auto?.turbo) return [[4,"빠르게"],[6,"보통"],[8,"품질"]];

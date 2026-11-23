@@ -83,6 +83,15 @@ assert.match(context.lengthNote(4), /실제 길이는 4\.5초\(107프레임\).*�
 assert.match(context.lengthNote(3), /^5초보다 짧은 영상은/);
 assert(html.includes('id="lengthHint"') && script.includes('actualFrames($("duration").value) / 124'));
 
+// A turbo LoRA on a checkpoint that already has the distillation baked in is flagged (the author and the Pika Flex docs warn against stacking).
+context.base = name => name.split(/[\\/]/).pop();
+vm.runInContext(section('function doubleTurboNote(', 'function speedChoices('), context);
+assert.match(context.doubleTurboNote(turbo, {name:'loras\\ref2v_turbo_4step.safetensors'}), /ref2v_turbo_4step\.safetensors.*일반\(터보 아님\) 모델에만/);
+assert.equal(context.doubleTurboNote(regular, {name:'ref2v_turbo_4step.safetensors'}), '');
+assert.equal(context.doubleTurboNote(turbo, null), '');
+assert.equal(context.doubleTurboNote(undefined, undefined), '');
+assert(script.includes('doubleTurboNote(m, turboLora())'));
+
 // The page ships automatic defaults and labels the advanced section accordingly.
 assert(script.includes('shift_video:11, shift_audio:4, manual:null, level:null'));
 assert(html.includes('id="advState"') && html.includes('자동 값으로 되돌리기'));
