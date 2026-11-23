@@ -25,7 +25,7 @@ sys.path.insert(0,str(SOURCE))
 from bulk_progress import BulkProgress
 from queue_bulk import BuildCache, QueueBulkEditor
 TREE = ast.parse((SOURCE / "server.py").read_text(encoding="utf-8"))
-NAMES = {"_load_json", "_save_json", "save_settings", "rename_settings", "delete_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "person_canvas", "bulk_edit_queue", "bulk_queue_context", "commit_bulk_history", "bulk_queue_editor", "judge_face_side", "upright_photo", "add_speed_nodes", "prepare_photo_reference", "pooled_photo_reference", "release_photo_references"}
+NAMES = {"_load_json", "_save_json", "save_settings", "rename_settings", "delete_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "person_canvas", "bulk_edit_queue", "bulk_queue_context", "commit_bulk_history", "bulk_queue_editor", "judge_face_side", "upright_photo", "add_speed_nodes", "add_upscale", "prepare_photo_reference", "pooled_photo_reference", "release_photo_references"}
 
 
 class FeatureTests(unittest.TestCase):
@@ -42,7 +42,9 @@ class FeatureTests(unittest.TestCase):
                     "card_for":lambda *args:{"auto":{"h3":True,"fmt":"int8"}},
                     "object_options":lambda cls, field:["test-model.safetensors","other-model.safetensors"] if cls=="UNETLoader" else [],
                     "comfy":self.comfy, "upload":self.upload, "replace_queued_prompt":self.replace,
-                    "node_available":lambda cls:cls in self.nodes}
+                    "node_available":lambda cls:cls in self.nodes,
+                    "upscale_ready":lambda:self.upscale}
+        self.upscale=True                                                # 업스케일 노드와 모델 파일이 있는 ComfyUI 로 친다
         self.nodes={"MiniMaxChunkFeedForward","BlockSparseAttention","MiniMaxH3Cache"}      # 이 가짜 ComfyUI 에 설치된 것으로 치는 선택 노드
         self.crop_calls=[]
         def crop(raw, model):
@@ -333,6 +335,45 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(env["HIST_DB"][-1]["speed"],"sparse")
         env["build_and_queue"](self.request(count=1))
         self.assertEqual(env["HIST_DB"][-1]["speed"],"")
+
+    def test_upscale_quality_adds_one_node_before_decode_and_keeps_the_base_canvas(self):
+        # '기본 + 1.5배 업스케일': 기본 크기로 만든 잠재 영상을 디코드 전에 키운다. 노드 하나만 늘고 나머지 연결은 그대로다.
+        env=self.env;upscale,prepare,decode,shift=env["UPSCALE"],env["PREPARE"],env["DECODE"],env["SHIFT"]
+        base=env["build_and_queue"](self.request(count=1,resolution="auto"),prepare_only=True)
+        self.assertNotIn(upscale,base["prompt"])
+        result=env["build_and_queue"](self.request(count=2,resolution="up15",seed="7"))
+        graphs=[payload["prompt"] for _,payload in self.sent[-2:]]
+        for graph,job in zip(graphs,result["jobs"]):
+            node=graph[upscale]
+            self.assertEqual(node["class_type"],"DaSiWaH3TiledUpscale")
+            self.assertEqual((node["inputs"]["scale"],node["inputs"]["steps"],node["inputs"]["denoise"],node["inputs"]["upscale_model"]),
+                (1.5,1,0.2,"minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors"))
+            self.assertEqual((node["inputs"]["latent"],node["inputs"]["continuity_context"],graph[decode]["inputs"]["latent"],graph[decode]["inputs"]["context"]),
+                ([prepare,0],[prepare,1],[upscale,0],[prepare,1]))
+            # 다듬는 한 스텝은 속도 노드를 거치기 전의 모델과, 처음 생성과 같은 조건을 쓴다
+            self.assertEqual((node["inputs"]["model"],node["inputs"]["conditioning"]),([shift,0],graph[env["GUIDER"]]["inputs"]["conditioning"]))
+            self.assertEqual(node["inputs"]["seed"],graph[env["SEED"]]["inputs"]["seed_value"])
+            # 만드는 크기는 '기본'과 같다(키우는 것은 그 뒤)
+            self.assertEqual((job["width"],job["height"]),(base["width"],base["height"]))
+            self.assertEqual({key:value for key,value in graph.items() if key!=upscale and key!=decode and key!=env["SEED"]},
+                {key:value for key,value in graphs[0].items() if key!=upscale and key!=decode and key!=env["SEED"]})
+        self.assertNotEqual(graphs[0][upscale]["inputs"]["seed"],graphs[1][upscale]["inputs"]["seed"])
+        self.assertEqual(env["HIST_DB"][-1]["resolution"],"up15")
+        # 사진 1 첫 장면 고정과 함께 쓰면 그 조건으로 다듬는다
+        anchored=env["build_and_queue"](self.request(count=1,resolution="up15",anchor=True),prepare_only=True)["prompt"]
+        self.assertEqual(anchored[upscale]["inputs"]["conditioning"],[env["ANCHOR"],0])
+
+    def test_upscale_quality_is_refused_clearly_when_the_node_or_model_file_is_missing(self):
+        self.upscale=False
+        with self.assertRaisesRegex(ValueError,"업스케일 노드.*업스케일 모델 파일이 없어"):
+            self.env["build_and_queue"](self.request(count=1,resolution="up15"))
+        self.assertEqual(self.sent,[],"조용히 기본 크기로 만들지 않는다")
+        self.assertEqual(self.uploaded,[],"거절할 요청의 사진을 ComfyUI 에 올려 두지 않는다")
+        del self.env["upscale_ready"]
+        with self.assertRaisesRegex(ValueError,"업스케일"):
+            self.env["build_and_queue"](self.request(count=1,resolution="up15"))
+        self.env["build_and_queue"](self.request(count=1,resolution="auto"))
+        self.assertEqual(len(self.sent),1)
 
     def test_speed_option_is_refused_clearly_when_unknown_or_its_node_is_missing(self):
         with self.assertRaisesRegex(ValueError,"속도 우선"):

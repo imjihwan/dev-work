@@ -161,7 +161,7 @@ assert(html.includes('id="sizeHint"') && script.includes('addEventListener("load
 assert(context.canvasPixels('1:1', 'draft', 0) < context.canvasPixels('1:1', 'auto', 0) && context.canvasPixels('1:1', 'auto', 0) < context.canvasPixels('1:1', '1080p', 0));
 const row = (factor, job = {}) => {
   const j = {width:768, height:960, duration:5, steps:8, speed:'', ...job};
-  return {state:'done', ...j, generation_seconds:context.etaSeconds({pixels:j.width * j.height, seconds:j.duration, steps:j.steps, speed:j.speed, photos:j.mode === 'REF2VA' ? j.images.length : 1}) * factor};
+  return {state:'done', ...j, generation_seconds:context.etaSeconds({pixels:j.width * j.height, seconds:j.duration, steps:j.steps, speed:j.speed, photos:j.mode === 'REF2VA' ? j.images.length : 1, upscale:j.resolution === 'up15' ? 1.5 : undefined}) * factor};
 };
 // Every extra reference photo slows each step by about 8% at 5 s (measured: 17.97 s with one photo, 21.0 s with three; 209.6 s for the clip).
 near(eta({photos:3}), 209.6, 0.05, '5 s with three reference photos');
@@ -211,6 +211,40 @@ context.localStorage = {getItem:() => { throw new Error('blocked'); }, setItem:(
 near(context.etaFactor([finished(1.6), finished(1.6), finished(1.6)]), 1.6, 0.001, 'storage that throws does not break the estimate');
 assert.equal(context.etaFactor([]), 1);
 assert(script.includes('if (CAT) refreshSizeEstimate();') && script.includes('if (typeof drawEstimates === "function") drawEstimates();'), 'both estimate labels are refreshed when the history arrives and on every render');
+
+// "Default + 1.5x upscale" (opt-in): made at the default size, then grown by the latent upscaler and refined for one step.
+// Measured at 5 s without the chunk node: 176.7 s at 768x960, 266.6 s for 1152x1440 through the upscaler, 540.1 s when 1152x1440 is sampled directly.
+near(eta({upscale:1.5}) - eta({}), 266.6 - 176.7, 0.08, 'the upscale stage and the larger decode');
+assert.equal(eta({upscale:1}), eta({})); assert.equal(eta({upscale:undefined}), eta({}));
+assert(eta({upscale:1.5}) < 0.6 * eta({pixels:1152 * 1440}), 'about half the time of sampling the large canvas directly');
+assert(eta({seconds:10, upscale:1.5}) - eta({seconds:10}) > 1.8 * (eta({upscale:1.5}) - eta({})), 'the upscale stage grows with the clip length');
+near(context.etaScale([row(1.3, {resolution:'up15'}), row(1.3, {resolution:'up15', duration:8}), row(1.3, {resolution:'auto'})]), 1.3, 0.001, 'finished upscaled jobs are compared with the upscaled model');
+assert.match(context.sizeNote('auto', 'up15', 768 / 960), /^약 768×960 로 만든 뒤 1\.5배로 키워 약 1152×1440 로 저장합니다.*약 절반 시간/);
+assert.match(context.sizeNote('1:1', 'up15', 0), /768×768 로 만든 뒤 1\.5배로 키워 약 1152×1152/);
+// 1376 x 1.5 / 32 = 64.5: the node rounds half to even (Python round), so the saved long side is 2048, not 2080.
+assert.match(context.sizeNote('9:16', 'up15', 0), /768×1376 로 만든 뒤 1\.5배로 키워 약 1152×2048/);
+assert.equal(vm.runInContext('sizeText(768, 960, "up15")', context), '768×960 → 1152×1440');
+assert.equal(vm.runInContext('sizeText(768, 1376, "up15", " × ")', context), '768 × 1376 → 1152 × 2048');
+assert.equal(vm.runInContext('sizeText(768, 960, "auto") + "|" + sizeText(768, 960, undefined)', context), '768×960|768×960');
+assert(script.includes('sized(j.width, j.height)') && script.includes('sizeText(w, h, quality)') && script.includes('sizeText(e.width, e.height, e.resolution, " × ")'), 'the queue line and the history row show the saved size too');
+assert.deepEqual(Array.from(context.canvasSize('auto', 'up15', 768 / 960)), [768, 960], 'the canvas that is sampled is the default one');
+const upOption = {disabled:false}, qualityBox = {value:'auto', querySelector:selector => selector === 'option[value="up15"]' ? upOption : null}, sizeBox = {textContent:''}, etaBox = {textContent:''};
+context.$ = id => ({aspect:{value:'auto'}, resolution:qualityBox, duration:{value:5}, sizeHint:sizeBox, eta:etaBox, thumbs:{querySelector:() => ({naturalWidth:768, naturalHeight:960})}})[id];
+context.CAT.capabilities = {upscale_modes:[]};
+context.drawEstimates();
+assert.equal(upOption.disabled, true, 'a ComfyUI without the upscaler node or model cannot pick it');
+assert.equal(sizeBox.textContent, '');
+qualityBox.value = 'up15'; context.drawEstimates();
+assert.equal(upOption.disabled, false, 'a saved choice stays selectable so that it can be seen and changed');
+assert.match(sizeBox.textContent, /업스케일 모델 파일이 없어 이 화질로 만들 수 없습니다/);
+context.CAT.capabilities = {upscale_modes:['up15']}; context.drawEstimates();
+assert.match(sizeBox.textContent, /1152×1440 로 저장합니다/); assert.equal(upOption.disabled, false);
+assert.match(etaBox.textContent, /예상 약 4분/, '11 + 8 x 17.85 + 73 + 13 x 2.25 = 256 s');
+qualityBox.value = 'auto'; context.drawEstimates();
+assert.equal(upOption.disabled, false); assert.equal(sizeBox.textContent, ''); assert.match(etaBox.textContent, /예상 약 3분/);
+context.CAT.capabilities = undefined; context.drawEstimates();
+assert.equal(upOption.disabled, true, 'an older server without the capability must not offer it');
+assert(html.includes('<option value="up15">기본 + 1.5배 업스케일</option>') && script.includes('up15: "기본 + 1.5배 업스케일"'));
 
 // The page ships automatic defaults and labels the advanced section accordingly.
 assert(script.includes('shift_video:11, shift_audio:4, manual:null, level:null'));

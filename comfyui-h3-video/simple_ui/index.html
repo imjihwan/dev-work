@@ -466,7 +466,7 @@ a{color:var(--acc)}
             <option value="1:1">1:1</option><option value="4:3">4:3</option><option value="3:4">3:4</option><option value="3:2">3:2</option><option value="2:3">2:3</option>
           </select></div>
         <div><label>화질</label>
-          <select id="resolution"><option value="draft">초안(가장 빠름)</option><option value="auto" selected>기본(빠름)</option><option value="720p">720p</option><option value="1080p">1080p(느림)</option></select></div>
+          <select id="resolution"><option value="draft">초안(가장 빠름)</option><option value="auto" selected>기본(빠름)</option><option value="up15">기본 + 1.5배 업스케일</option><option value="720p">720p</option><option value="1080p">1080p(느림)</option></select></div>
         <div><label>시드 <small>비우면 랜덤</small></label><input type="text" id="seed" placeholder="랜덤"></div>
         <div><label>반복 <small>시드만 바꿔서</small></label><input type="number" id="count" value="1" min="1" max="20" step="1"></div>
       </div>
@@ -966,15 +966,22 @@ const runCount = () => Math.min(20, Math.max(1, Math.round(Number($("count").val
 // 속도 우선(희소 어텐션)은 스텝 앞 20% 만 원래 계산이고 나머지는 스텝당 11.17초에서 1.17제곱으로 늘어난다(길수록 이득이 커진다).
 // 스텝 캐시를 함께 쓰면 첫 스텝만 원래 계산이고, 나머지의 약 4분의 1(8스텝 중 2회)을 건너뛴다.
 // 기준보다 토큰이 적은 쪽(초안·짧은 영상)은 조금 덜 가파르다: 초안 576×736 이 스텝당 9.21초로 기준 19.14초의 0.48배(같은 시드 실측) → 1.3제곱.
-const ETA = {pixels:768 * 960, tokens:26640, step:17.85, power:1.45, smallPower:1.3, sparse:11.17, sparsePower:1.17, sparseMin:12288, fixed:11, decode:13};
+const ETA = {pixels:768 * 960, tokens:26640, step:17.85, power:1.45, smallPower:1.3, sparse:11.17, sparsePower:1.17, sparseMin:12288, fixed:11, decode:13, upscale:73};
+// 화질 '기본 + 1.5배 업스케일': 기본 크기로 만든 뒤 잠재 업스케일 + 한 스텝 다듬기로 키운다(서버 UPSCALE_SCALES 와 같은 값).
+// 실측(5초): 768×960 177초 → 1152×1440 267초(키우는 데 약 73초, 디코드는 화소만큼). 같은 크기를 바로 만들면 540초.
+const UPSCALE = {up15:1.5};
+// 32의 배수로 맞추기. 서버와 업스케일 노드(Python round)는 정확히 절반이면 짝수 쪽으로 맞춘다 — Math.round 는 올리므로 그 경우만 따로 맞춘다
+const pyRound32 = v => { const q = v / 32, r = Math.round(q); return (q % 1 === 0.5 && r % 2 ? r - 1 : r) * 32; };
+// 크기 표시: 업스케일 화질은 만드는 크기와 저장되는 크기가 다르다
+const sizeText = (w, h, quality, cross = "×") => UPSCALE[quality] ? `${w}${cross}${h} → ${pyRound32(w * UPSCALE[quality])}${cross}${pyRound32(h * UPSCALE[quality])}` : `${w}${cross}${h}`;
+const upscaleReady = mode => (CAT?.capabilities?.upscale_modes || []).includes(mode);
 const ETA_KEY = "h3simple.etaScale.v1";
 const RES_PIXELS = {draft:0.4, "720p":0.879, "1080p":1.978};      // 서버 RES_MP 와 같은 값(백만 화소)
 function canvasSize(aspect, resolution, photoRatio){
   // 서버 canvas() 와 같은 계산: 기본(auto)은 짧은 변 768, 나머지 화질은 화소 면적이 정해져 있다. 32의 배수로 맞춘다
   let ratio = photoRatio > 0 ? photoRatio : 3 / 4;
   if (/^\d+:\d+$/.test(aspect || "")) { const [w, h] = aspect.split(":").map(Number); ratio = w / h; }
-  // 서버(Python round)는 정확히 절반이면 짝수 쪽으로 맞춘다. Math.round 는 올리므로 그 경우만 따로 맞춘다
-  const snap = v => { const q = v / 32, r = Math.round(q); return Math.max(32, (q % 1 === 0.5 && r % 2 ? r - 1 : r) * 32); };
+  const snap = v => Math.max(32, pyRound32(v));
   if (RES_PIXELS[resolution]) { const h = Math.sqrt(RES_PIXELS[resolution] * 1048576 / ratio); return [snap(h * ratio), snap(h)]; }
   return ratio >= 1 ? [snap(768 * ratio), 768] : [768, snap(768 / ratio)];
 }
@@ -985,13 +992,17 @@ function firstPhotoRatio(){ const first = $("thumbs")?.querySelector?.("img"); r
 // 실측(PERFORMANCE.md): 9:20 '기본' 768×1696 376초 vs 672×1504 268초, 21:9 1792×768 407초 vs 1536×672 276초 — 얼굴 세부·닮음은 같았다.
 function sizeNote(aspect, resolution, photoRatio, job = {}){
   const [w, h] = canvasSize(aspect, resolution, photoRatio), pixels = w * h;
+  if (UPSCALE[resolution]) {
+    const grow = v => pyRound32(v * UPSCALE[resolution]);
+    return `약 ${w}×${h} 로 만든 뒤 ${UPSCALE[resolution]}배로 키워 약 ${grow(w)}×${grow(h)} 로 저장합니다(잠재 업스케일 + 한 스텝 다듬기). 같은 크기를 바로 만드는 것보다 약 절반 시간입니다(이 PC 실측: 5초 1152×1440 한 편 267초, 바로 만들면 540초).`;
+  }
   if (pixels <= 1060000) return "";
   const time = size => etaSeconds({pixels:size, seconds:job.seconds || 5, steps:job.steps || 8, speed:job.speed || ""});
   const text = `만들어질 크기는 약 ${w}×${h}(${(pixels / 1e6).toFixed(2)}MP)라, 768×960 보다 한 편이 약 ${(time(pixels) / time(ETA.pixels)).toFixed(1)}배 오래 걸립니다.`;
   return resolution === "1080p" ? text
     : `${text} 모델의 기준 화소(약 1.0MP)보다 큰 크기이고, 실측에서는 화소를 기준만큼 줄여도 얼굴 세부와 닮음이 같았습니다. 더 빨리 만들려면 화질에서 720p(화소 수 고정)를 고르세요.`;
 }
-function etaSeconds({pixels, seconds, steps, speed, photos}){
+function etaSeconds({pixels, seconds, steps, speed, photos, upscale}){
   const frames = actualFrames(seconds), area = pixels / ETA.pixels, latent = (frames - 5) / 17 * 5 + 2;
   const tokens = area * latent / 37;      // 기준 대비 토큰 수
   // 참조 사진이 한 장 늘 때마다 스텝이 약 8% 느려지고(5초 실측: 1장 17.97초, 3장 21.0초) 사진 인코딩이 몇 초 더 든다. 긴 영상에서는 그 몫이 작아진다
@@ -1005,7 +1016,9 @@ function etaSeconds({pixels, seconds, steps, speed, photos}){
       ? dense + Math.max(0, steps - 1 - Math.round(steps * 0.25)) * sparse * 1.06
       : whole * dense + (steps - whole + (steps > whole ? 0.2 : 0)) * sparse;      // 넘어가는 한 스텝은 조금 더 걸린다
   }
-  return ETA.fixed + 5 * extra + sampling + ETA.decode * area * frames / 124;
+  // 업스케일 화질: 키우는 단계(화소·길이에 비례)가 더 들고, 디코드는 키운 화소만큼 든다
+  const grow = Number(upscale) > 1 ? Number(upscale) : 1;
+  return ETA.fixed + 5 * extra + sampling + (grow > 1 ? ETA.upscale * area * frames / 124 : 0) + ETA.decode * area * grow * grow * frames / 124;
 }
 function etaScale(items){
   // 이 PC 에서 실제로 걸린 시간으로 맞춘다: GPU·LoRA·사진 수·함께 켜 둔 프로그램에 따라 모델과 달라진다.
@@ -1013,7 +1026,7 @@ function etaScale(items){
   const ratios = [];
   for (const e of items || []) {
     if (e.state !== "done" || !(e.generation_seconds > 0) || !(e.width > 0) || !(e.height > 0) || !(e.steps > 0)) continue;
-    const ratio = e.generation_seconds / etaSeconds({pixels:e.width * e.height, seconds:e.duration, steps:e.steps, speed:e.speed, photos:e.mode === "REF2VA" ? (e.images || []).length : 1});
+    const ratio = e.generation_seconds / etaSeconds({pixels:e.width * e.height, seconds:e.duration, steps:e.steps, speed:e.speed, photos:e.mode === "REF2VA" ? (e.images || []).length : 1, upscale:UPSCALE[e.resolution]});
     // 같은 사진·문구·시드를 다시 넣으면 ComfyUI 가 저장해 둔 결과로 몇 초 만에 끝난다. 그런 작업은 속도의 표본이 아니다
     if (!(ratio >= 0.25)) continue;
     ratios.push(ratio);
@@ -1035,7 +1048,13 @@ function etaFactor(items){
 function etaLabel(){ return `1개당 ${etaText(1)} (이 PC 기준, 대략)`; }
 // 크기 안내와 속도·품질 칸의 예상 시간. 만들기 버튼 아래의 예상 시간은 drawGoInfo() 가 그린다
 function drawEstimates(){
-  if ($("sizeHint")) $("sizeHint").textContent = sizeNote($("aspect").value, $("resolution").value, firstPhotoRatio(), {seconds:Number($("duration").value) || 5, steps:S.steps, speed:S.speed});
+  const quality = $("resolution").value, missing = UPSCALE[quality] && CAT && !upscaleReady(quality);
+  // 업스케일 노드나 모델 파일이 없는 ComfyUI 에서는 고를 수 없게 한다. 저장해 둔 선택은 지우지 않고 이유를 알린다
+  const option = $("resolution").querySelector?.('option[value="up15"]');
+  if (option && CAT) option.disabled = !upscaleReady("up15") && quality !== "up15";
+  if ($("sizeHint")) $("sizeHint").textContent = missing
+    ? "이 ComfyUI 에는 업스케일 노드(DaSiWa)나 업스케일 모델 파일이 없어 이 화질로 만들 수 없습니다. 화질을 바꾸거나 docs/MODELS.md 의 업스케일 모델을 받아 주세요."
+    : sizeNote($("aspect").value, quality, firstPhotoRatio(), {seconds:Number($("duration").value) || 5, steps:S.steps, speed:S.speed});
   if ($("eta") && CAT) $("eta").textContent = etaLabel();
 }
 function refreshSizeEstimate(){ drawEstimates(); drawGoInfo(); }
@@ -1044,7 +1063,7 @@ function etaText(n){
   try { recent = HIST.items; } catch {}      // 화면을 처음 그릴 때는 이력 목록이 아직 없다
   const pixels = canvasPixels($("aspect").value, $("resolution").value, firstPhotoRatio());
   const photos = typeof isRef === "function" && isRef() && typeof images !== "undefined" ? images.length : 1;      // 참조 방식만: 첫·끝 장면 사진은 참조 토큰이 아니다
-  const sec = etaSeconds({pixels, seconds:$("duration").value, steps:S.steps, speed:S.speed, photos}) * etaFactor(recent) * (n || 1);
+  const sec = etaSeconds({pixels, seconds:$("duration").value, steps:S.steps, speed:S.speed, photos, upscale:UPSCALE[$("resolution").value]}) * etaFactor(recent) * (n || 1);
   return `예상 약 ${Math.max(1, Math.round(sec / 60))}분`;
 }
 function drawSpeed(){
@@ -1989,10 +2008,12 @@ async function submitJobs(sequence=false, priority=false){
     const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status);
     if(bulkIds.length)globalThis.H3BulkProgress?.complete(j);
     const m = curModel(), jobs = j.jobs || [{id: j.id, seed: j.seed}];
-    const info = `${j.width}×${j.height}, ${m ? friendlyModel(m) : j.model} ${j.steps}스텝${j.loras ? `, LoRA ${j.loras}개` : ""}${j.anchor ? ", 사진 1 첫 장면 고정" : ""}`;
+    const quality = bulkIds.length ? "" : snapshot.f?.resolution;      // 업스케일 화질이면 저장되는 크기도 함께 적는다
+    const sized = (w, h) => typeof sizeText === "function" ? sizeText(w, h, quality) : `${w}×${h}`;
+    const info = `${sized(j.width, j.height)}, ${m ? friendlyModel(m) : j.model} ${j.steps}스텝${j.loras ? `, LoRA ${j.loras}개` : ""}${j.anchor ? ", 사진 1 첫 장면 고정" : ""}`;
     const add = jobs.map(x => ({...x, state:"queued",
       loras:Array.isArray(x.loras)?x.loras:bulkIds.length && !bulkFields.includes("model") ? HIST.items.find(entry=>entry.id===x.id)?.loras : Object.entries(snapshot.model.loras).map(([name,strength])=>({name,strength})),
-      info:`${x.width || j.width}×${x.height || j.height}, ${histModelName(x.model || j.model || S.model)} ${x.steps || j.steps}스텝, 시드 ${x.seed}${x.sequence_index ? ` · 사진 ${x.sequence_index}번을 첫 번째 참조로` : ""}`}));
+      info:`${sized(x.width || j.width, x.height || j.height)}, ${histModelName(x.model || j.model || S.model)} ${x.steps || j.steps}스텝, 시드 ${x.seed}${x.sequence_index ? ` · 사진 ${x.sequence_index}번을 첫 번째 참조로` : ""}`}));
     if (editId || bulkIds.length) {
       const replacements = new Map(add.map(x => [x.id,x]));
       const known = new Set(currentJobs.map(x => x.id));
@@ -2369,7 +2390,7 @@ function poll(jobs, t0, info, t1){
 // 작업 이력 — 서버 history.json (설정·프롬프트·사진 ↔ 결과)
 // =====================================================================
 const HIST = {items: [], rendered: [], selected:new Set(), total: 0, offset: 0, loading: false, error: false, pending: null, t: null};
-const RES_NAME = {draft: "초안", auto: "기본", "720p": "720p", "1080p": "1080p"};
+const RES_NAME = {draft: "초안", auto: "기본", up15: "기본 + 1.5배 업스케일", "720p": "720p", "1080p": "1080p"};
 const HSTATE = {queued: "대기", running: "만드는 중", error: "실패", lost: "결과 없음"};
 function generationTimeLabel(seconds){
   if(typeof seconds!=="number"||!Number.isFinite(seconds)||seconds<0)return "";
@@ -2446,7 +2467,7 @@ function historySettingsHtml(e){
   const toggle = v => v === true ? "켬" : v === false ? "끔" : "기록 없음";
   const settings = [
     ["모델",value(e.model)], ["생성 방식",({REF2VA:"참조 사진",I2VA:"첫 프레임",FL2VA:"첫·끝 프레임"})[e.mode] || value(e.mode)],
-    ["크기",e.width != null && e.height != null ? `${e.width} × ${e.height}` : "기록 없음"],
+    ["크기",e.width != null && e.height != null ? (typeof sizeText === "function" ? sizeText(e.width, e.height, e.resolution, " × ") : `${e.width} × ${e.height}`) : "기록 없음"],
     ["화질 · 화면비",`${RES_NAME[e.resolution] || value(e.resolution)} · ${value(e.aspect)}`],
     ["영상 길이",e.duration != null ? `${e.duration}초` : "기록 없음"],
     ["스텝",value(e.steps)], ["샘플러",value(e.sampler)], ["스케줄러",value(e.scheduler)],

@@ -114,6 +114,19 @@ class StoryTests(unittest.TestCase):
         self.render(0);self.render(1)
         self.assertEqual([request.get('speed') for request in self.prepared[-2:]],['sparse','sparse'])
 
+    def test_upscale_quality_is_not_accepted_for_continuation_clips(self):
+        # 업스케일 화질은 한 편씩 만드는 영상에서만 검증했다. 이어 만들기 그래프에 그 노드가 있으면 등록하지 않고 알린다
+        prepare=self.prepare
+        def with_upscale(request,reference):
+            prepared=prepare(request,reference)
+            prepared['prompt']['9006']={'class_type':'DaSiWaH3TiledUpscale','inputs':{}}
+            return prepared
+        self.store.prepare=with_upscale
+        self.store.start(self.pid,0);result=self.wait()
+        self.assertEqual(result['renders'][0]['state'],'error')
+        self.assertIn('업스케일',result['renders'][0]['error'])
+        self.assertFalse([call for call in self.calls if call[0]=='/prompt'])
+
     def test_four_steps_require_explicit_approval_and_reuse_original_refs(self):
         with self.assertRaises(ValueError):self.store.start(self.pid,1)
         for i in range(4):

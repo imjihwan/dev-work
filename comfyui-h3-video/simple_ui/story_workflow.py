@@ -51,6 +51,9 @@ def continuation_graph(prepared, session, index, parent, prompt):
     required = {"DaSiWaH3ContinuitySegmentPrepare", "DaSiWaH3ContinuitySegmentDecode", "DaSiWaH3ContinuityPublish"}
     if not required.issubset({node["class_type"] for node in graph.values()}):
         raise ValueError("이 환경의 별도 이어 생성 워크플로 구성을 확인해야 합니다.")
+    # 업스케일 화질은 이어 붙는 편에서 검증하지 않았다(각 편의 크기와 이어받는 잠재의 크기가 달라진다)
+    if any(node["class_type"] == "DaSiWaH3TiledUpscale" for node in graph.values()):
+        raise ValueError("이어 만들기에서는 업스케일 화질을 쓸 수 없습니다. 화질을 바꿔 주세요.")
     director = graph[DIRECTOR]["inputs"]
     timeline = json.loads(director["timeline_data"])
     # Preserve original reference images; only the AV tail sets later opening states.

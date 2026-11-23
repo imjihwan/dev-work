@@ -67,6 +67,11 @@ GUIDE, GUIDER, VIDEO_VAE = "1512:2701", "1512:2592", "1512:2584"
 ANCHOR_IMG, ANCHOR = "9001", "9002"
 # 속도 노드: shift 노드와 미리보기 노드 사이에 끼운다(add_speed_nodes). 9003 은 결과가 같은 노드(기본), 9004·9005 는 고른 작업에만
 PREVIEW, CHUNK_FF, SPARSE, STEP_CACHE = "2737", "9003", "9004", "9005"
+# 화질 '기본 + 1.5배 업스케일'(선택): 기본 크기로 만든 잠재 영상을 디코드 전에 학습된 업스케일 모델로 키우고 한 스텝 다듬는다.
+# 같은 크기를 바로 만드는 것보다 약 2배 빠르다(1152×1440 5초: 267초 vs 540초, docs/PERFORMANCE.md). 화질 값 → 배수.
+PREPARE, DECODE, UPSCALE = "1512:2796", "1512:2671", "9006"
+UPSCALE_SCALES = {"up15": 1.5}
+UPSCALE_NODE, UPSCALE_MODEL = "DaSiWaH3TiledUpscale", "minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors"
 # '속도 우선' 선택(요청의 speed). 결과 영상이 기본과 달라지는 가속이라 고른 작업에만 넣는다.
 SPEED_MODES = {"sparse": ("BlockSparseAttention",), "sparse_cache": ("BlockSparseAttention", "MiniMaxH3Cache")}
 LORA_SLOTS = 10
@@ -82,6 +87,7 @@ PROGRESS = {}          # prompt_id -> {"classes": {node: class}, "pct": float, "
 PLOCK = threading.Lock()
 STAGES = [  # (class_type 판별, 시작%, 끝%, 이름)
     (lambda c: c == "SamplerCustomAdvanced" or c.startswith("KSampler") and c != "KSamplerSelect", 15, 82, "영상 생성"),
+    (lambda c: c == "DaSiWaH3TiledUpscale", 82, 88, "업스케일"),
     (lambda c: "Decode" in c, 82, 95, "디코딩"),
     (lambda c: "VideoCombine" in c or c in ("SaveVideo", "CreateVideo"), 95, 99, "파일 저장"),
     (lambda c: "Loader" in c, 2, 10, "모델 불러오기"),
@@ -998,7 +1004,7 @@ def catalog():
            "sampling_notes": H3_SAMPLING_NOTES,
            "presets": _load_json(PRESETS, {}), "default": model_defaults(),
            "capabilities": {"queue_edit": True, "bulk_edit": True, "bulk_edit_all": True, "photo_sequence": True, "photo_reference_pool": True, "saved_settings": True, "restart_running": True, "priority_queue": True,
-                            "speed_modes": speed_modes_available()}}
+                            "speed_modes": speed_modes_available(), "upscale_modes": upscale_modes_available()}}
     # 작은 LoRA 는 처음 보면 Civitai 정보를 자동으로 가져온다(큰 본체 모델은 버튼으로)
     for c in out["loras"]:
         if "civitai" not in c and c["fetch"]["state"] == "idle" and (c["auto"].get("size_gb") or 99) < 4:
@@ -1407,6 +1413,14 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
         speed(p, lambda cls: cached(("node", cls), lambda: node_available(cls)), speed_mode)
     elif speed_mode:
         raise ValueError("이 서버는 '속도 우선' 옵션을 지원하지 않습니다.")
+    # 업스케일 화질: 노드와 모델 파일이 있는 ComfyUI 에서만. 없으면 조용히 기본 크기로 만들지 않고, 사진을 올리기 전에 알린다
+    # (이 함수만 떼어 쓰는 일회성 도구·시험에는 아래 이름들이 없을 수 있다)
+    upscale = (globals().get("UPSCALE_SCALES") or {}).get(req.get("resolution")) if isinstance(req.get("resolution"), str) else None
+    if upscale:
+        ready, add_upscale = globals().get("upscale_ready"), globals().get("add_upscale")
+        if not ready or not add_upscale or not cached(("upscale",), ready):
+            raise ValueError("이 ComfyUI 에 업스케일 노드(DaSiWaH3TiledUpscale)나 업스케일 모델 파일이 없어 '기본 + 1.5배 업스케일'을 쓸 수 없습니다. "
+                             "화질을 바꾸거나 docs/MODELS.md 의 업스케일 모델을 받아 주세요.")
     loras = [x for x in (req.get("loras") or []) if x.get("name")]
     if len(loras) > LORA_SLOTS:
         raise ValueError(f"LoRA 는 최대 {LORA_SLOTS}개까지입니다.")
@@ -1519,6 +1533,8 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
     anchor = bool(req.get("anchor")) and mode == "REF2VA"
     if anchor:
         add_anchor(p, names[0])
+    if upscale:
+        add_upscale(p, upscale)      # 첫 장면 고정 뒤에 넣는다: 다듬는 스텝이 같은 조건을 쓰게
     classes = {k: v["class_type"] for k, v in p.items()}
     jobs = []
     def make_entries(done):
@@ -1555,6 +1571,8 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
                 if anchor:
                     p[ANCHOR_IMG]["inputs"]["image"] = job_names[0]
             p[SEED]["inputs"]["seed_value"] = s
+            if upscale:
+                p[globals()["UPSCALE"]]["inputs"]["seed"] = s
             if prepare_only:
                 if count != 1 or edit_id and not reference:
                     raise ValueError("별도 워크플로 준비는 한 편씩 진행합니다.")
@@ -1766,7 +1784,47 @@ def add_anchor(p, image_name):
     p[GUIDER]["inputs"]["conditioning"] = [ANCHOR, 0]
 
 
+def add_upscale(p, scale):
+    """기본 크기로 만든 잠재 영상을 디코드하기 전에 키운다(노드 1개 추가 — AGENTS.md 의 예외 목록, 고른 작업에만).
+
+    DaSiWa 의 업스케일 노드 하나가 (1) 학습된 잠재 업스케일 모델로 영상 잠재를 키우고 (2) 같은 문구·참조 조건으로 한 스텝(denoise 0.2)
+    다듬는다. 소리 잠재는 그대로다. 연결은 노드 문서(docs/minimax_h3_tiled_upscale.md)의 '새 구간만 출력' 경로 그대로:
+    Segment Prepare 의 잠재·맥락 → 업스케일 → Segment Decode. 모델은 속도 노드를 거치기 전의 H3 모델을 준다(문서: 감싸지 않은 모델).
+    조건은 처음 생성과 같은 것(사진 1 첫 장면 고정을 켰으면 그 조건)."""
+    decode, prepare, guider = p.get(DECODE), p.get(PREPARE), p.get(GUIDER)
+    if (not decode or not prepare or not guider or UPSCALE in p or decode["inputs"].get("latent") != [PREPARE, 0]
+            or decode["inputs"].get("context") != [PREPARE, 1] or not guider["inputs"].get("conditioning")):
+        raise ValueError("템플릿 구조가 예상과 달라 업스케일 화질을 쓸 수 없습니다(ARCHITECTURE §2 확인).")
+    p[UPSCALE] = {"class_type": UPSCALE_NODE, "inputs": {
+        "model": [SHIFT, 0], "conditioning": list(guider["inputs"]["conditioning"]), "latent": [PREPARE, 0],
+        "scale": float(scale), "upscale_model": UPSCALE_MODEL, "steps": 1, "denoise": 0.2, "seed": 0,
+        "director_guide": [DIRECTOR, 0], "vae": [VIDEO_VAE, 0], "continuity_context": [PREPARE, 1],
+        "cfg": 1.0, "sampler_name": "euler", "scheduler": "simple"}}
+    decode["inputs"]["latent"] = [UPSCALE, 0]
+
+
 NODE_KNOWN = {}        # 노드 종류 -> (있는지, 확인한 시각). ComfyUI 에 그 노드가 설치돼 있는지
+
+
+def upscale_ready():
+    """이 ComfyUI 에 업스케일 노드가 있고 그 노드가 학습된 업스케일 모델 파일을 목록에 내놓는지. 있다는 답은 계속, 없다는 답은 5분만 믿는다."""
+    known = NODE_KNOWN.get("upscale")
+    if known and (known[0] or time.time() - known[1] < 300):
+        return known[0]
+    info = json.load(comfy(f"/object_info/{UPSCALE_NODE}")).get(UPSCALE_NODE) or {}
+    choices = (((info.get("input") or {}).get("required") or {}).get("upscale_model") or [[]])
+    listed = choices[0] if isinstance(choices[0], list) else ((choices[1] if len(choices) > 1 and isinstance(choices[1], dict) else {}).get("options") or [])
+    found = UPSCALE_MODEL in listed
+    NODE_KNOWN["upscale"] = (found, time.time())
+    return found
+
+
+def upscale_modes_available():
+    """이 ComfyUI 에서 고를 수 있는 업스케일 화질. 확인에 실패하면 없는 것으로 본다."""
+    try:
+        return list(UPSCALE_SCALES) if upscale_ready() else []
+    except (OSError, ValueError, KeyError, TypeError, IndexError):
+        return []
 
 
 def node_available(cls):

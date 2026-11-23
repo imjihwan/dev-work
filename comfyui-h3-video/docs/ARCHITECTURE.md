@@ -32,6 +32,7 @@
 | `9001`, `9002` | 승인된 첫 사진 고정 옵션이 켜졌을 때 추가하는 LoadImage와 frame-zero guide |
 | `9003` | 결과가 같은 속도 노드 `MiniMaxChunkFeedForward`(KJNodes, `chunks` 4). `add_speed_nodes()` 가 shift 노드 `1512:2692` 와 미리보기 노드 `2737` 사이에 끼운다(스케줄러는 그대로 shift 노드를 본다). 피드포워드를 토큰 묶음으로 나눠 순간 메모리를 줄이는 것이라 결과 프레임은 같고, 16GB 카드에서 스텝당 약 6.6% 빠르다. ComfyUI 에 이 노드가 없거나 `SIMPLEUI_CHUNK_FF=0` 이면 넣지 않는다 |
 | `9004`, `9005` | **속도 우선을 고른 작업에만** 넣는, 결과가 달라지는 가속 노드. `9004` = ComfyUI 코어 `BlockSparseAttention`(sol-attn, tau 1.3, 스텝 앞 20% 는 그대로), `9005` = DaSiWa `MiniMaxH3Cache`(기본값). 요청의 `speed` 가 `sparse` 면 `9004`, `sparse_cache` 면 둘 다를 `9003` 뒤·미리보기 노드 앞에 차례로 끼운다. 기본(`speed` 없음)에서는 넣지 않는다. 고른 방식의 노드가 없으면 조용히 빼지 않고 등록을 거절한다. `9005` 는 H3 의 계산 함수를 자기 사본으로 바꿔 끼우므로, 함께 쓰면 `9004` 의 `sink_conditioning`(문구·참조·소리 행 보호)이 적용되지 않는다(노드 순서와 무관) |
+| `9006` | **화질 '기본 + 1.5배 업스케일'을 고른 작업에만** 넣는 노드 `DaSiWaH3TiledUpscale`(DaSiWa, 표시 이름 MiniMaxH3 Enhanced Upscale). `add_upscale()` 이 Segment Prepare `1512:2796` 와 Segment Decode `1512:2671` 사이에 끼운다: 기본 크기로 만든 잠재 영상을 학습된 업스케일 모델(`minimax_h3_latent_upscaler_3d_conv_v1_bf16`)로 1.5배 키우고 같은 조건으로 한 스텝(denoise 0.2) 다듬는다. 소리 잠재는 그대로다. 모델 입력은 속도 노드를 거치기 전의 shift 노드 출력, 조건은 Guider 가 쓰는 것과 같은 것(사진 1 첫 장면 고정을 켰으면 그 조건), 시드는 작업 시드. 노드나 모델 파일이 없는 ComfyUI 에서는 조용히 기본 크기로 만들지 않고 등록을 거절한다. 이어 만들기 그래프에는 넣지 않는다(검증하지 않음) |
 
 네 편 이어 만들기는 `story_workflow.py`에서 그래프 복사본에 연속성 설정을 적용한다. 기본 템플릿 파일을 덮어쓰지 않는다. 자세한 연속 생성 원리는 [STORY](STORY.md)를 참고한다.
 

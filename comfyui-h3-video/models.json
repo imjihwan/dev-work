@@ -213,6 +213,18 @@
       "dest": "models/loras",
       "size": 310169280,
       "sha256": "6f90eb51502e6eaad0e86c608c752fa8b379af559d24fe6acecc40e0f542f146"
+    },
+    {
+      "id": "latent_upscaler_3d",
+      "role": "(선택) 잠재 업스케일 모델 — 화질 '기본 + 1.5배 업스케일'에 필요(없으면 그 화질만 고를 수 없다)",
+      "required": false,
+      "source": "hf",
+      "repo": "LBH-123-AI/Minimax_h3_latent_Upscaler",
+      "path": "minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors",
+      "filename": "minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors",
+      "dest": "models/latent_upscale_models",
+      "size": 690592992,
+      "sha256": "4f57821f5837f32f7142b67d815606dbd7550f194e5c769f7d6c3f83b146a5e6"
     }
   ],
   "local_translation": {
