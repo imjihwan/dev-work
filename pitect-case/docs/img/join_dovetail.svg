@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 120" width="440" height="240">
+<rect width="220" height="120" fill="#e8ecf1"/>
+          <rect fill="#8798ab" x="24" y="60" width="14" height="54"/><polygon fill="#8798ab" points="24,60 31,60 47,44 24,44"/>
+          <rect fill="#8798ab" x="182" y="60" width="14" height="54"/><polygon fill="#8798ab" points="196,60 189,60 173,44 196,44"/>
+          <polygon fill="#e08a3c" points="34,59 186,59 172,45 172,42 196,26 24,26 48,42 48,45"/>
+          <path fill="none" stroke="#1b5fcf" stroke-width="2" d="M96 86h28m-8-6l8 6l-8 6"/><text fill="#17202b" font-size="11" font-family="-apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif" x="74" y="106">길이 방향으로 밀어 넣음</text>
+</svg>

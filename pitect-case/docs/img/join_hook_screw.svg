@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 120" width="440" height="240">
+<rect width="220" height="120" fill="#e8ecf1"/>
+          <rect fill="#8798ab" x="18" y="34" width="12" height="80"/><polygon fill="#8798ab" points="30,34 50,34 30,54"/>
+          <rect fill="#8798ab" x="184" y="66" width="12" height="48"/><rect fill="#8798ab" x="164" y="66" width="20" height="40"/>
+          <polygon fill="#e08a3c" points="34,66 34,60 42,52 196,52 196,66"/>
+          <rect fill="#17202b" x="168" y="46" width="12" height="6"/><rect fill="#17202b" x="172" y="52" width="4" height="34"/>
+          <text fill="#17202b" font-size="11" font-family="-apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif" x="54" y="30">후크</text><text fill="#17202b" font-size="11" font-family="-apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif" x="150" y="40">나사</text>
+</svg>
