@@ -83,5 +83,24 @@ const plain=value=>JSON.parse(JSON.stringify(value));
   assert.equal(apply('regular'),false,'nothing to change the second time');
   assert.equal(apply('bare'),false);assert.equal(apply('missing'),false);
   assert(html.includes("applyModelRecommended($('model').value)"));
+  // Speed first (opt-in): offered only when this ComfyUI has the node, and an untouched project saves the same common settings as before
+  // (a new key would make the server treat the common settings as changed and mark all four clips stale).
+  const speedSource=html.slice(html.indexOf('function drawSpeedOptions()'),html.indexOf('function keepListed(id,value)'));
+  const speedBox={innerHTML:'',value:''},speedHint={textContent:''};
+  const speedContext=vm.createContext({$:id=>({speed:speedBox,speedHint})[id],catalog:{capabilities:{speed_modes:['sparse','sparse_cache']}}});
+  vm.runInContext(speedSource,speedContext);
+  assert.equal(speedContext.drawSpeedOptions(),true);
+  assert.equal((speedBox.innerHTML.match(/<option/g)||[]).length,2,'default + sparse attention; the step cache is not offered for four-clip projects');
+  assert(speedBox.innerHTML.includes('value="sparse"')&&!speedBox.innerHTML.includes('sparse_cache'));
+  speedContext.drawSpeedHint();assert.match(speedHint.textContent,/결과를 바꾸지 않는/);
+  speedBox.value='sparse';speedContext.drawSpeedHint();assert.match(speedHint.textContent,/다른 영상이 나옵니다.*네 편 모두 다시/);
+  speedContext.catalog={capabilities:{speed_modes:[]}};
+  assert.equal(speedContext.drawSpeedOptions(),false);assert(!speedBox.innerHTML.includes('value="sparse"'));
+  speedContext.drawSpeedHint();assert.match(speedHint.textContent,/필요한 노드가 이 ComfyUI 에 없습니다/,'a saved choice the ComfyUI cannot run is explained, not silently dropped');
+  speedBox.value='';speedContext.drawSpeedHint();assert.match(speedHint.textContent,/필요한 노드가 없습니다/);
+  speedContext.catalog={};speedContext.drawSpeedOptions();speedContext.drawSpeedHint();
+  assert(html.includes("'shift_video','shift_audio','speed'];")&&html.includes('<select id="speed">')&&html.includes("key==='sampler'||key==='scheduler'||key==='speed'"));
+  get('speed').value='';assert(!('speed' in context.readDefinition().common),'an unchosen speed mode adds no key to the saved settings');
+  get('speed').value='sparse';assert.equal(context.readDefinition().common.speed,'sparse');get('speed').value='';
   console.log('Story UI checks passed: four clips, scoped AI drafts/edits, stale-source rejection, approval gates, stable inline playback.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

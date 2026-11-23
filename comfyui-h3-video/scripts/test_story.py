@@ -104,6 +104,16 @@ class StoryTests(unittest.TestCase):
         if approve:result=self.store.approve(self.pid,index)
         return result
 
+    def test_speed_choice_in_common_settings_reaches_every_clip_request(self):
+        # 속도 우선(희소 어텐션)은 공통 설정으로 저장되고, 첫 편과 이어 붙는 편 모두 같은 값으로 그래프를 준비한다
+        self.render(0)
+        self.assertNotIn('speed',self.prepared[-1])
+        chosen=definition();chosen['common']['speed']='sparse'
+        saved=self.store.save({'id':self.pid,'revision':self.project['revision'],'definition':chosen})
+        self.assertTrue(saved['renders'][0]['stale'],'공통 설정이 바뀌면 이미 만든 편은 재검토 대상이 된다')
+        self.render(0);self.render(1)
+        self.assertEqual([request.get('speed') for request in self.prepared[-2:]],['sparse','sparse'])
+
     def test_four_steps_require_explicit_approval_and_reuse_original_refs(self):
         with self.assertRaises(ValueError):self.store.start(self.pid,1)
         for i in range(4):

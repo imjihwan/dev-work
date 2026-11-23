@@ -22,7 +22,7 @@
 <label for="photoFiles">원본 사진 · 첫 번째 사진이 공통 기준</label><input id="photoFiles" type="file" accept="image/*" multiple><div id="photos" class="photos"></div><div class="hint">원본 사진의 비율을 기준으로 영상 크기를 정하고, 네 편 모두 같은 크기·24 FPS·모델·LoRA를 사용합니다.</div>
 <div class="row"><div><label for="model">모델</label><select id="model"></select></div><div><label for="steps">스텝</label><input id="steps" type="number" min="1" max="60" value="8"></div><div><label for="resolution">공통 화질</label><select id="resolution"><option value="draft">초안</option><option value="auto" selected>기본</option><option value="720p">720p</option><option value="1080p">1080p</option></select></div><div><label for="aspect">공통 비율</label><select id="aspect"><option value="auto">원본 사진 기준</option><option value="16:9">16:9</option><option value="9:16">9:16</option><option value="1:1">1:1</option><option value="4:3">4:3</option><option value="3:4">3:4</option></select></div></div>
 <label>LoRA</label><div id="loras"></div><div class="actions"><button id="addLora">LoRA 추가</button><button id="importSettings">기존 탭의 모델·LoRA 설정 가져오기</button></div>
-<details><summary>고정 조건·고급 설정</summary><label for="subject">누가/무엇이 나오나</label><textarea id="subject" placeholder="비우면 원본 사진 기준"></textarea><label for="keep">사진에서 그대로 유지할 것</label><textarea id="keep">Keep the face and outfit exactly as in &lt;Picture 1&gt; throughout the video.</textarea><label for="style">장소·분위기·카메라</label><textarea id="style">Photorealistic live-action footage. Preserve the original environment and lighting. One continuous shot with a fixed camera.</textarea><div class="row"><div><label for="sampler">샘플러</label><select id="sampler"></select></div><div><label for="scheduler">스케줄러</label><select id="scheduler"></select></div><div><label for="shift_video">영상 shift</label><input type="number" step="0.5" id="shift_video" value="5"></div><div><label for="shift_audio">소리 shift</label><input type="number" step="0.5" id="shift_audio" value="5"></div></div></details>
+<details><summary>고정 조건·고급 설정</summary><label for="subject">누가/무엇이 나오나</label><textarea id="subject" placeholder="비우면 원본 사진 기준"></textarea><label for="keep">사진에서 그대로 유지할 것</label><textarea id="keep">Keep the face and outfit exactly as in &lt;Picture 1&gt; throughout the video.</textarea><label for="style">장소·분위기·카메라</label><textarea id="style">Photorealistic live-action footage. Preserve the original environment and lighting. One continuous shot with a fixed camera.</textarea><div class="row"><div><label for="sampler">샘플러</label><select id="sampler"></select></div><div><label for="scheduler">스케줄러</label><select id="scheduler"></select></div><div><label for="shift_video">영상 shift</label><input type="number" step="0.5" id="shift_video" value="5"></div><div><label for="shift_audio">소리 shift</label><input type="number" step="0.5" id="shift_audio" value="5"></div><div><label for="speed">속도 우선</label><select id="speed"><option value="">기본 — 결과 그대로</option></select></div></div><div class="hint" id="speedHint"></div></details>
 <details><summary>연결 지점의 상태 직접 지정 · 선택 사항</summary><div class="hint">비워도 실제 앞 영상의 끝 상태를 이어받습니다. 입력하면 프롬프트 작성과 생성에 함께 반영합니다.</div><div id="boundaries"></div></details>
 </fieldset><div class="hint">공통 조건을 바꿔 저장하면 이미 생성한 네 편 모두 재검토가 필요합니다. 프롬프트 AI는 고정 조건을 수정하지 않습니다.</div></section>
 <label for="storyHelperEngine">프롬프트 도우미</label><select id="storyHelperEngine"><option value="grok">Grok CLI · 계정 로그인</option><option value="dutchit" selected>DutchIT H3 · 상세 작성 (8B)</option></select><div class="hint">도우미만 선택합니다. 저장한 공통 조건과 영상 설정은 그대로 유지합니다. DutchIT는 RAM 여유 8GB가 필요합니다. Grok CLI는 PC에서 Connect-Grok.ps1로 로그인하며 시나리오·공통 조건·현재 편 프롬프트를 외부로 보냅니다. 사진·영상·작업이력은 보내지 않습니다.</div>
@@ -52,7 +52,7 @@ function applyPlaybackMuteDefault(enabled){
 // End playback default handling.
 
 const $=id=>document.getElementById(id), COUNT=4;
-const COMMON=['model','steps','aspect','resolution','subject','style','keep','sampler','scheduler','shift_video','shift_audio'];
+const COMMON=['model','steps','aspect','resolution','subject','style','keep','sampler','scheduler','shift_video','shift_audio','speed'];
 let catalog=null, project=null, dirty=false, newImages=null, newBgm=undefined, ai=null, pollTimer=null, saving=false;
 let advancedLoras=[];
 const previews=new Map();
@@ -73,7 +73,7 @@ function fillDraft(index,draft){
   $('shots'+index).replaceChildren();for(const [time,text] of draft.shots||[['0','']])addShot(index,time,text);
 }
 function readDraft(index){return {f:Object.fromEntries(['summary','sound','music'].map(key=>[key,$(key+index).value])),shots:[...$('shots'+index).children].map(row=>[row.querySelector('input').value,row.querySelector('textarea').value])};}
-function readDefinition(){return {title:$('title').value,common:{...Object.fromEntries(COMMON.map(key=>[key,['steps','shift_video','shift_audio'].includes(key)?Number($(key).value):$(key).value])),loras:advancedLoras.map(item=>({...item}))},boundaries:Array.from({length:5},(_,i)=>$('boundary'+i).value),clips:Array.from({length:COUNT},(_,i)=>({scenario:$('scenario'+i).value,seed:$('seed'+i).value,draft:readDraft(i)}))};}
+function readDefinition(){const common={...Object.fromEntries(COMMON.map(key=>[key,['steps','shift_video','shift_audio'].includes(key)?Number($(key).value):$(key).value])),loras:advancedLoras.map(item=>({...item}))};if(!common.speed)delete common.speed;return {title:$('title').value,common,boundaries:Array.from({length:5},(_,i)=>$('boundary'+i).value),clips:Array.from({length:COUNT},(_,i)=>({scenario:$('scenario'+i).value,seed:$('seed'+i).value,draft:readDraft(i)}))};}
 function drawLoras(){
   $('loras').replaceChildren();advancedLoras.forEach((item,index)=>{
     const row=document.createElement('div');row.className='lora';row.innerHTML='<select aria-label="LoRA"></select><input type="number" step="0.05" aria-label="강도"><button title="LoRA 제거">×</button>';
@@ -93,9 +93,14 @@ function applyModelRecommended(name){
   return changed;
 }
 // 저장된 샘플러·스케줄러가 지금 목록에 없으면(H3 에서 결과가 깨져 목록에서 뺀 샘플러 등) 고른 값을 지우지 않고 보여 준다
+// 속도 우선(선택): 결과가 기본과 달라지는 가속. 네 편 실측(768×960, 8스텝): 기본 939초 → 희소 어텐션 736초(−22%), 이음매·인물 유지는 같은 수준(PERFORMANCE.md).
+// 스텝 캐시를 함께 쓰는 방식은 이어 만들기에서 검증하지 않아 넣지 않았다.
+function drawSpeedOptions(){const ready=(catalog?.capabilities?.speed_modes||[]).includes('sparse');$('speed').innerHTML='<option value="">기본 — 결과 그대로</option>'+(ready?'<option value="sparse">빠르게 — 희소 어텐션</option>':'');return ready;}
+function drawSpeedHint(){const ready=(catalog?.capabilities?.speed_modes||[]).includes('sparse'),value=$('speed').value;
+  $('speedHint').textContent=value&&!ready?'고른 속도 우선 방식에 필요한 노드가 이 ComfyUI 에 없습니다. 기본으로 바꿔 주세요.':value==='sparse'?'어텐션에서 중요한 부분만 정확히 계산합니다. 같은 시드라도 기본과 다른 영상이 나옵니다(이 PC 실측: 네 편 939초 → 736초). 바꾸면 네 편 모두 다시 만들어야 합니다.':ready?'속도 우선: 기본은 결과를 바꾸지 않는 최적화만 씁니다.':'속도 우선: 이 ComfyUI 에는 필요한 노드가 없습니다.';}
 function keepListed(id,value){const select=$(id);if(select?.options&&value!=null&&value!==''&&![...select.options].some(option=>option.value===String(value)))select.add(new Option(value,value));}
 function fill(definition){
-  $('title').value=definition.title||'';for(const key of COMMON){if(key==='sampler'||key==='scheduler')keepListed(key,definition.common[key]);$(key).value=definition.common[key]??'';}
+  $('title').value=definition.title||'';for(const key of COMMON){if(key==='sampler'||key==='scheduler'||key==='speed')keepListed(key,definition.common[key]);$(key).value=definition.common[key]??'';}drawSpeedHint();
   advancedLoras=structuredClone(definition.common.loras||[]);drawLoras();
   for(let i=0;i<5;i++)$('boundary'+i).value=definition.boundaries?.[i]||'';
   for(let i=0;i<COUNT;i++){const clip=definition.clips[i];$('scenario'+i).value=clip.scenario||'';$('seed'+i).value=clip.seed||'';fillDraft(i,clip.draft||{});}
@@ -230,7 +235,7 @@ async function init(){
   createCards();catalog=await api('/api/catalog');
   $('model').innerHTML=catalog.models.filter(item=>item.auto?.h3!==false&&item.auto?.fmt!=='gguf'&&(!item.auto?.modes||item.auto.modes.includes('REF2VA'))).map(item=>`<option value="${esc(item.name)}">${esc(item.name.split(/[\\/]/).pop())}</option>`).join('');
   for(const [id,items] of [['sampler',catalog.samplers],['scheduler',catalog.schedulers]])$(id).innerHTML=items.map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join('');
-  fill(defaults());bind();drawSaved();updateStatus();
+  drawSpeedOptions();fill(defaults());bind();$('speed').addEventListener('change',drawSpeedHint);drawSaved();updateStatus();
   const id=new URLSearchParams(location.search).get('project')||localStorage.getItem('h3.story.current');if(id)try{await loadProject(id);}catch(error){say('이 기기의 이전 프로젝트를 불러오지 못했습니다. 프로젝트 코드로 다시 열 수 있습니다.',true);}
   poll();
   if(window.parent!==window)new ResizeObserver(()=>window.parent.postMessage({type:'story-resize',height:document.body.scrollHeight+24},location.origin)).observe(document.body);
