@@ -339,7 +339,8 @@ export function build(wasm, userP = {}) {
     chk(`${ver}: 케이스 ↔ 빵판`, ivol(cs, bread), ivol(cs, bread) < 0.01, '겹침 부피 mm³');
     chk(`${ver}: 케이스 ↔ 뚜껑`, ivol(cs, lid.solid), ivol(cs, lid.solid) < 0.01, '겹침 부피 mm³');
     chk(`${ver}: 뚜껑 ↔ 웹캠`, ivol(lid.solid, cam), ivol(lid.solid, cam) < 0.01, '겹침 부피 mm³');
-    chk(`${ver}: 뚜껑 ↔ 빵판 위 20 mm 공간`, ivol(lid.solid, box(-P.bbL / 2, P.bbL / 2, -P.bbW / 2, P.bbW / 2, D.zBbTop, D.zBbTop + 20)), ivol(lid.solid, box(-P.bbL / 2, P.bbL / 2, -P.bbW / 2, P.bbW / 2, D.zBbTop, D.zBbTop + 20)) < 0.01, '겹침 부피 mm³');
+    { const jz = Math.min(20, P.jumper), zone = box(-P.bbL / 2, P.bbL / 2, -P.bbW / 2, P.bbW / 2, D.zBbTop, D.zBbTop + jz);   // 듀폰 점퍼는 20 mm가 필요. jumper를 줄이면 그 높이까지만 확인
+      chk(`${ver}: 뚜껑 ↔ 빵판 위 ${jz} mm 공간`, ivol(lid.solid, zone), ivol(lid.solid, zone) < 0.01, '겹침 부피 mm³'); }
     const lift = ivol(cs, lid.solid.translate([0, 0, 1.2]));
     chk(`${ver}: 뚜껑을 1.2 mm 들면 걸리는가`, lift, lift > 0.05, '걸림 부피 mm³ (0보다 커야 고정됨)');
     if (ver === 'B') {
