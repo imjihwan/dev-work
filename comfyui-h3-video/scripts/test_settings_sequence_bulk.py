@@ -375,6 +375,20 @@ class FeatureTests(unittest.TestCase):
         self.env["build_and_queue"](self.request(count=1,resolution="auto"))
         self.assertEqual(len(self.sent),1)
 
+    def test_speed_option_survives_the_four_clip_continuation_graph(self):
+        # 이어 만들기는 준비된 그래프의 사본에 연속성 설정만 얹는다: 속도 우선으로 고른 노드와 모델 경로가 그대로 남아야 한다
+        sys.path.insert(0,str(ROOT/"simple_ui"));self.addCleanup(sys.path.remove,str(ROOT/"simple_ui"))
+        from story_workflow import continuation_graph
+        env=self.env;sparse,preview,chunk=env["SPARSE"],env["PREVIEW"],env["CHUNK_FF"]
+        prepared=env["build_and_queue"](self.request(count=1,speed="sparse",resolution="auto"),prepare_only=True)["prompt"]
+        for index,parent in ((0,None),(1,"0"*32)):
+            graph=continuation_graph(prepared,"a"*32,index,parent,"safe test prompt")
+            self.assertEqual(graph[sparse]["class_type"],"BlockSparseAttention")
+            self.assertEqual((graph[sparse]["inputs"]["model"],graph[preview]["inputs"]["model"]),([chunk,0],[sparse,0]))
+        self.nodes.discard("BlockSparseAttention")
+        with self.assertRaisesRegex(ValueError,"BlockSparseAttention 노드가 없어"):
+            env["build_and_queue"](self.request(count=1,speed="sparse"),prepare_only=True)
+
     def test_speed_option_is_refused_clearly_when_unknown_or_its_node_is_missing(self):
         with self.assertRaisesRegex(ValueError,"속도 우선"):
             self.env["build_and_queue"](self.request(count=1,speed="warp"))

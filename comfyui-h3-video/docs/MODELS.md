@@ -25,7 +25,7 @@
 | 기본 H3 · 첫·끝 장면용(터보 아님) | `minimax_h3_fl2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/MiniMaxH3/` | 19.5GB | [Comfy-Org/MiniMax-H3](https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors) |
 | 터보 LoRA · 참조 사진 4스텝 | `minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors` | `models/loras/` | 1.8GB | [Comfy-Org/MiniMax-H3 · loras](https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors) |
 | 터보 LoRA · 첫·끝 장면 8스텝 | `minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors` | `models/loras/` | 1.8GB | [Comfy-Org/MiniMax-H3 · loras](https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors) |
-| 실사 사람 LoRA (fal) — 얼굴 클로즈업·피부·표정·영화 조명 | `h3-realism-people-t2v-i2v-r2v.safetensors` | `models/loras/` | 125MB | [fal/MiniMax-H3-Realism-People-LoRA](https://huggingface.co/fal/MiniMax-H3-Realism-People-LoRA) — 트리거 `r34l1sm`(Civitai 에 등록이 안 돼 있어 `cards.seed.json` 에 기본값으로 넣어 둠 → 고르면 자동으로 들어감), 강도 1.0(약하게 0.6~0.8). 이 PC 에서 아직 생성 결과 미확인 |
+| 실사 사람 LoRA (fal) — 얼굴 클로즈업·피부·표정·영화 조명 | `h3-realism-people-t2v-i2v-r2v.safetensors` | `models/loras/` | 125MB | [fal/MiniMax-H3-Realism-People-LoRA](https://huggingface.co/fal/MiniMax-H3-Realism-People-LoRA) — 트리거 `r34l1sm`(Civitai 에 등록이 안 돼 있어 `cards.seed.json` 에 기본값으로 넣어 둠 → 고르면 자동으로 들어감), 제작자 안내는 강도 1.0(약하게 0.6~0.8). 참조 사진 방식에서는 0.5 를 권한다 — 이 PC 실측은 [PERFORMANCE](PERFORMANCE.md)의 'LoRA 강도' |
 | 영화 질감 LoRA (Cinematic Official Release) | `电影感loraV1.0正式版_剪枝与非剪枝通用.safetensors` | `models/loras/` | 296MB | [Civitai 2937713](https://civitai.com/models/2937713) (로그인 필요) — 트리거 없음, 강도 0.7(움직임 많으면 0.5). 개인 제작자(TuTu_1018)가 올린 것으로 MiniMax 공식 배포가 아니다(이름의 "Official Release" 는 제작자 자신의 정식판이라는 뜻, 2026-11-23 Civitai 확인). 이 PC 에서 아직 생성 결과 미확인 |
 | 잠재 업스케일 모델 — 화질 '기본 + 1.5배 업스케일'에 필요 | `minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors` | `models/latent_upscale_models/` | 659MB | [LBH-123-AI/Minimax_h3_latent_Upscaler](https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler/blob/main/minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors) (Apache-2.0). DaSiWa 노드의 `MiniMaxH3 Enhanced Upscale` 이 읽는 파일이다. 없으면 그 화질만 고를 수 없고 나머지는 그대로 동작한다 |
 
@@ -66,7 +66,7 @@
 - 얼굴이 무너지는 문제는 MiniMax 가 인정하고 "체계적으로 해결 중"이라고 답한 알려진 한계다(2026-08-20, 일정 없음). 사용자 경험으로는 넓은 구도에서 두드러지고 가까운·중간 구도가 안정적이다.
 
 **LoRA**
-- 실사 사람 LoRA(fal): 트리거 `r34l1sm` 을 프롬프트 앞쪽에. 제작자 안내는 강도 1.0 이 의도값, 가볍게는 0.6~0.8. 176개 실사 인물 클립으로 학습(rank 32). 제작자가 fp16/fp8 기준으로 만들었다고 했고, pruned int8 에서 물체가 사라지거나 참조 방식에서 팔다리가 어긋난다는 사용자 보고가 있다 — 참조 사진과 같이 쓸 때는 0.5~0.7 부터 시험해 본다.
+- 실사 사람 LoRA(fal): 트리거 `r34l1sm` 을 프롬프트 앞쪽에. 제작자 안내는 강도 1.0 이 의도값, 가볍게는 0.6~0.8. 176개 실사 인물 클립으로 학습(rank 32). 제작자가 fp16/fp8 기준으로 만들었다고 했고, pruned int8 에서 물체가 사라지거나 참조 방식에서 팔다리가 어긋난다는 사용자 보고가 있다 — 참조 사진과 같이 쓸 때는 0.5 부터 쓴다(실측: 0.7부터 화면이 얼굴 쪽으로 당겨지는 장면이 있었다 — PERFORMANCE.md 'LoRA 강도').
 - 터보 LoRA(기본 H3 모델과 함께 쓰는 것) 신판 — `lightx2v/Minimax-h3-Turbo`. 이 저장소가 받게 해 둔 `ref2v 4step v0.1`·`fl2v 8step v1.0` 은 544p 로 학습한 초기판이다.
 
 | 파일(ComfyUI 형식) | 크기 | sha256 | 올린 날 | 비고 |

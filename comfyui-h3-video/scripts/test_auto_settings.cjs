@@ -93,7 +93,21 @@ assert.equal(context.cameraNote('Cinematic look, medium shot.', 'She stands up.'
 assert.match(context.cameraNote('The camera remains static.', '그녀가 자리에서 일어나 창가로 걸어간다.'), /카메라가 고정인데/);
 assert.equal(context.cameraNote('Static camera.', 'Steam rises from the cup and leaves fall outside the window.'), '', 'objects moving do not count');
 assert.equal(context.cameraNote(undefined, undefined), '');
-assert(html.includes('id="cameraHint"') && script.includes('cameraNote($("style").value'));
+// Ways people really write it: other verb forms, Korean endings, other words for a fixed camera.
+const fixedCamera = 'Photorealistic. Static camera, medium shot.';
+for (const action of ['She is standing up from the chair.', 'She stood up and walked to the window.', 'He got up slowly.', 'She keeps walking toward the door.', 'She jumped off the step.',
+  '그녀가 자리에서 일어선다.', '의자에서 일어나 창가로 걸어간다.', '앉아 있다가 일어난다.', '문 쪽으로 걷는다.', '창가로 달려간다.'])
+  assert.notEqual(context.cameraNote(fixedCamera, action), '', `must warn: ${action}`);
+for (const style of ['Tripod shot, medium framing.', 'The camera does not move.', 'Locked-off shot.', '고정 카메라, 미디엄 샷.', '카메라는 고정.', '삼각대에 올린 화면.', 'Static camera, no pan, no tilt, no tracking.'])
+  assert.notEqual(context.cameraNote(style, 'She stands up and walks to the window.'), '', `a fixed camera written as: ${style}`);
+// Not a person leaving the frame: negations, idioms, objects, and Korean words that only look like the verbs.
+for (const action of ['She does not stand up.', "She doesn't walk away, she stays seated.", 'She runs her hand through her hair.', 'A tear runs down her cheek.', 'She leans on a walking stick.',
+  'She stands still and smiles.', '무슨 일이 일어나는지 창밖을 본다.', '액자를 벽에 걸어 둔다.', '뛰어난 연기를 보여 준다.'])
+  assert.equal(context.cameraNote(fixedCamera, action), '', `must not warn: ${action}`);
+for (const style of ['Static framing at first, then the camera follows her.', '고정 카메라로 시작해 카메라가 인물을 따라간다.', 'Handheld camera.'])
+  assert.equal(context.cameraNote(style, 'She stands up and walks to the window.'), '', `the camera moves with her: ${style}`);
+assert(html.includes('id="cameraHint"') && script.includes('manualFinal ? "" : cameraNote($("style").value') && script.includes('.filter((d,i) => !late.includes(i))'),
+  'the hint judges the automatic prompt only, without the shots that were dropped as too late');
 
 // A turbo LoRA on a checkpoint that already has the distillation baked in is flagged (the author and the Pika Flex docs warn against stacking).
 context.base = name => name.split(/[\\/]/).pop();
@@ -255,7 +269,7 @@ assert(html.includes('<option value="up15">기본 + 1.5배 업스케일</option>
 vm.runInContext(section('function loraStrengthNote(', 'function drawLoras('), context);
 const realism = {name:'loras\\h3-realism-people-t2v-i2v-r2v.safetensors', auto:{}}, cinematic = {name:'cinematic.safetensors', auto:{}}, turboLoraCard = {name:'ref2v_turbo_4step.safetensors', auto:{turbo:true}};
 assert.equal(context.loraStrengthNote(realism, 0.5, true), '');
-assert.match(context.loraStrengthNote(realism, 0.7, true), /0\.5 안팎을 권합니다.*실측: 이 LoRA 는 구도가 고정된 장면에서 0\.7부터/);
+assert.match(context.loraStrengthNote(realism, 0.7, true), /0\.5 안팎을 권합니다.*실측: 이 LoRA 는 앉아서 말하는 근접 장면에서 0\.7부터/);
 assert.match(context.loraStrengthNote(realism, '1', true), /극단적 클로즈업/);
 assert.match(context.loraStrengthNote(cinematic, 1, true), /0\.5 안팎을 권합니다\(H3 문서\)\.$/, 'other LoRAs get the documented advice only, not the measurement');
 assert.equal(context.loraStrengthNote(turboLoraCard, 1, true), '', 'an acceleration LoRA is meant to run at 1');

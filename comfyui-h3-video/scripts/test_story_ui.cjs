@@ -98,6 +98,8 @@ const plain=value=>JSON.parse(JSON.stringify(value));
   assert.equal(speedContext.drawSpeedOptions(),false);assert(!speedBox.innerHTML.includes('value="sparse"'));
   speedContext.drawSpeedHint();assert.match(speedHint.textContent,/필요한 노드가 이 ComfyUI 에 없습니다/,'a saved choice the ComfyUI cannot run is explained, not silently dropped');
   speedBox.value='';speedContext.drawSpeedHint();assert.match(speedHint.textContent,/필요한 노드가 없습니다/);
+  speedContext.catalog={capabilities:{speed_modes:['sparse','sparse_cache']}};speedBox.value='sparse_cache';speedContext.drawSpeedHint();
+  assert.match(speedHint.textContent,/이어 만들기에서 쓸 수 없는 속도 우선 방식/,'a value this page does not offer is not described as the default');
   speedContext.catalog={};speedContext.drawSpeedOptions();speedContext.drawSpeedHint();
   assert(html.includes("'shift_video','shift_audio','speed'];")&&html.includes('<select id="speed">')&&html.includes("key==='sampler'||key==='scheduler'||key==='speed'"));
   get('speed').value='';assert(!('speed' in context.readDefinition().common),'an unchosen speed mode adds no key to the saved settings');

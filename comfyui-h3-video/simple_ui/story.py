@@ -229,6 +229,8 @@ class StoryProjects:
         if len(json.dumps(definition,ensure_ascii=False))>100000: raise ValueError("프로젝트 내용이 너무 깁니다.")
         common=definition.get("common")
         if not isinstance(common,dict): raise ValueError("공통 설정을 확인해 주세요.")
+        # 이어 만들기에서 검증한 속도 우선 방식은 희소 어텐션뿐이다(스텝 캐시를 함께 쓰는 방식은 이어 붙는 편에서 확인하지 않았다)
+        if common.get("speed") not in (None,"","sparse"): raise ValueError("이어 만들기에서 쓸 수 없는 속도 우선 방식입니다. 기본이나 '빠르게 — 희소 어텐션'으로 바꿔 주세요.")
         for clip in definition["clips"]:
             if not isinstance(clip,dict) or not isinstance(clip.get("scenario",""),str): raise ValueError("시나리오를 확인해 주세요.")
         boundaries=definition.get("boundaries",[""]*(CLIP_COUNT+1))

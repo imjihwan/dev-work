@@ -114,6 +114,16 @@ class StoryTests(unittest.TestCase):
         self.render(0);self.render(1)
         self.assertEqual([request.get('speed') for request in self.prepared[-2:]],['sparse','sparse'])
 
+    def test_only_the_verified_speed_mode_can_be_saved_for_four_clip_projects(self):
+        # 스텝 캐시를 함께 쓰는 방식은 이어 붙는 편에서 확인하지 않았다: 화면이 내놓지 않는 값은 저장 단계에서 거절한다
+        for value in ('sparse_cache','warp',1):
+            crafted=definition();crafted['common']['speed']=value
+            with self.assertRaisesRegex(ValueError,'속도 우선'):
+                self.store.save({'id':self.pid,'revision':self.project['revision'],'definition':crafted})
+        for value in ('sparse',''):
+            accepted=definition();accepted['common']['speed']=value
+            self.project=self.store.save({'id':self.pid,'revision':self.project['revision'],'definition':accepted})
+
     def test_upscale_quality_is_not_accepted_for_continuation_clips(self):
         # 업스케일 화질은 한 편씩 만드는 영상에서만 검증했다. 이어 만들기 그래프에 그 노드가 있으면 등록하지 않고 알린다
         prepare=self.prepare
