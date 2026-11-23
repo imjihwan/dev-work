@@ -143,6 +143,11 @@ near(eta({speed:'sparse'}), 120.9 + 6.4, 0.05, '5 s sparse attention');
 near(eta({seconds:10, speed:'sparse'}), 284.0, 0.05, '10 s sparse attention');
 near(eta({speed:'sparse_cache'}), 100.9, 0.05, '5 s sparse attention + step cache through the page server');
 assert(eta({seconds:10, speed:'sparse'}) / eta({seconds:10}) < eta({speed:'sparse'}) / eta({}), 'longer clips gain more from sparse attention');
+// Step-time ratios against the 5 s 768x960 run of the same seed (measured without the chunk node): the model stays within 6% of each.
+const stepRatio = options => (eta({...options, steps:9}) - eta({...options, steps:8})) / (eta({steps:9}) - eta({steps:8}));
+for (const [label, options, measured] of [['3 s', {seconds:3}, 0.521], ['8 s', {seconds:8}, 1.840], ['10 s', {seconds:10}, 2.610], ['draft 576x736', {pixels:576 * 736}, 0.482],
+  ['720p at 4:5 (864x1088)', {pixels:864 * 1088}, 1.396], ['9:16 (768x1376)', {pixels:768 * 1376}, 1.646], ['9:20 (768x1696)', {pixels:768 * 1696}, 2.233], ['21:9 (1792x768)', {pixels:1792 * 768}, 2.427]])
+  near(stepRatio(options), measured, 0.06, `step time ratio for ${label}`);
 assert.equal(eta({pixels:384 * 480, seconds:3, speed:'sparse'}), eta({pixels:384 * 480, seconds:3}), 'below min_tokens the sparse node computes densely');
 assert.equal(context.canvasPixels('auto', 'auto', 768 / 960), 768 * 960);
 assert.equal(context.canvasPixels('9:16', 'auto', 0), 768 * 1376, 'a fixed aspect ignores the photo; the long side snaps to 32');
