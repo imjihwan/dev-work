@@ -65,6 +65,8 @@ SCHED, SAMPLER, SHIFT, LORA = "1512:2590", "1512:2598", "1512:2692", "2678"
 # '사진 1 첫 장면 고정' 틀 = 기본 틀 + 노드 2개(LoadImage → 네이티브 MiniMaxH3AddGuide frame 0), 연결 1곳 변경
 GUIDE, GUIDER, VIDEO_VAE = "1512:2701", "1512:2592", "1512:2584"
 ANCHOR_IMG, ANCHOR = "9001", "9002"
+# 결과를 바꾸지 않는 속도 노드: shift 노드와 미리보기 노드 사이에 끼운다(add_speed_nodes)
+PREVIEW, CHUNK_FF = "2737", "9003"
 LORA_SLOTS = 10
 MULT = 32
 # draft = 초안(약 0.4MP, 공식 문서의 빠른 시험용 권장). H3 최소 짧은 변 384 는 어떤 화면비든 넘음
@@ -1373,6 +1375,10 @@ def build_and_queue(req, reference=None, prepare_only=False, queue_first=False, 
     # 스케줄러가 shift 노드 뒤 모델을 받아야 Shift Video 가 영상 sigma 스케줄에 반영된다
     # (shift 앞 모델이면 H3 기본값 12 로 고정되고 화면 값은 오디오 환산에만 쓰여 어긋난다).
     p[SCHED]["inputs"]["model"] = [SHIFT, 0]
+    # 결과가 같은 속도 노드(청크 피드포워드). 이 함수만 떼어 쓰는 곳(시험 등)에서는 없을 수 있다.
+    speed = globals().get("add_speed_nodes")
+    if speed:
+        speed(p, lambda cls: cached(("node", cls), lambda: node_available(cls)))
     loras = [x for x in (req.get("loras") or []) if x.get("name")]
     if len(loras) > LORA_SLOTS:
         raise ValueError(f"LoRA 는 최대 {LORA_SLOTS}개까지입니다.")
@@ -1729,6 +1735,41 @@ def add_anchor(p, image_name):
                  "inputs": {"positive": [GUIDE, 0], "latent": [GUIDE, 1], "vae": [VIDEO_VAE, 0],
                             "image": [ANCHOR_IMG, 0], "frame_idx": 0}}
     p[GUIDER]["inputs"]["conditioning"] = [ANCHOR, 0]
+
+
+NODE_KNOWN = {}        # 노드 종류 -> (있는지, 확인한 시각). ComfyUI 에 그 노드가 설치돼 있는지
+
+
+def node_available(cls):
+    """ComfyUI 에 이 노드 종류가 있는지(설치된 커스텀 노드 버전에 따라 다르다). 있다는 답은 계속, 없다는 답은 5분만 믿는다."""
+    known = NODE_KNOWN.get(cls)
+    if known and (known[0] or time.time() - known[1] < 300):
+        return known[0]
+    found = cls in json.load(comfy(f"/object_info/{cls}"))
+    NODE_KNOWN[cls] = (found, time.time())
+    return found
+
+
+def add_speed_nodes(p, available=node_available):
+    """결과 영상을 바꾸지 않으면서 빨라지는 노드를 그래프에 끼운다(값이 아니라 노드가 늘어나는 변경 — AGENTS.md 의 예외 목록 참고).
+
+    MiniMaxChunkFeedForward(KJNodes): H3 블록의 피드포워드를 토큰 묶음으로 나눠 계산한다. 토큰 행은 서로 독립이고 int8 활성 양자화도
+    행 단위라 결과가 같다(노드 설명과 같고, 같은 시드로 실측해 프레임이 완전히 같음을 확인). 순간 메모리가 줄어 16GB 카드에서
+    가중치가 VRAM 에 더 머물고, 5초 768x960 에서 스텝당 19.12초 → 17.85초(-6.6%)였다(docs/PERFORMANCE.md).
+    끄려면 환경 변수 SIMPLEUI_CHUNK_FF=0. 노드가 없는 ComfyUI 나 예상과 다른 틀이면 아무것도 하지 않는다."""
+    if os.environ.get("SIMPLEUI_CHUNK_FF", "1").strip().lower() in ("0", "off", "false", "no"):
+        return False
+    preview = p.get(PREVIEW)
+    if not preview or preview["inputs"].get("model") != [SHIFT, 0] or CHUNK_FF in p:
+        return False
+    try:
+        if not available("MiniMaxChunkFeedForward"):
+            return False
+    except (OSError, ValueError, KeyError):
+        return False                         # 확인하지 못했으면 틀 그대로 보낸다(생성을 막지 않는다)
+    p[CHUNK_FF] = {"class_type": "MiniMaxChunkFeedForward", "inputs": {"model": [SHIFT, 0], "chunks": 4, "seq_threshold": 4096}}
+    preview["inputs"]["model"] = [CHUNK_FF, 0]
+    return True
 
 
 def video_of(entry):

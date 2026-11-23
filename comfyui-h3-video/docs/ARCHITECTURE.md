@@ -30,6 +30,7 @@
 | `2678` | LoRA 슬롯 |
 | `1512:2701`, `1512:2592`, `1512:2584` | Guide, Guider, video VAE |
 | `9001`, `9002` | 승인된 첫 사진 고정 옵션이 켜졌을 때 추가하는 LoadImage와 frame-zero guide |
+| `9003` | 결과가 같은 속도 노드 `MiniMaxChunkFeedForward`(KJNodes, `chunks` 4). `add_speed_nodes()` 가 shift 노드 `1512:2692` 와 미리보기 노드 `2737` 사이에 끼운다(스케줄러는 그대로 shift 노드를 본다). 피드포워드를 토큰 묶음으로 나눠 순간 메모리를 줄이는 것이라 결과 프레임은 같고, 16GB 카드에서 스텝당 약 6.6% 빠르다. ComfyUI 에 이 노드가 없거나 `SIMPLEUI_CHUNK_FF=0` 이면 넣지 않는다 |
 
 네 편 이어 만들기는 `story_workflow.py`에서 그래프 복사본에 연속성 설정을 적용한다. 기본 템플릿 파일을 덮어쓰지 않는다. 자세한 연속 생성 원리는 [STORY](STORY.md)를 참고한다.
 

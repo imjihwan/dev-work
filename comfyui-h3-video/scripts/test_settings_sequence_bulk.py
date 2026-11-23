@@ -15,7 +15,7 @@ import urllib.parse
 import uuid
 import sys
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from pathlib import Path
 from PIL import Image, ImageOps
 
@@ -25,7 +25,7 @@ sys.path.insert(0,str(SOURCE))
 from bulk_progress import BulkProgress
 from queue_bulk import BuildCache, QueueBulkEditor
 TREE = ast.parse((SOURCE / "server.py").read_text(encoding="utf-8"))
-NAMES = {"_load_json", "_save_json", "save_settings", "rename_settings", "delete_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "person_canvas", "bulk_edit_queue", "bulk_queue_context", "commit_bulk_history", "bulk_queue_editor", "judge_face_side", "upright_photo", "prepare_photo_reference", "pooled_photo_reference", "release_photo_references"}
+NAMES = {"_load_json", "_save_json", "save_settings", "rename_settings", "delete_settings", "hist_add", "snap", "canvas", "add_anchor", "build_and_queue", "person_canvas", "bulk_edit_queue", "bulk_queue_context", "commit_bulk_history", "bulk_queue_editor", "judge_face_side", "upright_photo", "add_speed_nodes", "prepare_photo_reference", "pooled_photo_reference", "release_photo_references"}
 
 
 class FeatureTests(unittest.TestCase):
@@ -41,7 +41,9 @@ class FeatureTests(unittest.TestCase):
                     "TEMPLATE":str(ROOT / "simple_ui/template_api.json"),
                     "card_for":lambda *args:{"auto":{"h3":True,"fmt":"int8"}},
                     "object_options":lambda cls, field:["test-model.safetensors","other-model.safetensors"] if cls=="UNETLoader" else [],
-                    "comfy":self.comfy, "upload":self.upload, "replace_queued_prompt":self.replace}
+                    "comfy":self.comfy, "upload":self.upload, "replace_queued_prompt":self.replace,
+                    "node_available":lambda cls:cls in self.nodes}
+        self.nodes={"MiniMaxChunkFeedForward"}      # 이 가짜 ComfyUI 에 설치된 것으로 치는 선택 노드
         self.crop_calls=[]
         def crop(raw, model):
             self.crop_calls.append(raw)
@@ -269,6 +271,32 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(graphs[0],graphs[1])
         items=json.loads(graphs[0][director]['inputs']['timeline_data'])['items']
         self.assertEqual(len({item['id'] for item in items}),2)
+
+    def test_chunked_feedforward_is_inserted_between_shift_and_preview_without_touching_other_wiring(self):
+        # 결과가 같은 속도 노드(실측: 프레임 동일, 스텝당 -6.6%). 모델 경로에만 끼어들고 스케줄러는 여전히 shift 노드를 본다.
+        template=json.loads((ROOT/"simple_ui/template_api.json").read_text(encoding="utf-8-sig"))
+        graph=self.env["build_and_queue"](self.request(count=1),prepare_only=True)["prompt"]
+        chunk,preview,shift=self.env["CHUNK_FF"],self.env["PREVIEW"],self.env["SHIFT"]
+        self.assertEqual(graph[chunk],{"class_type":"MiniMaxChunkFeedForward","inputs":{"model":[shift,0],"chunks":4,"seq_threshold":4096}})
+        self.assertEqual(graph[preview]["inputs"]["model"],[chunk,0])
+        self.assertEqual(graph[self.env["SCHED"]]["inputs"]["model"],[shift,0])
+        self.assertEqual(set(graph)-set(template),{chunk})
+        links=lambda g:{(key,name):value for key,node in g.items() for name,value in node["inputs"].items() if isinstance(value,list) and len(value)==2 and isinstance(value[0],str)}
+        changed={key for key,value in links(graph).items() if key[0] in template and links(template).get(key)!=value}
+        self.assertEqual(changed,{(preview,"model")})
+
+    def test_chunked_feedforward_is_skipped_when_unavailable_switched_off_or_the_check_fails(self):
+        def built():
+            return self.env["build_and_queue"](self.request(count=1),prepare_only=True)["prompt"]
+        chunk,preview,shift=self.env["CHUNK_FF"],self.env["PREVIEW"],self.env["SHIFT"]
+        self.nodes.clear()                                              # 이 노드가 없는 KJNodes 판
+        graph=built();self.assertNotIn(chunk,graph);self.assertEqual(graph[preview]["inputs"]["model"],[shift,0])
+        self.nodes.add("MiniMaxChunkFeedForward")
+        with patch.dict(os.environ,{"SIMPLEUI_CHUNK_FF":"0"}):self.assertNotIn(chunk,built())
+        self.env["node_available"]=MagicMock(side_effect=OSError("ComfyUI 응답 없음"))
+        graph=built();self.assertNotIn(chunk,graph);self.assertEqual(graph[preview]["inputs"]["model"],[shift,0])   # 확인 실패가 생성을 막지 않는다
+        self.env["node_available"]=lambda cls:True
+        self.assertIn(chunk,built())
 
     def test_sampler_that_breaks_without_cfg_is_refused_before_anything_is_uploaded(self):
         # *_cfg_pp 는 네거티브 예측이 있어야 하는데 H3 는 CFG 없이 돈다 → 몇 분 뒤 깨진 영상이 나온다
