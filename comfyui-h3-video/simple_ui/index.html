@@ -39,6 +39,8 @@ h1{font-size:20px;margin:0 0 4px;grid-column:1/-1}
 .action-info{flex:1 1 280px;min-width:0}
 .action-info .status{margin-top:2px;font-size:13px;min-height:0}
 .action-info .bar{margin-top:6px;height:6px}
+/* 결과 보기·랜덤 시드: 줄을 늘리지 않게 요약·상태 줄 오른쪽에 띄운다(핸드폰 바 높이 유지) */
+.action-quick{float:right;display:flex;gap:10px;margin-left:10px}.action-quick:not(:has(button:not([hidden]))){display:none}.action-quick .textbtn{font-size:13px;font-weight:600;white-space:nowrap;line-height:1.4}
 .shots-head{display:flex;justify-content:space-between;align-items:flex-end;gap:6px 12px;flex-wrap:wrap}
 .dur-inline{display:flex;align-items:center;gap:6px;margin:0;font-weight:400;font-size:13px;white-space:nowrap;flex-shrink:0}
 .dur-inline input{width:72px;flex:0 0 72px}
@@ -73,21 +75,32 @@ h1{font-size:20px;margin:0 0 4px;grid-column:1/-1}
   /* 핸드폰: 버튼 한 줄 + 상태 한두 줄로 줄여 입력 칸을 덜 가린다 */
   .action-bar{padding:8px 10px}
   /* 실측(375px): 버튼 두 줄 + 요약 두 줄 + 일시정지 줄로 화면의 40%를 가렸다 → 버튼은 한 줄에, 요약은 한 줄로 */
-  .action-main{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:6px}
-  .action-main .go{grid-column:1;grid-row:1;width:100%;min-width:0;padding:10px 6px;font-size:15px}
+  .action-main{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:6px;position:relative}
+  .action-main .go{grid-column:1;grid-row:1;width:100%;min-width:0;padding:10px 6px;font-size:15px;word-break:keep-all}
   .priority-go{grid-column:2;grid-row:1;max-width:76px;padding:4px 6px;font-size:12px;line-height:1.25;white-space:normal;word-break:keep-all}
   .add-menu{grid-column:3;grid-row:1}
   .run-menu{grid-column:4;grid-row:1}
   .add-menu>summary{padding:4px 8px;font-size:12px}
-  .add-menu .bar-menu-list{left:auto;right:0}      /* 오른쪽 끝에 붙여 화면 밖으로 넘치지 않게 */
+  /* 메뉴 목록은 버튼이 아니라 만들기 바 전체 폭에 맞춘다: 버튼 오른쪽 끝에 붙이면 ⋯ 이 보일 때 왼쪽이 화면 밖으로 잘렸다 */
+  .add-menu,.run-menu{position:static}
+  .add-menu .bar-menu-list,.run-menu .bar-menu-list{left:0;right:0;max-width:none;width:auto}
   .action-info{grid-column:1/-1;grid-row:2}
   #queuePauseHost{grid-column:1/-1;grid-row:3;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   #queuePauseHost span{max-width:none!important}
   #queuePauseHost:not(:has(button:not([hidden]))) span{color:var(--mute)}
   #stopPhotoBatch{grid-column:1/-1;grid-row:4}
-  .action-info .hint{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* 한 줄로 자르는 것은 요약(#goInfo)만: 사진별 추가 결과·오류(#photoBatchStatus)는 실패 수와 이유가 뒤에 있어 세 줄까지 보인다 */
+  #goInfo{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #photoBatchStatus{font-size:12px;white-space:pre-line;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
   .action-info .status{font-size:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .action-info:has(.status:not(:empty)) .hint{display:none}
+}
+/* 320~360px: 만들기 버튼이 글자 몇 개 폭으로 눌려 여러 줄이 되지 않게 '먼저 만들기'를 한 줄 내린다 */
+@media (max-width:360px){
+  .priority-go{grid-column:1/-1;grid-row:2;max-width:none}
+  .action-info{grid-row:3}
+  #queuePauseHost{grid-row:4}
+  #stopPhotoBatch{grid-row:5}
 }
 .settings-actions,.section-title{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:space-between}
 .photo-fields{border:0;padding:0;margin:0;min-width:0}
@@ -130,6 +143,8 @@ textarea{resize:vertical;min-height:58px}
   .hact{gap:4px 6px;align-items:center}
   .hact .textbtn,.hact a.textbtn,.row-menu>summary{display:inline-flex;align-items:center;min-height:40px;padding:0 8px;font-size:13px}
   .row-menu-list .textbtn{min-height:44px}
+  /* 만들기 바의 '결과 보기'·'랜덤 시드로'도 손가락으로 누를 크기로(보이는 동안만 바가 조금 높아진다) */
+  .action-quick .textbtn{display:inline-flex;align-items:center;min-height:40px;padding:0 6px}
 }
 .shot input{text-align:center}
 .shot input.late{border-color:var(--warn);color:var(--warn)}
@@ -291,6 +306,7 @@ a{color:var(--acc)}
       </div></details>
       <input type="file" id="photoBatchFiles" accept="image/*" multiple hidden>
       <div class="action-info">
+        <span class="action-quick"><button type="button" class="textbtn" id="showLatest" hidden title="방금 끝난 작업의 영상을 바로 재생합니다">결과 보기</button><button type="button" class="textbtn" id="seedRandom" hidden title="시드 칸을 비워 다음부터 매번 새 시드로 만듭니다">랜덤 시드로</button></span>
         <div class="hint" id="goInfo"></div>
         <div class="status" id="status"></div>
         <div class="bar" id="bar" hidden><div></div></div>
@@ -326,6 +342,7 @@ a{color:var(--acc)}
       <input type="file" id="file" accept="image/*" multiple hidden>
       <div class="thumbs" id="thumbs"></div>
       <div class="hint" id="photoHint"></div>
+      <div class="status" id="photoSkip" role="status" aria-live="polite" hidden></div>
       <details class="folder-photos" id="photoFolderSection">
         <summary>폴더 사진 일괄 추가</summary>
         <input type="file" id="photoFolderFiles" accept="image/*" webkitdirectory multiple hidden>
@@ -599,7 +616,9 @@ const IDB = (() => {
 })();
 let imgsReady = false;      // 복원 전에 빈 목록으로 덮어쓰지 않게
 // 숨겨 둔 사진(images.hidden)은 이 브라우저에만 따로 둔다: 보이는 목록(저장·다른 창 동기화)에는 섞지 않는다
-function saveImgs(){ if (imgsReady) { IDB.set("images", [...images]).catch(() => {}); IDB.set("images_hidden", [...(images.hidden || [])]).catch(() => {}); pushSync("images"); } }
+// 대기항목 수정·일괄수정으로 잠깐 불러온 사진은 그 작업의 것이다: 숨겨 둔 사진 목록은 덮어쓰지 않는다(취소하면 되돌린다)
+function editingLoad(){ return (typeof editingJobId !== "undefined" && !!editingJobId) || (typeof bulkEditingIds !== "undefined" && bulkEditingIds.length > 0) || (typeof SYNC !== "undefined" && SYNC.hold > 0); }
+function saveImgs(){ if (imgsReady) { IDB.set("images", [...images]).catch(() => {}); if (!editingLoad()) IDB.set("images_hidden", [...(images.hidden || [])]).catch(() => {}); pushSync("images"); } }
 async function restoreImgs(){
   try {
     const v = await IDB.get("images"), hidden = await IDB.get("images_hidden");
@@ -611,18 +630,43 @@ async function restoreImgs(){
 let photoImportQueue=Promise.resolve();
 function addFiles(files){
   if (bulkEditingIds.length) return Promise.resolve();
-  const selected=Array.from(files||[]).filter(file=>!!photoFileType(file));
+  const all=Array.from(files||[]),selected=all.filter(file=>!!photoFileType(file));
+  // 빠진 파일을 말없이 버리지 않는다: 사진이 아닌 파일·한도 초과·브라우저가 못 여는 사진(HEIC 등)을 세어 사진 칸 아래에 알린다
+  const skip={added:0,over:0,other:all.filter(file=>!photoFileType(file)).map(file=>file.name||""),broken:[]};
   // FileReader completion order must never decide which photo becomes Picture 1.
   photoImportQueue=photoImportQueue.then(async()=>{
-    for(const file of selected){
-      if(bulkEditingIds.length||images.length>=maxImgs())break;
+    for(const [index,file] of selected.entries()){
+      if(bulkEditingIds.length)break;
+      if(images.length>=maxImgs()){skip.over=selected.length-index;break;}
       const data=await readPhotoDataUrl(file);
-      if(bulkEditingIds.length||images.length>=maxImgs())break;
-      images.push(data);drawThumbs();
+      if(bulkEditingIds.length)break;
+      if(images.length>=maxImgs()){skip.over=selected.length-index;break;}
+      // 순서를 지키는 이 직렬 큐 안에서 기다린다(사진 1 순서가 바뀌지 않게)
+      if(photoNeedsDecodeCheck(file)&&!await photoDecodable(data)){skip.broken.push(file.name||"");continue;}
+      images.push(data);drawThumbs();skip.added++;
     }
+    showPhotoSkip(photoSkipMessage(skip,maxImgs()));
   }).catch(()=>setStatus("사진을 읽지 못했습니다. 등록된 순서를 확인하고 다시 추가해 주세요.","err"));
   return photoImportQueue;
 }
+// Chrome·Edge 는 HEIC 를 그리지 못한다: 그대로 넣으면 썸네일이 깨지고 서버에서도 열지 못해 영어 오류로 실패한다 → 넣기 전에 한 번 그려 본다
+function photoDecodable(data){
+  if(typeof Image!=="function"||typeof data!=="string")return Promise.resolve(true);
+  return new Promise(resolve=>{const img=new Image(),wait=setTimeout(()=>resolve(true),10000);      // 아주 큰 사진이 늦게 열리는 것은 막지 않는다
+    img.onload=()=>{clearTimeout(wait);resolve(true);};img.onerror=()=>{clearTimeout(wait);resolve(false);};img.src=data;});
+}
+// 미리 그려 보는 것은 HEIC·HEIF 만: TIFF·BMP 는 Chrome 이 못 그려도 서버(Pillow)가 열어 영상이 만들어지므로 예전처럼 넣는다
+function photoNeedsDecodeCheck(file){ const mime=photoFileType(file),ext=String(file?.name||"").split(".").pop().toLowerCase(); return /^image\/hei[cf]$/.test(mime)||ext==="heic"||ext==="heif"; }
+function photoSkipMessage(skip,limit){
+  const names=list=>{const shown=list.filter(Boolean).slice(0,3).join(", ");return shown?`(${shown}${list.length>3?" 외":""})`:"";};
+  const parts=[];
+  if(skip.broken.length)parts.push(`${skip.broken.length}장${names(skip.broken)}은 이 브라우저에서 열 수 없는 형식(HEIC 등)이라 넣지 않았습니다. 휴대폰에서 JPEG 로 내보내거나 카메라 설정을 ‘호환성 우선’으로 바꿔 다시 올려 주세요.`);
+  if(skip.over)parts.push(`한 작업은 최대 ${limit}장이라 ${skip.over}장은 넣지 않았습니다. 사진마다 따로 만들려면 ‘사진별로 추가 ▾’를 쓰세요.`);
+  if(skip.other.length)parts.push(`사진이 아닌 파일 ${skip.other.length}개${names(skip.other)}는 건너뛰었습니다.`);
+  return parts.length?{text:`사진 ${skip.added}장 추가 · ${parts.join(" ")}`,err:skip.broken.length>0}:null;
+}
+// 진행 중에는 위 상태 줄이 2초마다 바뀌므로 사진 칸 아래에 따로 남긴다. 다음에 사진을 넣을 때 지운다
+function showPhotoSkip(message){ const box=$("photoSkip"); box.hidden=!message; box.textContent=message?.text||""; box.className="status"+(message?.err?" err":""); }
 function photoLabel(i){
   if (isRef()) return `사진 ${i+1} · ${i===0?"전체 기준":"얼굴 보조"}`;
   return i === 0 ? "첫 장면" : "끝 장면";
@@ -1735,7 +1779,7 @@ function refreshSubmissionPrompt(){
 function applySnapshot(snapshot,{withImages=true}={}){
   for (const key of Object.keys(S)) if (snapshot.model && Object.hasOwn(snapshot.model,key)) S[key] = snapshot.model[key];
   apply(snapshot);
-  if (withImages) { images.length = 0; images.hidden = []; images.push(...(snapshot.images || [])); imgsReady = true; }
+  if (withImages) { images.length = 0; images.hidden = [...(snapshot.hidden || [])]; images.push(...(snapshot.images || [])); imgsReady = true; }      // 수정 전 화면은 숨겨 둔 사진까지 되살린다(아래 setMode 가 참조 방식이면 다시 합친다)
   $("seed").value = snapshot.seed ?? "";
   manualFinal = typeof snapshot.final === "string";
   if (manualFinal) {$("final").value = snapshot.final;rememberManualPromptInputs();} else manualPromptInputs=null;
@@ -1815,10 +1859,18 @@ function applySyncPart(part, value){
     SYNC.applying++;
     try {
       if (part === "form") applySnapshot(value, {withImages:false});
-      else { images.length = 0; images.push(...value.slice(0, maxImgs())); images.hidden = value.slice(maxImgs()); imgsReady = true; drawThumbs(); }      // 다른 창의 사진이 이 방식의 한도보다 많으면 숨겨 둔다(잘라 버리지 않는다)
+      else {
+        // 다른 창의 사진이 이 방식의 한도보다 많으면 숨겨 둔다(잘라 버리지 않는다). 다른 창 사진이 한도 안이면 이 창에 숨겨 둔 사진은 그대로 둔다
+        const kept = images.hidden || [];
+        images.length = 0; images.push(...value.slice(0, maxImgs()));
+        images.hidden = value.length > maxImgs() ? value.slice(maxImgs()).concat(kept).slice(0, 9) : kept;
+        imgsReady = true; drawThumbs();
+      }
     } finally { SYNC.applying--; }
   }
   SYNC.last[part] = JSON.stringify(syncValue(part));
+  // 다른 창의 방식 전환(첫·끝 → 참조)으로 이 창이 숨겨 둔 사진을 다시 보이게 됐으면, 같은 응답의 사진 적용이 끝난 뒤 올린다
+  if (part === "form" && typeof setTimeout === "function") setTimeout(() => { if (!syncPaused() && JSON.stringify(syncValue("images")) !== SYNC.last.images) pushSync("images"); }, 0);
 }
 // all=true 면 번호와 상관없이 서버 상태 전체를 받아 맞춘다(수정 모드를 나올 때)
 async function pullSync(all=false){
@@ -1868,7 +1920,7 @@ async function initSync(){
 async function loadForQueueEdit(entry, enter){
   const token = ++SYNC.editLoad;
   const historyToken = typeof loadSeq === "number" ? loadSeq + 1 : null;
-  if (!SYNC.beforeEdit) SYNC.beforeEdit = captureSettings();
+  if (!SYNC.beforeEdit) { SYNC.beforeEdit = captureSettings(); SYNC.beforeEdit.hidden = [...(images.hidden || [])]; }
   SYNC.hold++;
   try { if (await loadFromHist(entry)) { if (token !== SYNC.editLoad) return false; enter(); return true; } }
   finally { SYNC.hold--; }
@@ -1955,15 +2007,20 @@ $("settingsList").onclick = async ev => {
 // ---------- 실행 ----------
 function drawGoInfo(){
   updateSequenceButton();
+  // 이력에서 불러온 시드는 저장·동기화돼 계속 남는다: 고정돼 있음을 아래 바에 보이고 한 번에 랜덤으로 되돌릴 버튼을 띄운다
+  const fixed = fixedSeed($("seed").value);
+  $("seedRandom").hidden = !fixed || $("seed").disabled;
   if (!CAT) return;
   const m = curModel(), n = Object.keys(S.loras).length, c = runCount();
-  $("goInfo").textContent = `${m ? friendlyModel(m) : base(S.model)} · ${S.steps}스텝${n ? ` · LoRA ${n}개` : ""}${isRef() && S.anchor ? " · 사진 1 첫 장면 고정" : ""}${isRef() && S.faceBoost ? " · 얼굴인식강화" : ""}${SPEED_MODES[S.speed] ? ` · ${SPEED_MODES[S.speed].short}` : ""}${c > 1 ? ` · ${c}번 반복` : ""} · ${etaText(c)}`;
+  $("goInfo").textContent = `${m ? friendlyModel(m) : base(S.model)} · ${S.steps}스텝${n ? ` · LoRA ${n}개` : ""}${isRef() && S.anchor ? " · 사진 1 첫 장면 고정" : ""}${isRef() && S.faceBoost ? " · 얼굴인식강화" : ""}${SPEED_MODES[S.speed] ? ` · ${SPEED_MODES[S.speed].short}` : ""}${c > 1 ? ` · ${c}번 반복` : ""} · ${etaText(c)}${fixed ? ` · 시드 ${fixed} 고정` : ""}`;      // 휴대폰은 한 줄로 잘리므로 예상 시간을 앞에
   const seed = $("seed").value.trim();
   $("countHint").textContent = c > 1
     ? (seed && /^\d+$/.test(seed) ? `시드 ${seed}, ${BigInt(seed) + 1n}, … 처럼 1씩 늘려 ${c}개를 만듭니다(같은 시드를 다시 넣으면 같은 결과).` : `시드를 매번 랜덤으로 바꿔 ${c}개를 만듭니다. 마음에 든 결과의 시드는 결과 목록에 표시됩니다.`)
     : "";
 }
 $("seed").addEventListener("input", () => { drawGoInfo(); save(); });
+function fixedSeed(value){ const seed = String(value ?? "").trim(); return /^\d+$/.test(seed) ? seed : ""; }
+$("seedRandom").onclick = () => { if ($("seed").disabled) return; $("seed").value = ""; drawGoInfo(); save(); setStatus("시드를 비웠습니다. 다음부터 매번 새 시드로 만듭니다.", "ok"); };
 function updateSequenceButton(){
   $("priorityGo").hidden = !!editingJobId || !!bulkEditingIds.length;
   $("priorityGo").disabled = queueSubmitting || !!editingJobId || !!bulkEditingIds.length || !CAT?.capabilities?.priority_queue;
@@ -2369,11 +2426,18 @@ function restoreJobs(){
 let pollGen = 0;
 function poll(jobs, t0, info, t1){
   const gen = ++pollGen;
+  // 다시 열었을 때 이미 끝나 있던 묶음(어제 것)은 '결과 보기'·탭 제목 '완료'를 띄우지 않는다: 이 poll 이 끝나는 것을 본 묶음만
+  const fresh = jobs.some(j => !finished(j));
+  let busy = false;      // 탭 복귀로 당긴 바퀴와 예약된 바퀴가 겹치면 '찾을 수 없음' 횟수가 두 번씩 오른다
   currentJobs = jobs; pollT0 = t0; jobs.forEach(j => j.miss = 0);
-  clearTimeout(timer); $("cancel").hidden = false;
+  clearTimeout(timer); $("cancel").hidden = false; $("showLatest").hidden = true;
   $("cancel").textContent = jobs.length > 1 ? "남은 작업 모두 중지" : "중지";
   const tick = async () => {
-    if (gen !== pollGen) return;
+    if (gen !== pollGen || busy) return;
+    busy = true;
+    try { await step(); } finally { busy = false; }
+  };
+  const step = async () => {
     const unfinished=jobs.filter(x=>!finished(x));
     const scan=jobs.length>20?unfinished.filter(x=>x.state==="running").concat(unfinished.filter(x=>x.state!=="running")):unfinished;
     // 추적 중인 작업을 한 번의 요청으로 묻는다. 작업마다 따로 물으면 휴대폰·원격 접속에서 한 바퀴에 몇 초가 걸린다.
@@ -2420,17 +2484,67 @@ function poll(jobs, t0, info, t1){
     if (done + errs === n) {
       $("go").disabled = queueSubmitting; $("cancel").hidden = true;
       if (!jobs.histDone) { jobs.histDone = true; loadHist(); }
+      // 끝나면 가장 잦은 다음 행동(방금 만든 영상 보기)을 바로: 이력에서 줄을 찾아 '재생'을 누르지 않아도 된다
+      if (fresh) {
+        latestResultIds = latestDoneIds(jobs); $("showLatest").hidden = !latestResultIds.length;
+        $("showLatest").textContent = latestResultIds.length > 1 ? `결과 보기 (${latestResultIds.length})` : "결과 보기";
+      }
+      if (fresh && typeof document !== "undefined" && document.hidden) setJobTitle(errs && !done ? "실패" : "완료"); else setJobTitle("");      // 보고 있으면 상태 줄로 충분하다
       if (n === 1 && errs) { $("bar").hidden = true; setStatus("오류: " + jobs[0].error, "err"); return; }
       setStatus(`완료 (${mm}) · ${n > 1 ? `${done}개 완료${errs ? `, ${errs}개 실패·중지` : ""} · ` : ""}${info || ""}`, errs && !done ? "err" : "ok");
       return;
     }
     const left = n - done - errs, head = n > 1 ? `남은 작업 ${left}개 · ` : "";
-    if (run) setStatus(`${head}${run.pct || 0}% ·${run.label || "준비 중"} · ${mm} 경과 · ${run.info || info || ""}`);
+    // 남은 시간은 이 작업의 실제 생성 시작(서버 generation_started_at) 기준: 위 경과는 묶음 등록 시각부터라 대기·반복이 섞인다
+    const same = !!run && !!jobShape(run) && jobs.every(x => finished(x) || x === run || jobShape(x) === jobShape(run));
+    if (run) setStatus(`${head}${run.pct || 0}% ·${run.label || "준비 중"} · ${mm} 경과${remainingText(run, left - 1, Date.now() / 1000, recentJobSeconds(), same)} · ${run.info || info || ""}`);
     else { const q = jobs.find(x => x.state === "queued"); setStatus(`${head}대기열${q?.position ? ` ${q.position}번째` : ""}… (${mm})`); }
-    timer = setTimeout(tick, 2000);
+    setJobTitle(run ? `${run.pct || 0}%` : "대기");      // 다른 탭에 있어도 탭 제목으로 진행을 본다
+    clearTimeout(timer); timer = setTimeout(tick, 2000);      // 탭 복귀로 바퀴를 앞당겨 돌려도 예약은 하나만 남긴다
   };
+  pollTick = tick;
   tick();
 }
+let latestResultIds = [], pollTick = null, pageTitle = "";
+// 방금 끝난 묶음에서 결과 영상이 있는 마지막 3개(함께 재생 창의 한도)
+function latestDoneIds(jobs){ return jobs.filter(x => x.state === "done" && x.video).slice(-3).map(x => x.id); }
+// 작업 설정의 지문: 크기·스텝·모델·길이(서버 응답에 있으면) 또는 등록 때 적은 설명에서 시드 뒤를 뺀 것. 모르면 ""
+function jobShape(job){
+  if (!job) return "";
+  if (job.width && job.height) return [job.width, job.height, job.steps, job.model, job.duration ?? job.length ?? job.frames ?? ""].join("/");
+  return String(job.info || "").replace(/,\s*시드\s*\d+[\s\S]*$/, "");
+}
+// 진행 문구에 붙일 남은 시간(대략): 15% 전에는 %가 거칠어 최근 실제 소요 시간으로, 그 뒤로는 이 작업의 경과와 %로 어림한다.
+// 대기 작업이 지금 작업과 같은 설정일 때만(sameShape) 1건 시간 × 개수를 더해 전체 시각을 붙인다
+function remainingText(run, waiting, nowSec, fallback, sameShape = true){
+  const pct = Number(run?.pct) || 0, started = Number(run?.generation_started_at), elapsed = started > 0 ? Math.max(0, nowSec - started) : 0;
+  const measured = elapsed > 0 && pct >= 15 && pct < 100, per = measured ? elapsed * 100 / pct : fallback > 0 ? fallback : 0;
+  if (!per) return "";
+  const rem = measured ? elapsed * (100 - pct) / pct : Math.max(0, per - elapsed);
+  let text = ` · 약 ${Math.max(1, Math.ceil(rem / 60))}분 남음`;
+  if (waiting > 0 && sameShape) {
+    const all = rem + waiting * per, end = new Date((nowSec + all) * 1000);
+    text += ` · 전체 약 ${Math.max(1, Math.ceil(all / 60))}분(${String(end.getHours()).padStart(2, "0")}:${String(end.getMinutes()).padStart(2, "0")}쯤)`;
+  }
+  return text;
+}
+// 이 PC 에서 최근 끝난 작업들의 실제 생성 시간 중앙값(초). 이력을 아직 못 읽었으면 0
+function recentJobSeconds(){
+  try {
+    const times = HIST.items.filter(e => e.state === "done" && e.generation_seconds > 0).slice(0, 9).map(e => e.generation_seconds).sort((a, b) => a - b);
+    return times.length ? times[times.length >> 1] : 0;
+  } catch { return 0; }
+}
+function setJobTitle(prefix){
+  if (typeof document === "undefined") return;
+  if (!pageTitle) pageTitle = document.title || "H3 영상 만들기";
+  document.title = prefix ? `${prefix} · ${pageTitle}` : pageTitle;
+}
+// 숨은 탭에서는 2초 예약이 1분까지 늦춰진다: 돌아오면 바로 한 바퀴 돌려 예전 %를 보이지 않는다. 끝난 뒤 돌아오면 탭 제목을 되돌린다
+if (typeof document !== "undefined") document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  if (!currentJobs.some(j => !finished(j))) setJobTitle(""); else pollTick?.();
+});
 // =====================================================================
 // 작업 이력 — 서버 history.json (설정·프롬프트·사진 ↔ 결과)
 // =====================================================================
@@ -2675,6 +2789,20 @@ $("compareVideos").onclick=openVideoComparison;
 $("clearCompare").onclick=()=>{VIDEO_COMPARE.selected.clear();refreshVideoCompareSelection();};
 $("comparePlay").onclick=playVideoComparison;$("comparePause").onclick=pauseVideoComparison;$("compareAudio").onchange=setVideoCompareAudio;
 $("closeCompare").onclick=closeVideoComparison;
+// 방금 끝난 영상(최대 3개)을 이력의 함께 재생 창으로 연다. 재생 창은 이력 목록(HIST.items)에 있는 것만 열므로 먼저 목록을 새로 읽는다
+async function showLatestResults(){
+  const ids=[...latestResultIds],ready=()=>ids.every(id=>HIST.items.some(entry=>entry.id===id&&entry.video));
+  if(!ids.length)return;
+  if(!ready()){
+    $("showLatest").disabled=true;
+    try{await loadHist(false,true);for(let i=0;i<40&&HIST.loading;i++)await new Promise(resolve=>setTimeout(resolve,250));}      // 이미 읽는 중이면 loadHist 는 바로 돌아온다: 끝날 때까지 기다린다
+    finally{$("showLatest").disabled=false;}
+  }
+  const found=ids.filter(id=>HIST.items.some(entry=>entry.id===id&&entry.video));
+  if(!found.length){setStatus("방금 만든 영상을 이력 목록에서 찾지 못했습니다. 작업 이력에서 찾아 주세요.","err");return;}
+  VIDEO_COMPARE.selected.clear();found.forEach(id=>setVideoPlaybackSelection(id,true));openVideoComparison();
+}
+$("showLatest").onclick=showLatestResults;
 $("videoCompare").addEventListener("click",event=>{if(event.target===$("videoCompare"))closeVideoComparison();});
 $("videoCompare").addEventListener("keydown",event=>{
   if(event.key==="Escape"){event.preventDefault();closeVideoComparison();}
@@ -2853,12 +2981,16 @@ async function deleteHistoryEntries(body){
   removed.forEach(id=>HIST.selected.delete(id));
   if (removed.has(editingJobId) || bulkEditingIds.some(id=>removed.has(id))) setQueueEdit(null);
   const remaining=currentJobs.filter(job=>!removed.has(job.id));
+  // 지운 영상을 가리키는 '결과 보기'는 남기지 않는다
+  if(typeof latestResultIds!=="undefined"){latestResultIds=latestResultIds.filter(id=>!removed.has(id));if(!latestResultIds.length)$("showLatest").hidden=true;}
   if (remaining.length!==currentJobs.length) {
-    if (remaining.length) poll(remaining,pollT0,null);
+    // 끝난 기록 정리(states)는 끝난 작업만 지운다: 돌고 있는 진행 표시·완료 집계는 그대로 둔다(다시 시작하면 정리 결과 문구가 곧바로 덮이고 'N개 완료'가 줄었다)
+    if (remaining.length) { if (!body.states) poll(remaining,pollT0,null); }
     else {
       ++pollGen; clearTimeout(timer); currentJobs=[];
       $("cancel").hidden=true; $("restartCurrent").hidden=true;
       setStatus("");$("bar").hidden=true;try{localStorage.removeItem(KEY_J);}catch{}updateGoLabel();
+      if(typeof setJobTitle==="function")setJobTitle("");      // 추적할 작업이 없어졌으니 탭 제목의 % 도 지운다
     }
   }
   loadHist(false,true);
@@ -2910,7 +3042,11 @@ $("histTidy").onclick = async () => {
   $("histTidy").disabled=true;
   try {
     const before=HIST.total, result=await deleteHistoryEntries({states:["done","error","lost"]});
-    setStatus(result.ids.length ? `끝난 기록 ${result.ids.length}개를 정리했습니다${result.total ? ` · 대기·실행 중 ${result.total}개는 그대로` : ""}.` : (before ? "정리할 끝난 기록이 없습니다." : ""), "ok");
+    const active=Number.isInteger(result.active)?result.active:result.total;      // 예전 서버는 active 가 없다
+    const text=result.ids.length ? `끝난 기록 ${result.ids.length}개를 정리했습니다${active ? ` · 대기·실행 중 ${active}개는 그대로` : ""}.` : (before ? "정리할 끝난 기록이 없습니다." : "");
+    // 작업이 돌고 있으면 상태 줄은 2초마다 진행 문구로 바뀐다: 그때는 대기열 안내 칸에 남긴다
+    if (currentJobs.some(job=>!finished(job))) { if (text) { $("queueFeedback").textContent=text; $("queueFeedback").hidden=false; } }
+    else setStatus(text, "ok");
   }
   catch(error){ setStatus(error.message,"err"); }
   finally { $("histTidy").disabled=false; }
@@ -2964,7 +3100,7 @@ async function loadFromHist(e){
   render();
   setMobileView("make");
   window.scrollTo({top: 0, behavior: "smooth"});
-  setStatus(`이력에서 불러왔습니다 (시드 ${e.seed})${warn.length ? ` — ${warn.join(", ")}` : ""}. 같은 시드로 만들면 같은 결과가 나옵니다.`, warn.length ? "err" : "ok");
+  setStatus(`이력에서 불러왔습니다 (시드 ${e.seed})${warn.length ? ` — ${warn.join(", ")}` : ""}. 같은 시드로 만들면 같은 결과가 나옵니다. 새 결과를 원하면 만들기 바의 ‘랜덤 시드로’를 누르세요.`, warn.length ? "err" : "ok");
   return true;
 }
 

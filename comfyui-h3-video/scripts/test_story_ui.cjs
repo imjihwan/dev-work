@@ -109,10 +109,14 @@ const plain=value=>JSON.parse(JSON.stringify(value));
   const setProject=value=>vm.runInContext(`project=${JSON.stringify(value)};`,context),warning=index=>vm.runInContext(`regenerationWarning(${index})`,context);
   setProject({id:'p',revision:1,renders:[done,done,idle,idle],merged:null});
   assert.equal(warning(1),'','nothing after clip 2 exists yet');assert.equal(warning(3),'');
-  assert.equal(warning(0),'1번을 다시 만들면 2번 편을 다시 확인(재검토)해야 합니다. 계속할까요?');
+  assert.equal(warning(0),'1번을 다시 만들면 2번 편을 다시 생성해야 합니다(지금 영상은 확정할 수 없게 됩니다). 계속할까요?');
   setProject({id:'p',revision:1,renders:[done,done,{state:'done',approved:false,has_video:true},done],merged:{state:'done'}});
-  assert.equal(warning(0),'1번을 다시 만들면 2번·3번·4번 편을 다시 확인(재검토)해야 하고 병합 영상도 다시 만들어야 합니다. 계속할까요?');
+  assert.equal(warning(0),'1번을 다시 만들면 2번·3번·4번 편을 다시 생성해야 하고 병합 영상도 다시 만들어야 합니다(지금 영상은 확정할 수 없게 됩니다). 계속할까요?');
   assert.equal(warning(3),'4번을 다시 만들면 병합 영상을 다시 만들어야 합니다. 계속할까요?');
+  // 한 번 다시 만들어 이미 낡은 뒤 편은 더 잃을 것이 없으니 다시 묻지 않는다
+  const stale={state:'done',approved:false,has_video:true,stale:true};
+  setProject({id:'p',revision:2,renders:[done,stale,stale,stale],merged:null});assert.equal(warning(0),'','already-stale later clips are not listed again');
+  setProject({id:'p',revision:1,renders:[done,done,{state:'done',approved:false,has_video:true},done],merged:{state:'done'}});
   const asked=[],before=requests.length;context.confirm=text=>{asked.push(text);return false;};
   get('generate0').onclick();await new Promise(setImmediate);
   assert.equal(asked.length,1);assert.equal(requests.length,before,'declining leaves the project untouched: nothing is sent');

@@ -202,9 +202,11 @@ function applyPrompt(index){
 }
 // 앞 편을 다시 만들면 서버가 뒤 편의 확정을 풀고 병합 영상을 버린다(편마다 몇 분씩 다시 만들어야 한다). 잘못 누른 한 번으로 그렇게 되지 않게 먼저 묻는다
 function regenerationWarning(index){
-  const later=(project?.renders||[]).map((run,i)=>i>index&&(run?.approved||run?.has_video)?`${i+1}번`:null).filter(Boolean),merged=!!project?.merged;
+  // 이미 낡은(stale) 편은 더 잃을 것이 없다: 다시 묻지 않는다(같은 질문이 반복되면 확인 없이 누르게 된다)
+  const later=(project?.renders||[]).map((run,i)=>i>index&&(run?.approved||(run?.has_video&&!run?.stale))?`${i+1}번`:null).filter(Boolean),merged=!!project?.merged;
   if(!later.length&&!merged)return '';
-  const what=later.length?`${later.join('·')} 편을 다시 확인(재검토)해야 ${merged?'하고 병합 영상도 다시 만들어야 ':''}합니다`:'병합 영상을 다시 만들어야 합니다';
+  // 서버는 뒤 편을 낡은 것으로 표시하고 확정을 막는다: 다시 보는 것이 아니라 다시 생성해야 한다
+  const what=later.length?`${later.join('·')} 편을 다시 생성해야 ${merged?'하고 병합 영상도 다시 만들어야 ':''}합니다(지금 영상은 확정할 수 없게 됩니다)`:'병합 영상을 다시 만들어야 합니다';
   return `${index+1}번을 다시 만들면 ${what}. 계속할까요?`;
 }
 function createCards(){

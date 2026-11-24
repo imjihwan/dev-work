@@ -235,5 +235,18 @@ function makeWindow(initial){
   assert.equal(H.run('SYNC.rev.form'),pushedRev,'A late answer must not move the revision backwards');
   assert.equal(H.$('summary').value,'remote before H edits');
 
+  // 첫·끝 방식에서 숨겨 둔 사진(이 창에만 있음): 다른 창의 짧은 사진 목록이 와도 지우지 않고, 대기항목 수정을 취소하면 되돌린다
+  const P=makeWindow({summary:'photos',anchor:true,images:['p1','p2']});await P.run('initSync()');await wait(450);
+  P.maxImgs=()=>2;P.run('images.hidden=["h3","h4","h5"]');
+  P.run('applySyncPart("images",["p1","q"])');
+  assert.deepEqual(JSON.parse(P.run('JSON.stringify([...images])')),['p1','q']);assert.deepEqual(JSON.parse(P.run('JSON.stringify([...images.hidden])')),['h3','h4','h5'],'a remote list within the limit keeps this window\'s aside photos');
+  P.run('applySyncPart("images",["a","b","c"])');
+  assert.deepEqual(JSON.parse(P.run('JSON.stringify([...images.hidden])')),['c','h3','h4','h5'],'remote photos beyond the limit join the aside list');
+  P.run('images.hidden=["h3","h4"]');
+  await P.run(`loadForQueueEdit({summary:'queued with two photos'}, () => { editingJobId = 'job-p'; })`);
+  P.run('images.hidden=[]');      // the job load replaces the photo list
+  P.run('editingJobId = null; restoreBeforeEdit()');
+  assert.deepEqual(JSON.parse(P.run('JSON.stringify([...images.hidden])')),['h3','h4'],'cancelling the queued-job edit brings the aside photos back');
+
   console.log('UI sync passed: shared state, stale-field merge, delayed-response input preservation, serialized writes, single in-flight pulls, stale-answer rejection and edit-load ownership/cancellation.');
 })().catch(error => { console.error(error); process.exit(1); });

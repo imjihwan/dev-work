@@ -203,6 +203,18 @@ vm.runInContext(section('function storyModelSettings()', 'function selectAppTab(
   assert.deepEqual(context.currentJobs.map(x=>x.id),['keep']);assert(!context.HIST.selected.has('remove'));
   reply={ids:['keep']};await context.deleteHistoryEntries({all:true});
   assert.equal(context.currentJobs.length,0);assert.equal($('cancel').hidden,true);assert.equal($('restartCurrent').hidden,true);
+  // 끝난 기록 정리는 돌고 있는 진행 표시·완료 집계를 다시 시작하지 않는다
+  let polled=0;const realPoll=context.poll;context.poll=jobs=>{polled++;context.currentJobs=jobs;};
+  context.currentJobs=[{id:'run',state:'running'},{id:'old',state:'done'}];reply={ids:['old'],total:1,active:1};
+  await context.deleteHistoryEntries({states:['done','error','lost']});
+  assert.equal(polled,0,'tidy keeps the running poll');assert.equal(context.currentJobs.length,2);
+  // 지운 영상을 가리키던 '결과 보기'는 사라진다
+  vm.runInContext('var latestResultIds=["x","y"]',context);$('showLatest').hidden=false;
+  context.currentJobs=[{id:'x',state:'done'},{id:'y',state:'done'}];reply={ids:['x']};await context.deleteHistoryEntries({ids:['x']});
+  assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(latestResultIds)',context)),['y']);assert.equal($('showLatest').hidden,false);
+  reply={ids:['y']};await context.deleteHistoryEntries({ids:['y']});
+  assert.equal($('showLatest').hidden,true,'deleting every result hides the button');
+  context.poll=realPoll;
   const waitingThumb=context.historyThumb({state:'queued',position:2,images:['first-photo.png','second-photo.png']},0);
   assert(waitingThumb.includes('first-photo.png'));assert(!waitingThumb.includes('second-photo.png'));
   assert(waitingThumb.includes('입력 사진 1'));assert(waitingThumb.includes('대기 2번'));assert(waitingThumb.includes('thumbnail=1'));

@@ -347,7 +347,12 @@ def upright_photo(raw):
     DaSiWa Director 는 사진을 읽을 때 EXIF 방향을 무시해서, 그대로 올리면 눕거나 뒤집힌 사진이 참조·첫 장면으로 들어간다
     (캔버스는 세운 크기로 잡히므로 서로 어긋난다). 방향 표시가 없거나 정상이면 받은 바이트를 그대로 둔다(재압축 없음).
     반환: (올릴 바이트, 확장자, (가로, 세로))"""
-    with Image.open(io.BytesIO(raw)) as im:
+    try:
+        opened = Image.open(io.BytesIO(raw))
+    except Image.UnidentifiedImageError:
+        # HEIC 등 Pillow 가 모르는 형식: 영어 'cannot identify image file' 대신 할 일을 알린다(폴더 일괄·사진별 추가도 같은 문구)
+        raise ValueError("사진 형식을 열 수 없습니다(HEIC 등). JPEG/PNG 로 바꿔 올려 주세요.") from None
+    with opened as im:
         ext = {"PNG": "png", "WEBP": "webp"}.get(im.format, "jpg")
         orientation = im.getexif().get(274)
         # ImageOps.exif_transpose 와 같은 표. 그 함수는 돌린 뒤 EXIF 를 다시 쓰는데, 읽히기만 하고 다시 쓸 수 없는 EXIF 가 든 사진에서
@@ -658,6 +663,11 @@ def delete_history(req):
     states = req.get("states")
     if states is not None and (not isinstance(states, list) or not states or not all(s in ("done", "error", "lost") for s in states)):
         raise ValueError("정리할 기록의 상태를 확인해 주세요.")
+    if states is not None:
+        # 정리 전에 '대기·실행 중'으로 적힌 채 끝난 작업의 상태를 먼저 적는다(화면이 첫 페이지만 새로 읽어 뒤쪽 기록은 낡아 있다)
+        refresh = globals().get("refresh_unfinished_history")
+        if refresh:
+            refresh()
     with QUEUE_EDIT_LOCK:
         with HLOCK:
             if states is not None:
@@ -686,7 +696,29 @@ def delete_history(req):
             HIST_DB[:] = [entry for entry in HIST_DB if entry["id"] not in removed]
             _save_json(HIST, HIST_DB)
             total = len(HIST_DB)
-    return {"ok": True, "total": total, "ids": ids}
+            active = sum(1 for entry in HIST_DB if entry.get("state") in ("queued", "running"))
+    return {"ok": True, "total": total, "active": active, "ids": ids}
+
+
+def refresh_unfinished_history():
+    """'대기·실행 중'으로 적힌 기록의 지금 상태를 대기열 한 번 받아 확인해 적는다. ComfyUI 가 꺼져 있으면 그대로 둔다."""
+    with HLOCK:
+        pending = [e["id"] for e in HIST_DB if e.get("state") in ("queued", "running")]
+    if not pending:
+        return
+    try:
+        snapshot = globals().get("queue_snapshot")
+        q = snapshot() if snapshot else json.load(comfy("/queue"))
+    except Exception:  # noqa: BLE001 — ComfyUI 꺼짐: 끝난 줄만 정리한다
+        return
+    for pid in pending:
+        try:
+            st = _status(pid, q)
+        except Exception:  # noqa: BLE001 — 도중에 끊기면 나머지는 다음 정리 때
+            return
+        if st["state"] == "unknown":
+            st = {"state": "lost", "error": "결과 없음(ComfyUI 재시작 등으로 중단)"}
+        hist_result(pid, st)
 
 
 def hist_result(pid, st):
@@ -1238,10 +1270,16 @@ def prepare_photo_reference(req):
     image=req.get("image");group=req.get("group")
     if not isinstance(image,str) or not image.startswith("data:image/") or not isinstance(group,str) or not 1<=len(group)<=120:
         raise ValueError("준비할 사진과 폴더 정보를 확인해 주세요.")
+    try:data=base64.b64decode(image.split(",",1)[1],validate=True)
+    except (ValueError,IndexError):raise ValueError("사진을 읽지 못했습니다.") from None
     try:
         # EXIF 방향이 걸린 사진은 화소를 세워서 올린다(build_and_queue 와 같은 규칙)
-        raw,ext,(width,height)=upright_photo(base64.b64decode(image.split(",",1)[1],validate=True))
-    except (ValueError,IndexError,OSError):raise ValueError("사진을 읽지 못했습니다.") from None
+        raw,ext,(width,height)=upright_photo(data)
+    except ValueError as error:
+        # HEIC 처럼 열 수 없는 형식은 upright_photo 의 안내(JPEG/PNG 로 바꿔 올리기)를 그대로 보인다
+        if str(error).startswith("사진 형식을 열 수 없습니다"):raise
+        raise ValueError("사진을 읽지 못했습니다.") from None
+    except OSError:raise ValueError("사진을 읽지 못했습니다.") from None
     name=upload(raw,ext);original={"value":name,"source_width":width,"source_height":height}
     auxiliary=dict(original);unavailable=False
     if req.get("face_boost") is True:

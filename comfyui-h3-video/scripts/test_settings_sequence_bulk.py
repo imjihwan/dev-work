@@ -247,6 +247,11 @@ class FeatureTests(unittest.TestCase):
         with Image.open(io.BytesIO(raw)) as stored:
             self.assertEqual((stored.format,ext,stored.size,size),('JPEG','jpg',(20,40),(20,40)));self.assertNotIn(274,stored.getexif())
 
+    def test_unreadable_photo_format_reports_a_korean_message(self):
+        # HEIC 처럼 Pillow 가 모르는 형식은 영어 'cannot identify image file' 이 '실패:' 뒤에 붙던 것을 할 일을 알리는 한국어로 바꾼다
+        with self.assertRaises(ValueError) as caught:self.env['upright_photo'](b'not an image')
+        self.assertIn('HEIC',str(caught.exception));self.assertIn('JPEG',str(caught.exception));self.assertNotIn('cannot identify',str(caught.exception))
+
     def test_rotated_photo_with_exif_that_cannot_be_written_back_is_still_accepted(self):
         # exif_transpose 는 돌린 뒤 EXIF 를 다시 쓰다가 이런 사진에서 예외를 낸다. 이전에는(눕힌 채로라도) 등록되던 사진이다.
         from PIL.TiffImagePlugin import IFDRational
@@ -417,6 +422,16 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual((record['source_width'],record['source_height']),(16,32))
         with Image.open(io.BytesIO(self.uploaded[-1])) as stored:
             self.assertEqual(stored.size,(16,32));self.assertNotIn(274,stored.getexif())
+
+    def test_folder_reference_keeps_the_unknown_format_advice(self):
+        # 폴더 일괄·사진별 추가(/api/photo-references)도 HEIC 안내를 그대로 보인다. 깨진 base64 는 예전 문구
+        self.env['PHOTO_REFERENCES']={}
+        heic='data:image/heic;base64,'+base64.b64encode(b'\x00\x00\x00\x18ftypheic'+bytes(64)).decode()
+        with self.assertRaises(ValueError) as caught:self.env['prepare_photo_reference']({'image':heic,'group':'synthetic-folder'})
+        self.assertIn('HEIC',str(caught.exception));self.assertIn('JPEG',str(caught.exception))
+        with self.assertRaises(ValueError) as caught:self.env['prepare_photo_reference']({'image':'data:image/jpeg;base64,@@@','group':'synthetic-folder'})
+        self.assertEqual(str(caught.exception),'사진을 읽지 못했습니다.')
+        self.assertEqual(self.env['PHOTO_REFERENCES'],{})
 
     def test_native_cover_crop_keeps_a_round_subject_round_and_has_no_black_padding(self):
         import importlib.util

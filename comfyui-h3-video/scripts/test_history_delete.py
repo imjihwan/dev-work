@@ -89,6 +89,29 @@ class HistoryDeleteTests(unittest.TestCase):
         self.assertEqual(self.delete({"states":["error"]})["ids"],["failed2"])
         self.assertEqual([e["id"] for e in self.entries],["waiting","running","done2"])
 
+    def test_tidying_first_records_jobs_that_finished_unseen(self):
+        # 화면이 첫 페이지만 새로 읽어 뒤쪽 기록이 '대기'로 남아 있어도, 정리 전에 지금 상태를 적어 함께 정리한다
+        refresh=next(node for node in TREE.body if isinstance(node,ast.FunctionDef) and node.name=="refresh_unfinished_history")
+        states={"waiting":{"state":"queued"},"running":{"state":"done","video":{"filename":"r.mp4"}},"old":{"state":"unknown"}}
+        self.entries.append({"id":"old","state":"queued"})
+        def hist_result(pid,st):
+            for e in self.entries:
+                if e["id"]==pid and st["state"] in ("done","error","lost"):e.update(state=st["state"])
+        snapshots=[]
+        self.env.update(queue_snapshot=lambda:snapshots.append(1) or {"queue_running":[],"queue_pending":[]},
+                        _status=lambda pid,q:states[pid],hist_result=hist_result)
+        exec(compile(ast.Module(body=[refresh],type_ignores=[]),"history-refresh","exec"),self.env)
+        result=self.delete({"states":["done","error","lost"]})
+        self.assertEqual(snapshots,[1],"one queue snapshot for every stale entry")
+        self.assertEqual(sorted(result["ids"]),["done","old","running"])
+        self.assertEqual([e["id"] for e in self.entries],["waiting"])
+        self.assertEqual((result["total"],result["active"]),(1,1))
+        # ComfyUI 가 꺼져 있으면 지금 적힌 상태로만 정리한다
+        def offline():raise OSError("offline")
+        self.entries.extend([{"id":"later","state":"queued"},{"id":"finished","state":"done"}])
+        self.env["queue_snapshot"]=offline
+        self.assertEqual(self.delete({"states":["done"]})["ids"],["finished"])
+
     def test_tidying_refuses_states_that_would_cancel_work(self):
         for bad in (["queued"],["running"],["done","queued"],[],"done",[1]):
             with self.assertRaises(ValueError):self.delete({"states":bad})

@@ -50,9 +50,19 @@ const list = () => [...context.images], hidden = () => [...(context.images.hidde
   store.delete('images_hidden'); context.images.length = 0;
   await vm.runInContext('restoreImgs()', context); assert.deepEqual(list(), ['a', 'b'], 'storage from before this change has no second list');
 
-  // Replacing the whole photo list (history, saved settings, another window) drops what was kept aside; the hint says where the photos went.
-  assert.equal((script.match(/images\.length = 0; images\.hidden = \[\];/g) || []).length, 2, 'history load and snapshot apply');
-  assert(script.includes('images.hidden = value.slice(maxImgs());'), 'photos from another window beyond this mode\'s limit are kept aside too');
+  // A queued job loaded for editing is temporary: its photos must not overwrite the list kept aside in this browser.
+  store.set('images_hidden', ['keep']); context.images.length = 0; context.images.push('job1', 'job2'); context.images.hidden = [];
+  context.editingJobId = 'queued-job'; vm.runInContext('saveImgs()', context); await new Promise(setImmediate);
+  assert.deepEqual([...store.get('images_hidden')], ['keep'], 'editing a queued job keeps the stored aside list');
+  delete context.editingJobId; context.SYNC = {hold:1}; vm.runInContext('saveImgs()', context); await new Promise(setImmediate);
+  assert.deepEqual([...store.get('images_hidden')], ['keep'], 'nor while the job is still being loaded'); delete context.SYNC;
+  vm.runInContext('saveImgs()', context); await new Promise(setImmediate); assert.deepEqual([...store.get('images_hidden')], [], 'a normal save writes it again');
+  // Replacing the whole photo list from history drops what was kept aside; the hint says where the photos went.
+  // Returning from a queued-job edit restores the aside list too, and another window's short list leaves it alone.
+  assert.equal((script.match(/images\.length = 0; images\.hidden = \[\];/g) || []).length, 1, 'history load');
+  assert(script.includes('images.hidden = [...(snapshot.hidden || [])];'), 'snapshot apply restores the aside list it captured');
+  assert(script.includes('SYNC.beforeEdit.hidden = [...(images.hidden || [])];'), 'the edit snapshot captures the aside list');
+  assert(script.includes('images.hidden = value.length > maxImgs() ? value.slice(maxImgs()).concat(kept).slice(0, 9) : kept;'), 'photos from another window beyond this mode\'s limit are kept aside too');
   assert(script.includes("if (!isRef() && images.hidden?.length) $(\"photoHint\").textContent +="));
   console.log('Photo mode checks passed: switching modes keeps photos 3-9 aside and restores them.');
 })().catch(error => { console.error(error); process.exitCode = 1; });
