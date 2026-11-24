@@ -73,6 +73,27 @@ class HistoryDeleteTests(unittest.TestCase):
         self.delete({"ids":["waiting"]})
         self.assertEqual(self.running,[[0,"running"]])
 
+    def test_tidying_finished_records_leaves_the_queue_and_running_jobs_alone(self):
+        # 끝난 기록만 정리: 밤새 걸어 둔 대기·실행 작업은 그대로, ComfyUI 에는 아무것도 보내지 않는다(꺼져 있어도 된다)
+        self.entries.extend([{"id":"failed","state":"error"},{"id":"gone","state":"lost"},{"id":"clip","state":"done","video":{"filename":"synthetic.mp4"}}])
+        self.fail="/queue"
+        result=self.delete({"states":["done","error","lost"]})
+        self.assertEqual(result["ids"],["done","failed","gone","clip"])
+        self.assertEqual([e["id"] for e in self.entries],["waiting","running"])
+        self.assertEqual(result["total"],2)
+        self.assertEqual(self.calls,[])
+        self.assertEqual(self.pending,[[1,"waiting"],[2,"foreign-waiting"]]);self.assertEqual(self.running,[[0,"running"]])
+        self.gallery.remember.assert_called_once()          # 영상이 있던 기록은 갤러리 연결을 남긴다
+        # 일부 상태만
+        self.entries.extend([{"id":"failed2","state":"error"},{"id":"done2","state":"done"}])
+        self.assertEqual(self.delete({"states":["error"]})["ids"],["failed2"])
+        self.assertEqual([e["id"] for e in self.entries],["waiting","running","done2"])
+
+    def test_tidying_refuses_states_that_would_cancel_work(self):
+        for bad in (["queued"],["running"],["done","queued"],[],"done",[1]):
+            with self.assertRaises(ValueError):self.delete({"states":bad})
+        self.assertEqual(len(self.entries),3);self.assertEqual(self.calls,[]);self.assertEqual(self.saved,[])
+
     def test_completed_history_does_not_mutate_queue(self):
         self.delete({"ids":["done"]})
         self.assertEqual(self.calls,[("/queue",None)])

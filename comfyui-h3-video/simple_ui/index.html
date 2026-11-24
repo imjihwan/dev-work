@@ -79,6 +79,7 @@ h1{font-size:20px;margin:0 0 4px;grid-column:1/-1}
   .add-menu{grid-column:3;grid-row:1}
   .run-menu{grid-column:4;grid-row:1}
   .add-menu>summary{padding:4px 8px;font-size:12px}
+  .add-menu .bar-menu-list{left:auto;right:0}      /* 오른쪽 끝에 붙여 화면 밖으로 넘치지 않게 */
   .action-info{grid-column:1/-1;grid-row:2}
   #queuePauseHost{grid-column:1/-1;grid-row:3;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   #queuePauseHost span{max-width:none!important}
@@ -267,6 +268,8 @@ a{color:var(--acc)}
 
 @media(max-width:600px){.video-compare{padding:8px}.video-compare-panel{padding:8px;max-height:calc(100dvh - 16px)}.video-compare-grid{gap:6px}.video-compare-tools{gap:6px}}
 .playback-preference{display:inline-flex;align-items:center;gap:5px;margin:4px 0;font-size:13px;white-space:nowrap}.playback-preference input{width:auto;margin:0}.app-view-options{gap:8px 14px;flex-wrap:wrap}
+/* 아이폰 사파리는 16px 보다 작은 입력칸을 누르면 화면을 키우고 되돌리지 않는다 */
+@media (pointer:coarse){input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),select,textarea{font-size:16px}}
 </style>
 </head>
 <body>
@@ -492,7 +495,7 @@ a{color:var(--acc)}
   <div class="hist-col">
     <button class="ghost pc-only" id="openFolder" style="width:100%;padding:10px" title="이 PC의 탐색기로 엽니다">📂 결과 폴더 열기</button>
     <div class="card" style="margin-top:16px">
-      <div class="sec-h"><h2 style="margin:0">작업 이력 <small id="histCount" style="font-weight:400;color:var(--mute)"></small></h2><button class="textbtn" id="histClear">전체 지우기</button></div>
+      <div class="sec-h"><h2 style="margin:0">작업 이력 <small id="histCount" style="font-weight:400;color:var(--mute)"></small></h2><span><button class="textbtn" id="histTidy" title="완료·실패한 기록만 지웁니다. 대기·실행 중인 작업과 영상 파일은 그대로 둡니다.">끝난 기록 정리</button> <button class="textbtn" id="histClear" title="대기·실행 중인 작업까지 모두 취소하고 기록을 지웁니다.">전체 지우기</button></span></div>
       <div class="hint" style="margin-bottom:6px"><b>불러오기</b>로 그때 구성을 다시 채웁니다. 설정·프롬프트·삭제는 ⋯ 에 있습니다. 기록을 지워도 영상 파일은 남습니다.</div>
       <div id="bulkAllBox"><button type="button" class="bulk-all" id="bulkEditAll" disabled>현재 프롬프트·설정 전체 대기에 적용</button>
       <div class="hint" style="margin-bottom:8px">현재 화면의 프롬프트·모델·LoRA·화면·길이·첫 장면 고정을 적용합니다. 사진·생성 방식·시드·순서는 유지하고 실행 중인 작업은 제외합니다.</div></div>
@@ -569,7 +572,11 @@ function setMode(m){
   $("anchorBox").hidden = !isRef(); $("anchor").checked = !!S.anchor;
   $("oneTakeBox").hidden = !isRef(); $("oneTake").checked = S.oneTake !== false;
   $("faceBoostBox").hidden = !isRef(); $("faceBoost").checked = !!S.faceBoost;
-  if (images.length > maxImgs()) images.splice(maxImgs());
+  // 첫/끝 장면 방식은 2장까지다. 넘는 사진은 지우지 않고 숨겨 두었다가(images.hidden) 참조 방식으로 돌아오면 되붙인다.
+  // 예전에는 방식 버튼을 눌러 보기만 해도, 첫/끝 장면용 모델 조합을 고르기만 해도 사진 3~9가 사라지고 저장·동기화까지 덮어썼다
+  const kept = images.hidden || [];
+  if (images.length > maxImgs()) images.hidden = images.splice(maxImgs()).concat(kept);
+  else if (isRef() && kept.length) { images.push(...kept.slice(0, maxImgs() - images.length)); images.hidden = []; }
   drawThumbs();
   if (CAT) drawModelCard();
 }
@@ -591,9 +598,14 @@ const IDB = (() => {
   return { get: k => tx("readonly", s => s.get(k)), set: (k, v) => tx("readwrite", s => s.put(v, k)) };
 })();
 let imgsReady = false;      // 복원 전에 빈 목록으로 덮어쓰지 않게
-function saveImgs(){ if (imgsReady) { IDB.set("images", [...images]).catch(() => {}); pushSync("images"); } }
+// 숨겨 둔 사진(images.hidden)은 이 브라우저에만 따로 둔다: 보이는 목록(저장·다른 창 동기화)에는 섞지 않는다
+function saveImgs(){ if (imgsReady) { IDB.set("images", [...images]).catch(() => {}); IDB.set("images_hidden", [...(images.hidden || [])]).catch(() => {}); pushSync("images"); } }
 async function restoreImgs(){
-  try { const v = await IDB.get("images"); if (!images.length && Array.isArray(v)) images.push(...v.slice(0, maxImgs())); } catch {}
+  try {
+    const v = await IDB.get("images"), hidden = await IDB.get("images_hidden");
+    if (!images.length && Array.isArray(v)) { images.push(...v.slice(0, maxImgs())); images.hidden = v.slice(maxImgs()).concat(Array.isArray(hidden) ? hidden : []).slice(0, 9); }
+    if (isRef() && images.hidden?.length) { images.push(...images.hidden.slice(0, maxImgs() - images.length)); images.hidden = []; }
+  } catch {}
   imgsReady = true; drawThumbs();
 }
 let photoImportQueue=Promise.resolve();
@@ -622,6 +634,7 @@ function drawThumbs(){
   $("photoHint").textContent = isRef() ? (images.length >= 2 ? "같은 인물의 사진을 넣어 주세요. 사진 1은 전체 기준, 사진 2~9는 얼굴 보조입니다. 보조 사진의 표정·고개 각도·옷·배경을 따라 바꾸도록 지시하지 않습니다. 여러 장을 함께 참조하려면 기본 ‘대기열 추가’를 사용하세요. ◀ ▶ 또는 끌어서 순서를 바꿀 수 있습니다." : "사진 1이 전체 기준입니다. 같은 인물의 선명한 얼굴 사진을 추가하면 다른 각도에서의 얼굴 특징을 보충할 수 있습니다.") : (images.length >= 2
     ? "영상이 첫 사진에서 시작해 두 번째 사진으로 끝납니다."
     : "첫 장면만 넣으면 그 사진에서 시작하는 영상이 됩니다. 끝 장면을 정하려면 사진을 하나 더 넣으세요.");
+  if (!isRef() && images.hidden?.length) $("photoHint").textContent += ` 이 방식은 2장까지라 나머지 사진 ${images.hidden.length}장은 잠시 숨겼습니다. '참조 사진으로 만들기'로 돌아가면 다시 보입니다.`;
   $("thumbs").innerHTML = "";
   const move = (from, to) => { if (bulkEditingIds.length || to < 0 || to >= images.length || from === to) return; images.splice(to, 0, images.splice(from, 1)[0]); drawThumbs(); };
   images.forEach((src,i) => {
@@ -1722,7 +1735,7 @@ function refreshSubmissionPrompt(){
 function applySnapshot(snapshot,{withImages=true}={}){
   for (const key of Object.keys(S)) if (snapshot.model && Object.hasOwn(snapshot.model,key)) S[key] = snapshot.model[key];
   apply(snapshot);
-  if (withImages) { images.length = 0; images.push(...(snapshot.images || [])); imgsReady = true; }
+  if (withImages) { images.length = 0; images.hidden = []; images.push(...(snapshot.images || [])); imgsReady = true; }
   $("seed").value = snapshot.seed ?? "";
   manualFinal = typeof snapshot.final === "string";
   if (manualFinal) {$("final").value = snapshot.final;rememberManualPromptInputs();} else manualPromptInputs=null;
@@ -1802,7 +1815,7 @@ function applySyncPart(part, value){
     SYNC.applying++;
     try {
       if (part === "form") applySnapshot(value, {withImages:false});
-      else { images.length = 0; images.push(...value.slice(0, maxImgs())); imgsReady = true; drawThumbs(); }
+      else { images.length = 0; images.push(...value.slice(0, maxImgs())); images.hidden = value.slice(maxImgs()); imgsReady = true; drawThumbs(); }      // 다른 창의 사진이 이 방식의 한도보다 많으면 숨겨 둔다(잘라 버리지 않는다)
     } finally { SYNC.applying--; }
   }
   SYNC.last[part] = JSON.stringify(syncValue(part));
@@ -2748,6 +2761,7 @@ function drawHist(){
   HIST.sig = histSig(HIST.items);
   $("histCount").textContent = HIST.total ? `${HIST.total}개` : "";
   $("histClear").hidden = !HIST.total;
+  $("histTidy").hidden = !HIST.total;
   if (!HIST.items.length) { hideHistoryDetails(); refreshQueueSelection(); refreshVideoCompareSelection(); $("histList").innerHTML = `<div class="empty">아직 기록이 없습니다.</div>`; return; }
   $("histList").innerHTML = HIST.items.map((e, i) => {
     const range=historyTimeRange(e);
@@ -2848,6 +2862,7 @@ async function deleteHistoryEntries(body){
     }
   }
   loadHist(false,true);
+  return result;
 }
 $("histList").onclick = async ev => {
   const rowMenu = ev.target.closest("details.row-menu");   // 메뉴에서 고르면 메뉴는 닫는다
@@ -2889,8 +2904,19 @@ function setMobileView(view){
 }
 $("mobileViews").onclick = ev => { const b = ev.target.closest("[data-view]"); if (b) { setMobileView(b.dataset.view); window.scrollTo({top: 0}); } };
 window.addEventListener("resize", maybeLoadHistory);
+// 끝난 기록만 정리한다: 대기·실행 중인 작업은 건드리지 않는다(아침에 끝난 줄만 치우려다 밤새 걸어 둔 대기열까지 취소하지 않게)
+$("histTidy").onclick = async () => {
+  if (!confirm("완료·실패한 작업 기록을 지울까요? 대기·실행 중인 작업과 영상 파일은 그대로 둡니다.")) return;
+  $("histTidy").disabled=true;
+  try {
+    const before=HIST.total, result=await deleteHistoryEntries({states:["done","error","lost"]});
+    setStatus(result.ids.length ? `끝난 기록 ${result.ids.length}개를 정리했습니다${result.total ? ` · 대기·실행 중 ${result.total}개는 그대로` : ""}.` : (before ? "정리할 끝난 기록이 없습니다." : ""), "ok");
+  }
+  catch(error){ setStatus(error.message,"err"); }
+  finally { $("histTidy").disabled=false; }
+};
 $("histClear").onclick = async () => {
-  if (!confirm(`작업이력 ${HIST.total}개를 모두 삭제할까요? 해당 작업은 대기열에서도 삭제하고, 실행 중이면 중지합니다. 영상 파일은 유지됩니다.`)) return;
+  if (!confirm(`작업이력 ${HIST.total}개를 모두 삭제할까요? 대기 중인 작업은 대기열에서 빼고, 실행 중인 작업은 중지합니다. 끝난 기록만 치우려면 '끝난 기록 정리'를 쓰세요. 영상 파일은 유지됩니다.`)) return;
   $("histClear").disabled=true;
   try { await deleteHistoryEntries({all:true}); }
   catch(error){ setStatus(error.message,"err"); }
@@ -2930,7 +2956,7 @@ async function loadFromHist(e){
   S.faceBoost = !!u.faceBoost; $("faceBoost").checked = S.faceBoost;
   S.anchor = !!e.anchor;S.protectPerson=e.protect_person!==false; $("anchor").checked = S.anchor;
   S.speed = SPEED_MODES[e.speed] ? e.speed : "";          // 그때 고른 속도 우선 방식(예전 이력에는 없다)
-  images.length = 0; images.push(...got);
+  images.length = 0; images.hidden = []; images.push(...got);
   manualFinal = false; $("resetFinal").hidden = true; $("finalHint").textContent = "위 칸을 고치면 자동으로 다시 만들어집니다.";
   drawThumbs(); drawModelCard();
   // 화면 칸으로 다시 만든 프롬프트가 그때와 다르면(직접 고쳤던 경우 등) 그때 프롬프트를 그대로 쓴다

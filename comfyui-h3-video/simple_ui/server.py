@@ -409,10 +409,18 @@ def _load_json(path, default, strict=False, owned=False):
             problem = exc
             time.sleep(0.05 * (attempt + 1))
     if owned and isinstance(problem, ValueError):
-        backup = f"{path}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}-{time.time_ns() % 10**9:09d}.bak"
-        try:
-            os.rename(path, backup)
-        except OSError:
+        stamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{time.time_ns() % 10**9:09d}"
+        for extra in range(50):
+            # Windows 의 시계는 약 15ms 단위로만 바뀐다: 연달아 두 번 깨지면 같은 이름이 나와 rename 이 실패했다(간헐 실패) → 번호를 덧붙인다
+            backup = f"{path}.corrupt-{stamp}{f'-{extra}' if extra else ''}.bak"
+            try:
+                os.rename(path, backup)
+                break
+            except FileExistsError:
+                continue
+            except OSError:
+                raise ValueError(f"{name} 내용이 깨져 있고 보관용 사본도 만들지 못했습니다. 파일을 확인해 주세요.") from problem
+        else:
             raise ValueError(f"{name} 내용이 깨져 있고 보관용 사본도 만들지 못했습니다. 파일을 확인해 주세요.") from problem
         print(f"{name} 내용이 깨져 있어 {os.path.basename(backup)} 으로 보관하고 빈 상태로 시작합니다.", flush=True)
         return default
@@ -645,9 +653,17 @@ def delete_history(req):
     requested = req.get("ids") or []
     if not isinstance(requested, list) or not all(isinstance(pid, str) for pid in requested):
         raise ValueError("삭제할 작업을 선택해 주세요.")
+    # states: 끝난 기록만 정리한다(완료·실패·결과 없음). 대기·실행 중인 작업은 건드리지 않으므로 ComfyUI 에 취소를 보내지 않는다
+    # (밤새 걸어 둔 대기열을 두고 끝난 줄만 치우려는 경우. ComfyUI 가 꺼져 있어도 된다)
+    states = req.get("states")
+    if states is not None and (not isinstance(states, list) or not states or not all(s in ("done", "error", "lost") for s in states)):
+        raise ValueError("정리할 기록의 상태를 확인해 주세요.")
     with QUEUE_EDIT_LOCK:
         with HLOCK:
-            ids = list(dict.fromkeys(e["id"] for e in HIST_DB if req.get("all") or e["id"] in requested))
+            if states is not None:
+                ids = list(dict.fromkeys(e["id"] for e in HIST_DB if e.get("state") in states))
+            else:
+                ids = list(dict.fromkeys(e["id"] for e in HIST_DB if req.get("all") or e["id"] in requested))
             links = [{**{key: e[key] for key in ("video", "images", "generation_seconds") if key in e},
                       "regenerated": bool(e.get("regenerated") or (e.get("ui") or {}).get("regeneration"))}
                      for e in HIST_DB if e["id"] in ids and e.get("video")]
@@ -655,7 +671,7 @@ def delete_history(req):
         # No image/video decoding, and no prompts or generation settings are copied.
         if links:
             GALLERY.remember(links)
-        if ids:
+        if ids and states is None:
             state = json.load(comfy("/queue"))
             active = {item[1] for item in state["queue_running"] + state["queue_pending"]}
             cancel = [pid for pid in ids if pid in active]

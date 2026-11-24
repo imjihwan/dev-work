@@ -11,6 +11,8 @@
 .lora-overlay-list{display:grid;grid-template-columns:minmax(0,1fr);gap:1px 10px;margin-top:2px}.lora-overlay-list.many{grid-template-columns:repeat(2,minmax(0,1fr))}
 .lora-overlay-row{display:flex;gap:6px;min-width:0;justify-content:space-between}.lora-overlay-name{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.lora-overlay-strength{flex-shrink:0;font-variant-numeric:tabular-nums}
 .playback-preference{display:inline-flex;align-items:center;gap:5px;margin:4px 0;font-size:13px;white-space:nowrap}.playback-preference input{width:auto;margin:0}.app-view-options{gap:8px 14px;flex-wrap:wrap}
+/* 아이폰 사파리는 16px 보다 작은 입력칸을 누르면 화면을 키우고 되돌리지 않는다 */
+@media (pointer:coarse){input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),select,textarea{font-size:16px}.project-code{font-size:16px}}
 </style></head><body><main class="page">
 <header class="toolbar"><div><h1>4편 이어 만들기</h1><div class="hint">원본 사진으로 1번을 만들고, 직전 영상의 끝 구간과 원본 사진을 함께 참조해 이어갑니다.</div></div><div class="actions"><button id="newProject">새 프로젝트</button><button id="saveProject" class="primary">프로젝트 저장</button><button id="projectCode">프로젝트 코드 복사</button></div></header>
 <label class="playback-preference" title="이 브라우저에 저장됩니다. 접속 주소가 다르면 별도로 기억합니다."><input type="checkbox" id="defaultMuteToggle"> 기본 음소거</label>
@@ -198,12 +200,19 @@ function applyPrompt(index){
   if(item.engine!==($('storyHelperEngine').value||'dutchit'))return say('도우미를 바꿨습니다. 현재 선택으로 다시 작성한 뒤 적용해 주세요.',true);
   const current=readDraft(index),draft=item.draft;if(draft.review_only)return;for(const key of ['summary','sound','music'])if(typeof draft.f?.[key]==='string')current.f[key]=draft.f[key];if(draft.shots)current.shots=draft.shots;fillDraft(index,current);previews.delete(index);$('aiResult'+index).hidden=true;markDirty();updateStatus();say(`${index+1}번 프롬프트에만 적용했습니다. 생성 전에 프로젝트를 저장합니다.`);
 }
+// 앞 편을 다시 만들면 서버가 뒤 편의 확정을 풀고 병합 영상을 버린다(편마다 몇 분씩 다시 만들어야 한다). 잘못 누른 한 번으로 그렇게 되지 않게 먼저 묻는다
+function regenerationWarning(index){
+  const later=(project?.renders||[]).map((run,i)=>i>index&&(run?.approved||run?.has_video)?`${i+1}번`:null).filter(Boolean),merged=!!project?.merged;
+  if(!later.length&&!merged)return '';
+  const what=later.length?`${later.join('·')} 편을 다시 확인(재검토)해야 ${merged?'하고 병합 영상도 다시 만들어야 ':''}합니다`:'병합 영상을 다시 만들어야 합니다';
+  return `${index+1}번을 다시 만들면 ${what}. 계속할까요?`;
+}
 function createCards(){
   $('boundaries').innerHTML=Array.from({length:5},(_,i)=>`<label for="boundary${i}">${i===0?'1번 시작 상태':i===4?'4번 마지막 상태':`${i}번 끝 = ${i+1}번 시작 상태`}</label><textarea id="boundary${i}" maxlength="2000" placeholder="선택 사항"></textarea>`).join('');
   $('clips').innerHTML=Array.from({length:COUNT},(_,i)=>`<article class="card" id="clip${i}"><h2>${i+1}번 영상 <span class="state">약 5초${i?' · 직전 끝 구간 + 원본 참조':' · 원본 사진에서 시작'}</span></h2><label for="scenario${i}">시나리오</label><textarea id="scenario${i}" maxlength="3000" placeholder="이 편에서 일어날 동작을 적어 주세요."></textarea><div class="actions"><button id="aiNew${i}">시나리오로 프롬프트 작성</button><button id="aiReview${i}">현재 편 동작·시간 검토</button><button id="aiCancel${i}" hidden>작성 취소</button></div><label for="edit${i}">프롬프트 AI에 추가 수정 요청</label><textarea id="edit${i}" maxlength="4000" placeholder="예: 마지막 동작만 더 천천히. 다른 내용은 유지해줘."></textarea><button id="aiEdit${i}">요청한 부분만 수정</button><div class="hint">준비·이동·접촉·반응·마무리를 자세히 작성하고 5초 안의 실행 가능성을 별도로 검토합니다.</div><div id="aiState${i}" class="hint" role="status"></div><div id="aiResult${i}" hidden><pre class="ai-preview" id="aiPreview${i}"></pre><button id="aiApply${i}">확인한 변경을 이 편에 적용</button></div><details><summary>적용된 프롬프트 직접 수정</summary><label for="summary${i}">요약</label><textarea id="summary${i}"></textarea><label>장면별 동작 · 초</label><div id="shots${i}"></div><button id="addShot${i}">장면 추가</button><label for="sound${i}">환경음·효과음</label><textarea id="sound${i}"></textarea><label for="music${i}">이 편의 배경음악</label><input id="music${i}" value="N/A"><div class="hint">전체에 한 곡을 사용하려면 각 편은 N/A로 두고 병합 단계에서 음악을 선택하세요.</div><label for="seed${i}">시드 · 비우면 매번 새로 선택</label><input id="seed${i}" inputmode="numeric" placeholder="랜덤"></details><div id="state${i}" class="status" aria-live="polite"></div><div class="progress"><span id="bar${i}"></span></div><div class="actions"><button id="generate${i}" class="primary">${i+1}번 영상 생성</button><button id="approve${i}" disabled>확인 완료 · 이 단계 확정</button></div><div id="media${i}" class="actions media-actions" hidden><button id="show${i}">이 편 결과 보기 / 닫기</button><a id="download${i}" class="download">다운로드</a></div><div id="preview${i}" class="preview" hidden></div></article>`).join('');
   for(let i=0;i<COUNT;i++){
     $('aiNew'+i).onclick=()=>writePrompt(i,false);$('aiEdit'+i).onclick=()=>writePrompt(i,true);$('aiReview'+i).onclick=()=>writePrompt(i,false,true);$('aiApply'+i).onclick=()=>applyPrompt(i);$('addShot'+i).onclick=()=>{addShot(i);markDirty();};
-    $('generate'+i).onclick=()=>action('/api/story/generate',i);$('approve'+i).onclick=()=>action('/api/story/approve',i);$('show'+i).onclick=()=>showVideo(i,'preview'+i);
+    $('generate'+i).onclick=()=>{const warning=regenerationWarning(i);if(!warning||confirm(warning))action('/api/story/generate',i);};$('approve'+i).onclick=()=>action('/api/story/approve',i);$('show'+i).onclick=()=>showVideo(i,'preview'+i);
     $('aiCancel'+i).onclick=async()=>{if(ai?.id)try{await api('/api/prompt-helper/cancel',{id:ai.id});}catch(error){say(error.message,true);}};
   }
 }
