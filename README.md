@@ -18,3 +18,7 @@
 
 - [xBloom 팀 웹사이트](xbloom-team-studio/): 공유 계정으로 레시피 조회·등록·수정, 구성원 권한, Bluetooth 직접 추출
 - [로컬 실행 안내](xbloom-team-studio/GITHUB-SETUP.md)
+
+## Niimbot M2 케이스 (SnapLock V3)
+
+- [SnapLock V3 케이스 + 전용 인서트](niimbot-m2-snaplock-case/): Niimbot M2 라벨프린터와 롤 4개 수납. 케이스 STL, 인서트, 4 mm 시험 조각
